@@ -1,0 +1,3 @@
+[console_scripts]
+fusion-science = fusion_science.cli:main
+fusion-science-web = fusion_science.cli:web
