@@ -48,58 +48,170 @@ class CacheConfig:
 # Known domestic mirror endpoints
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 海外科研数据库镜像配置（含国内替代方案）
+# 优先使用国内镜像/替代源，降低对境外网络的依赖
+# ---------------------------------------------------------------------------
+
 DOMESTIC_MIRRORS: dict[str, MirrorEndpoint] = {
     "pubmed": MirrorEndpoint(
-        name="PubMed (CNKI/CMCC)",
+        name="PubMed (E-utilities)",
         primary_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
         mirror_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
-        priority=10,
-        notes="PubMed has no official domestic mirror; use CNKI for Chinese literature",
+        priority=20,
+        notes="PubMed无官方国内镜像；中文文献替代: CNKI (https://www.cnki.net)",
     ),
     "uniprot": MirrorEndpoint(
         name="UniProt (CNCB mirror)",
         primary_url="https://rest.uniprot.org",
         mirror_url="https://rest.uniprot.org",
-        priority=10,
-        notes="UniProt accessible via academic networks; consider local cache",
+        priority=20,
+        notes="UniProt可通过学术网络访问；建议预缓存参考蛋白质组到本地",
     ),
     "pdb": MirrorEndpoint(
         name="PDB (PDBe mirror)",
         primary_url="https://data.rcsb.org/rest/v1",
         mirror_url="https://data.rcsb.org/rest/v1",
-        priority=10,
-        notes="PDBe (Europe) is often more accessible from China",
+        priority=15,
+        notes="PDBe (欧洲) 从中国访问比RCSB更稳定；建议下载年度发布包",
     ),
     "ensembl": MirrorEndpoint(
-        name="Ensembl (Asia mirror)",
+        name="Ensembl (亚洲镜像)",
         primary_url="https://rest.ensembl.org",
         mirror_url="https://useast.ensembl.org",
         priority=10,
-        notes="Ensembl US East mirror recommended for Asia",
+        notes="Ensembl US East 镜像推荐用于亚洲区域",
     ),
     "chembl": MirrorEndpoint(
         name="ChEMBL (EBI)",
         primary_url="https://www.ebi.ac.uk/chembl/api/data",
         mirror_url="https://www.ebi.ac.uk/chembl/api/data",
-        priority=10,
-        notes="ChEMBL at EBI UK; accessible via academic networks",
+        priority=20,
+        notes="ChEMBL 位于EBI英国；需学术网络出口；建议离线缓存常用查询",
     ),
     "ncbi_blast": MirrorEndpoint(
         name="NCBI BLAST (CNCB mirror)",
         primary_url="https://blast.ncbi.nlm.nih.gov/Blast.cgi",
         mirror_url="https://blast.ncbi.nlm.nih.gov/Blast.cgi",
-        priority=10,
-        notes="Consider local BLAST+ installation for offline use",
+        priority=20,
+        notes="推荐本地部署BLAST+进行离线序列比对",
     ),
 }
 
+# ---------------------------------------------------------------------------
+# 中国自主科研数据库（替代海外库的国内源）
+# 这些数据库在国内可直接访问，无需翻墙
+# ---------------------------------------------------------------------------
+
 CHINESE_DATABASES: dict[str, str] = {
-    "CNGB": "https://www.cngb.org/",
-    "NGDC": "https://ngdc.cncb.ac.cn/",
-    "CNKI": "https://www.cnki.net/",
-    "CBM": "https://www.sinomed.ac.cn/",
-    "ScienceDB": "https://www.scidb.cn/",
+    # ---- 基因组/生物信息 ----
+    "NGDC": "https://ngdc.cncb.ac.cn",              # 国家基因组科学数据中心 (CNCB-NGDC)
+    "CNGB": "https://www.cngb.org",                  # 国家基因库 (China National GeneBank)
+    "BIGD": "https://bigd.big.ac.cn",                # 北京基因组研究所数据库
+    "GSA": "https://ngdc.cncb.ac.cn/gsa",           # 基因组序列归档 (Genome Sequence Archive)
+    "GWH": "https://ngdc.cncb.ac.cn/gwh",           # 基因组组装仓库 (Genome Warehouse)
+    "OMIX": "https://ngdc.cncb.ac.cn/omix",         # 组学数据归档 (OMIX)
+    "BioCode": "https://ngdc.cncb.ac.cn/biocode",   # 生物信息代码库
+
+    # ---- 文献/知识 ----
+    "CNKI": "https://www.cnki.net",                  # 中国知网 (中文文献)
+    "CBM": "https://www.sinomed.ac.cn",              # 中国生物医学文献数据库 (SinoMed)
+    "CSTR": "https://cstr.cn",                       # 中国科技论文在线
+
+    # ---- 科学数据 ----
+    "ScienceDB": "https://www.scidb.cn",             # 科学数据银行 (CAS)
+    "CASData": "https://data.cas.cn",                # 中国科学院数据云
+    "PNDC": "https://pndc.cas.cn",                   # 中国植物科学数据中心
+
+    # ---- 化学/药物 ----
+    "CNPIC": "https://www.nmpa.gov.cn",              # 国家药品监督管理局
+    "RCSB_CN": "https://pdb.cn",                     # PDB中国镜像
 }
+
+# ---------------------------------------------------------------------------
+# 国内镜像配置优先级
+# 当一个数据库有多个国内替代源时，按优先级选择
+# ---------------------------------------------------------------------------
+
+DOMESTIC_ALTERNATIVES: dict[str, list[dict[str, str]]] = {
+    "pubmed": [
+        {"name": "CNKI (中国知网)", "url": "https://www.cnki.net", "type": "替代", "lang": "zh"},
+        {"name": "SinoMed (中国生物医学)", "url": "https://www.sinomed.ac.cn", "type": "替代", "lang": "zh"},
+        {"name": "万方医学", "url": "https://med.wanfangdata.com.cn", "type": "替代", "lang": "zh"},
+    ],
+    "pdb": [
+        {"name": "PDB 中国镜像", "url": "https://pdb.cn", "type": "镜像", "lang": "zh"},
+        {"name": "PDB 年度发布包", "url": "ftp://ftp.wwpdb.org/pub/pdb/data/structures/divided/pdb/", "type": "离线", "lang": "en"},
+    ],
+    "uniprot": [
+        {"name": "UniProt 中国镜像", "url": "https://www.uniprot.org", "type": "镜像", "lang": "en"},
+        {"name": "参考蛋白质组离线包", "url": "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/", "type": "离线", "lang": "en"},
+    ],
+    "ensembl": [
+        {"name": "Ensembl 基因组注释", "url": "ftp://ftp.ensembl.org/pub/", "type": "离线", "lang": "en"},
+        {"name": "Ensembl 亚洲镜像", "url": "https://useast.ensembl.org", "type": "镜像", "lang": "en"},
+    ],
+    "chembl": [
+        {"name": "ChEMBL 离线数据库", "url": "ftp://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/", "type": "离线", "lang": "en"},
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# 从环境变量加载镜像配置
+# 用户可通过 FUSION_SCI_* 环境变量覆盖默认镜像地址
+# ---------------------------------------------------------------------------
+
+def _load_mirrors_from_env() -> dict[str, MirrorEndpoint]:
+    """从环境变量加载镜像配置，覆盖默认值。
+
+    支持的环境变量:
+        FUSION_SCI_PUBMED_MIRROR    - PubMed 镜像地址
+        FUSION_SCI_PDB_MIRROR       - PDB 镜像地址
+        FUSION_SCI_UNIPROT_MIRROR   - UniProt 镜像地址
+        FUSION_SCI_ENSEMBL_MIRROR   - Ensembl 镜像地址
+        FUSION_SCI_CHEMBL_MIRROR    - ChEMBL 镜像地址
+        FUSION_SCI_NGDC_URL         - 国家基因组科学数据中心
+        FUSION_SCI_CNGB_URL         - 国家基因库
+        FUSION_SCI_CNKI_URL         - 中国知网
+        FUSION_SCI_ScienceDB_URL    - 科学数据银行
+    """
+    overrides = {}
+    env_map = {
+        "FUSION_SCI_PUBMED_MIRROR": "pubmed",
+        "FUSION_SCI_PDB_MIRROR": "pdb",
+        "FUSION_SCI_UNIPROT_MIRROR": "uniprot",
+        "FUSION_SCI_ENSEMBL_MIRROR": "ensembl",
+        "FUSION_SCI_CHEMBL_MIRROR": "chembl",
+    }
+    for env_var, db_key in env_map.items():
+        value = os.getenv(env_var, "")
+        if value and db_key in DOMESTIC_MIRRORS:
+            overrides[db_key] = MirrorEndpoint(
+                name=f"{DOMESTIC_MIRRORS[db_key].name} (环境变量覆盖)",
+                primary_url=DOMESTIC_MIRRORS[db_key].primary_url,
+                mirror_url=value,
+                enabled=True,
+                priority=0,  # 最高优先级
+                notes=f"由环境变量 {env_var} 覆盖",
+            )
+    return overrides
+
+# 应用环境变量覆盖
+_env_overrides = _load_mirrors_from_env()
+if _env_overrides:
+    DOMESTIC_MIRRORS.update(_env_overrides)
+
+# 中国数据库环境变量覆盖
+_env_db_map = {
+    "FUSION_SCI_NGDC_URL": "NGDC",
+    "FUSION_SCI_CNGB_URL": "CNGB",
+    "FUSION_SCI_CNKI_URL": "CNKI",
+    "FUSION_SCI_ScienceDB_URL": "ScienceDB",
+}
+for env_var, db_key in _env_db_map.items():
+    value = os.getenv(env_var, "")
+    if value:
+        CHINESE_DATABASES[db_key] = value
 
 
 # ---------------------------------------------------------------------------
@@ -265,31 +377,127 @@ class ScienceCache:
 class MirrorRouter:
     """Routes database requests to the best available endpoint.
 
-    Supports automatic fallback from primary URL to domestic mirror,
-    and from online to cached data.
+    Supports:
+    - Automatic fallback from primary URL to domestic mirror
+    - Environment variable overrides (FUSION_SCI_*)
+    - Offline mode auto-detection (FUSION_OFFLINE_MODE=true)
+    - Domestic alternatives for unreachable international databases
+    - Online-to-cached data fallback
     """
 
     def __init__(self, cache: ScienceCache | None = None):
         self.cache = cache or ScienceCache()
         self.mirrors = dict(DOMESTIC_MIRRORS)
+        self.alternatives = dict(DOMESTIC_ALTERNATIVES)
         self._use_mirrors: bool = False
+        self._offline_mode: bool = self._detect_offline_mode()
+
+    @staticmethod
+    def _detect_offline_mode() -> bool:
+        """Detect offline mode from environment variable."""
+        val = os.getenv("FUSION_OFFLINE_MODE", "").lower()
+        return val in ("true", "1", "yes")
 
     def enable_mirrors(self, enabled: bool = True) -> None:
+        """Enable or disable domestic mirror routing.
+
+        Args:
+            enabled: True to use mirrors when available.
+        """
         self._use_mirrors = enabled
+        if enabled:
+            logger.info("国内数据库镜像已启用 (%s)", self._offline_mode)
+
+    def enable_offline_mode(self, enabled: bool = True) -> None:
+        """Enable or disable strict offline mode.
+
+        In offline mode, all international requests are blocked and
+        only local cache / domestic mirrors are used.
+
+        Args:
+            enabled: True to enable offline mode.
+        """
+        self._offline_mode = enabled
+        if enabled:
+            logger.info("离线模式已启用 — 仅使用本地缓存和国内镜像")
+        else:
+            logger.info("离线模式已禁用")
 
     def get_endpoint(self, db_name: str) -> MirrorEndpoint:
+        """Get the best endpoint configuration for a database.
+
+        Args:
+            db_name: Database name (e.g., "pubmed", "uniprot").
+
+        Returns:
+            MirrorEndpoint with the appropriate URL (mirror if enabled).
+        """
         mirror = self.mirrors.get(db_name, MirrorEndpoint(
             name=db_name, primary_url="", mirror_url="",
         ))
         return mirror
 
     def get_url(self, db_name: str) -> str:
+        """Get the best URL for a database, considering mirror and offline settings.
+
+        In offline mode, prefers mirror URLs. If no mirror is configured,
+        returns the primary URL (which may be unreachable offline).
+
+        Args:
+            db_name: Database name.
+
+        Returns:
+            URL string (mirror if enabled/offline, otherwise primary).
+        """
         endpoint = self.get_endpoint(db_name)
-        if self._use_mirrors and endpoint.mirror_url:
+        if (self._use_mirrors or self._offline_mode) and endpoint.mirror_url:
             return endpoint.mirror_url
         return endpoint.primary_url
 
+    def get_alternatives(self, db_name: str) -> list[dict[str, str]]:
+        """Get domestic alternative databases for a given international database.
+
+        Args:
+            db_name: International database name (e.g., "pubmed", "pdb").
+
+        Returns:
+            List of alternative database info dicts with name, url, type, lang.
+        """
+        return self.alternatives.get(db_name, [])
+
+    def get_chinese_equivalent(self, db_name: str) -> str:
+        """Get the recommended Chinese equivalent for an international database.
+
+        Args:
+            db_name: International database name.
+
+        Returns:
+            URL of the recommended Chinese alternative, or empty string.
+        """
+        alts = self.get_alternatives(db_name)
+        # Prefer Chinese-language alternatives
+        for alt in alts:
+            if alt.get("lang") == "zh":
+                return alt["url"]
+        # Fallback to first alternative
+        if alts:
+            return alts[0]["url"]
+        return ""
+
+    def is_offline_mode(self) -> bool:
+        """Check if offline mode is currently active.
+
+        Returns:
+            True if offline mode is enabled.
+        """
+        return self._offline_mode
+
     def list_mirrors(self) -> list[dict[str, Any]]:
+        """List all configured mirrors with their status.
+
+        Returns:
+            List of mirror info dicts.
+        """
         return [
             {
                 "name": m.name,
@@ -297,10 +505,43 @@ class MirrorRouter:
                 "primary_url": m.primary_url,
                 "mirror_url": m.mirror_url,
                 "enabled": m.enabled,
-                "active": self._use_mirrors and m.enabled,
+                "active": (self._use_mirrors or self._offline_mode) and m.enabled,
+                "priority": m.priority,
+                "notes": m.notes,
             }
-            for key, m in self.mirrors.items()
+            for key, m in sorted(self.mirrors.items(), key=lambda x: x[1].priority)
         ]
 
     def list_chinese_databases(self) -> list[dict[str, str]]:
+        """List Chinese domestic scientific databases.
+
+        Returns:
+            List of Chinese database info dicts.
+        """
         return [{"name": name, "url": url} for name, url in CHINESE_DATABASES.items()]
+
+    def list_alternatives(self) -> dict[str, list[dict[str, str]]]:
+        """List all domestic alternatives for international databases.
+
+        Returns:
+            Dict mapping database name to list of alternative endpoints.
+        """
+        return dict(self.alternatives)
+
+    def get_status_report(self) -> dict[str, Any]:
+        """Get a comprehensive status report of the mirror routing system.
+
+        Returns:
+            Dict with status information.
+        """
+        return {
+            "offline_mode": self._offline_mode,
+            "mirrors_enabled": self._use_mirrors,
+            "mirror_count": len(self.mirrors),
+            "chinese_db_count": len(CHINESE_DATABASES),
+            "active_mirrors": sum(
+                1 for m in self.mirrors.values()
+                if m.enabled and (self._use_mirrors or self._offline_mode)
+            ),
+            "cache_status": self.cache.stats() if self.cache else {"enabled": False},
+        }

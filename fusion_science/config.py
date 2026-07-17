@@ -34,9 +34,23 @@ class ScienceConfig:
 
     # Database
     use_mirrors: bool = False
+    offline_mode: bool = False  # FUSION_OFFLINE_MODE — force local-only
     cache_enabled: bool = True
     cache_dir: str = "~/.cache/fusion-science"
     pubmed_email: str = "research@localhost"
+
+    # Database mirror URLs (overridable via FUSION_SCI_* env vars)
+    pubmed_mirror: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    pdb_mirror: str = "https://data.rcsb.org/rest/v1"
+    uniprot_mirror: str = "https://rest.uniprot.org"
+    ensembl_mirror: str = "https://useast.ensembl.org"
+    chembl_mirror: str = "https://www.ebi.ac.uk/chembl/api/data"
+
+    # Chinese domestic database URLs
+    ngdc_url: str = "https://ngdc.cncb.ac.cn"
+    cngb_url: str = "https://www.cngb.org"
+    cnki_url: str = "https://www.cnki.net"
+    sciencedb_url: str = "https://www.scidb.cn"
 
     # Compute
     python_timeout: int = 120
@@ -99,13 +113,15 @@ def load_config(path: str | None = None) -> ScienceConfig:
         except Exception as e:
             logger.warning("Failed to load config from %s: %s", path, e)
 
-    # Environment variable overrides (FUSION_SCIENCE_*)
-    env_prefix = "FUSION_SCIENCE_"
+    # Environment variable overrides
+    # Supports both FUSION_SCIENCE_* (for ScienceConfig fields) and
+    # FUSION_SCI_* (for database mirror URLs) and FUSION_OFFLINE_MODE
     for key, value in os.environ.items():
-        if key.startswith(env_prefix):
-            config_key = key[len(env_prefix):].lower()
+        if key == "FUSION_OFFLINE_MODE":
+            config.offline_mode = value.lower() in ("true", "1", "yes")
+        elif key.startswith("FUSION_SCIENCE_"):
+            config_key = key[len("FUSION_SCIENCE_"):].lower()
             if hasattr(config, config_key):
-                # Type conversion
                 current = getattr(config, config_key)
                 if isinstance(current, bool):
                     setattr(config, config_key, value.lower() in ("true", "1", "yes"))
@@ -115,6 +131,11 @@ def load_config(path: str | None = None) -> ScienceConfig:
                     setattr(config, config_key, float(value))
                 else:
                     setattr(config, config_key, value)
+        elif key.startswith("FUSION_SCI_"):
+            # Map FUSION_SCI_* to config fields (e.g. FUSION_SCI_PUBMED_MIRROR -> pubmed_mirror)
+            config_key = key[len("FUSION_SCI_"):].lower()
+            if hasattr(config, config_key):
+                setattr(config, config_key, value)
 
     return config
 

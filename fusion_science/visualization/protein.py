@@ -79,7 +79,11 @@ class ProteinVisualizer:
         try:
             if not pdb_content:
                 import httpx
-                resp = httpx.get(f"https://files.rcsb.org/download/{pdb_id}.pdb")
+                import os
+                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+                if pdb_base.endswith("/rest/v1"):
+                    pdb_base = "https://files.rcsb.org"
+                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
                 if resp.status_code != 200:
                     return ProteinVisualization(
                         success=False,
@@ -113,6 +117,9 @@ class ProteinVisualizer:
                 )
             else:
                 html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"
+                import os
+                if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
+                    html_path = f"file://{pdb_path}"
 
             return ProteinVisualization(
                 success=True,
@@ -249,7 +256,11 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
 
             pdb_contents = []
             for pdb_id in pdb_ids:
-                resp = httpx.get(f"https://files.rcsb.org/download/{pdb_id}.pdb")
+                import os
+                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+                if pdb_base.endswith("/rest/v1"):
+                    pdb_base = "https://files.rcsb.org"
+                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
                 if resp.status_code == 200:
                     pdb_contents.append((pdb_id, resp.text))
 

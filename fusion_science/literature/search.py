@@ -147,6 +147,10 @@ class LiteratureSearch:
         """Search arXiv via the arXiv API."""
         import httpx
         import xml.etree.ElementTree as ET
+        import os
+
+        # arXiv API endpoint (configurable via env var for mirror support)
+        arxiv_api = os.getenv("FUSION_SCI_ARXIV_MIRROR", "https://export.arxiv.org/api/query")
 
         papers = []
         ns = {"atom": "http://www.w3.org/2005/Atom"}
@@ -159,7 +163,7 @@ class LiteratureSearch:
                 "sortOrder": "descending",
             }
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get("https://export.arxiv.org/api/query", params=params)
+                resp = await client.get(arxiv_api, params=params)
                 resp.raise_for_status()
                 root = ET.fromstring(resp.text)
 

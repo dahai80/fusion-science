@@ -23,43 +23,49 @@ def get_mirror_config() -> dict[str, Any]:
     """Get the mirror configuration for the domestic research environment.
 
     Returns:
-        Dict with mirror configuration.
+        Dict with mirror configuration, reading from environment variables.
     """
+    import os
     return {
         "enabled": os.environ.get("FUSION_SCIENCE_USE_MIRRORS", "false").lower() == "true",
+        "offline_mode": os.environ.get("FUSION_OFFLINE_MODE", "false").lower() in ("true", "1", "yes"),
         "mirrors": {
             "pubmed": {
                 "primary": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
-                "mirror": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
-                "note": "PubMed has no official domestic mirror; use CNKI for Chinese literature",
+                "mirror": os.environ.get("FUSION_SCI_PUBMED_MIRROR", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"),
+                "note": "PubMed无官方国内镜像；中文文献替代: CNKI (https://www.cnki.net)",
             },
             "uniprot": {
                 "primary": "https://rest.uniprot.org",
-                "mirror": "https://rest.uniprot.org",
-                "note": "UniProt accessible via academic networks; local cache recommended",
+                "mirror": os.environ.get("FUSION_SCI_UNIPROT_MIRROR", "https://rest.uniprot.org"),
+                "note": "UniProt可通过学术网络访问；建议预缓存参考蛋白质组到本地",
             },
             "pdb": {
                 "primary": "https://data.rcsb.org/rest/v1",
-                "mirror": "https://data.rcsb.org/rest/v1",
-                "note": "PDBe (Europe) often more accessible from China",
+                "mirror": os.environ.get("FUSION_SCI_PDB_MIRROR", "https://data.rcsb.org/rest/v1"),
+                "note": "PDBe (欧洲) 从中国访问比RCSB更稳定；建议下载年度发布包",
             },
             "ensembl": {
                 "primary": "https://rest.ensembl.org",
-                "mirror": "https://useast.ensembl.org",
-                "note": "Ensembl US East mirror recommended for Asia",
+                "mirror": os.environ.get("FUSION_SCI_ENSEMBL_MIRROR", "https://useast.ensembl.org"),
+                "note": "Ensembl US East 镜像推荐用于亚洲区域",
             },
             "chembl": {
                 "primary": "https://www.ebi.ac.uk/chembl/api/data",
-                "mirror": "https://www.ebi.ac.uk/chembl/api/data",
-                "note": "ChEMBL at EBI; accessible via academic networks",
+                "mirror": os.environ.get("FUSION_SCI_CHEMBL_MIRROR", "https://www.ebi.ac.uk/chembl/api/data"),
+                "note": "ChEMBL 位于EBI英国；需学术网络出口；建议离线缓存常用查询",
             },
         },
         "chinese_databases": {
-            "CNGB": "https://www.cngb.org/",
-            "NGDC": "https://ngdc.cncb.ac.cn/",
-            "CNKI": "https://www.cnki.net/",
-            "CBM": "https://www.sinomed.ac.cn/",
-            "ScienceDB": "https://www.scidb.cn/",
+            "NGDC": "https://ngdc.cncb.ac.cn",
+            "CNGB": "https://www.cngb.org",
+            "BIGD": "https://bigd.big.ac.cn",
+            "GSA": "https://ngdc.cncb.ac.cn/gsa",
+            "GWH": "https://ngdc.cncb.ac.cn/gwh",
+            "CNKI": "https://www.cnki.net",
+            "CBM": "https://www.sinomed.ac.cn",
+            "ScienceDB": "https://www.scidb.cn",
+            "PDB_CN": "https://pdb.cn",
         },
     }
 

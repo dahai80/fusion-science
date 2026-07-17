@@ -22,13 +22,24 @@ class PDBConnector(BaseConnector):
 
     DATA_URL = "https://data.rcsb.org/rest/v1"
     SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
-    MIRROR_URL = "https://data.rcsb.org/rest/v1"  # PDBe (PDB Europe) mirror
+    MIRROR_URL = "https://data.rcsb.org/rest/v1"  # PDBe (欧洲) 从中国访问更稳定
 
-    def __init__(self, use_mirror: bool = False):
+    def __init__(
+        self,
+        use_mirror: bool | None = None,
+        offline_mode: bool | None = None,
+    ):
+        import os
+        if use_mirror is None:
+            use_mirror = os.getenv("FUSION_SCIENCE_USE_MIRRORS", "").lower() in ("true", "1", "yes")
+        if offline_mode is None:
+            offline_mode = os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes")
+        mirror_url = os.getenv("FUSION_SCI_PDB_MIRROR", self.MIRROR_URL)
         config = ConnectorConfig(
             base_url=self.DATA_URL,
-            mirror_url=self.MIRROR_URL,
+            mirror_url=mirror_url,
             use_mirror=use_mirror,
+            offline_mode=offline_mode,
             timeout=30.0,
             rate_limit=0.2,
         )

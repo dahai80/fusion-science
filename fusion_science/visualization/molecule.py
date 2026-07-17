@@ -171,9 +171,14 @@ class MoleculeVisualizer:
 
         try:
             if not pdb_content:
-                # Fetch from RCSB
+                # Fetch from RCSB with configurable mirror URL
                 import httpx
-                resp = httpx.get(f"https://files.rcsb.org/download/{pdb_id}.pdb")
+                import os
+                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+                # Normalize: if the mirror URL is an API endpoint, extract the download host
+                if pdb_base.endswith("/rest/v1"):
+                    pdb_base = "https://files.rcsb.org"
+                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
                 if resp.status_code != 200:
                     return MoleculeVisualization(
                         success=False,
@@ -190,6 +195,9 @@ class MoleculeVisualizer:
                 self._generate_3d_html(pdb_content, html_path, pdb_id, style=style)
             else:
                 html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"  # Fallback to RCSB viewer
+                # If offline mode, note that the viewer is unavailable
+                if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
+                    html_path = f"file://{pdb_path}"  # Local PDB file fallback
 
             return MoleculeVisualization(
                 success=True,

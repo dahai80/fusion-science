@@ -23,19 +23,28 @@ class PubMedConnector(BaseConnector):
     """
 
     BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-    MIRROR_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"  # Fallback — no official domestic mirror for E-utilities
+    MIRROR_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"  # PubMed无官方国内镜像，使用CNKI替代
 
     def __init__(
         self,
         email: str = "research@localhost",
         tool_name: str = "fusion-science",
         api_key: str = "",
-        use_mirror: bool = False,
+        use_mirror: bool | None = None,  # None = auto-detect from env
+        offline_mode: bool | None = None,  # None = auto-detect
     ):
+        # Auto-detect from environment variables
+        if use_mirror is None:
+            use_mirror = os.getenv("FUSION_SCIENCE_USE_MIRRORS", "").lower() in ("true", "1", "yes")
+        if offline_mode is None:
+            offline_mode = os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes")
+
+        mirror_url = os.getenv("FUSION_SCI_PUBMED_MIRROR", self.MIRROR_URL)
         config = ConnectorConfig(
             base_url=self.BASE_URL,
-            mirror_url=self.MIRROR_URL,
+            mirror_url=mirror_url,
             use_mirror=use_mirror,
+            offline_mode=offline_mode,
             timeout=30.0,
             rate_limit=0.34,  # NCBI allows 3 requests/sec without API key, 10/sec with
         )

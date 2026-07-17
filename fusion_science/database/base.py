@@ -38,6 +38,7 @@ class ConnectorConfig:
     base_url: str = ""
     mirror_url: str = ""  # Domestic mirror URL for China
     use_mirror: bool = False
+    offline_mode: bool = False  # Block overseas requests when True
     timeout: float = 30.0
     max_retries: int = 3
     rate_limit: float = 0.5  # Seconds between requests

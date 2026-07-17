@@ -129,7 +129,7 @@ class TestMirrorRouter:
     def test_get_endpoint(self):
         router = MirrorRouter()
         endpoint = router.get_endpoint("pubmed")
-        assert endpoint.name == "PubMed (CNKI/CMCC)"
+        assert endpoint.name == "PubMed (E-utilities)"
         assert endpoint.primary_url == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
     def test_get_url_primary(self):
