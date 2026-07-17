@@ -5,19 +5,25 @@ All database connectors follow a common interface with:
 - Response normalization into a unified schema
 - Domestic mirror fallback support
 - Request retry & rate limiting
+- Offline mode support (skip network when FUSION_OFFLINE_MODE=true)
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Maximum in-memory cache entries per connector (LRU eviction)
+_MAX_CACHE_SIZE = 200
 
 
 @dataclass
@@ -54,10 +60,20 @@ class BaseConnector(ABC):
         self._client: httpx.AsyncClient | None = None
         self._semaphore = asyncio.Semaphore(1)
         self._last_request_time: float = 0.0
-        self._cache: dict[str, tuple[float, Any]] = {}  # key -> (timestamp, data)
+        # LRU-limited cache: OrderedDict for O(1) move-to-end eviction
+        self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
     @property
     def client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client.
+
+        Raises RuntimeError if offline_mode is enabled.
+        """
+        if self.config.offline_mode:
+            raise RuntimeError(
+                f"离线模式已启用: {self.__class__.__name__} 无法发起网络请求。"
+                "请设置 FUSION_OFFLINE_MODE=false 或直接传入离线数据。"
+            )
         if self._client is None:
             base = self.config.mirror_url if self.config.use_mirror else self.config.base_url
             self._client = httpx.AsyncClient(
@@ -68,9 +84,11 @@ class BaseConnector(ABC):
         return self._client
 
     async def close(self) -> None:
+        """Close the HTTP client and release resources."""
         if self._client:
             await self._client.aclose()
             self._client = None
+        self.clear_cache()
 
     @abstractmethod
     async def search(self, query: str, **kwargs) -> DatabaseResult:
@@ -84,7 +102,6 @@ class BaseConnector(ABC):
 
     async def _rate_limit(self) -> None:
         """Apply rate limiting between requests."""
-        import time
         elapsed = time.time() - self._last_request_time
         if elapsed < self.config.rate_limit:
             await asyncio.sleep(self.config.rate_limit - elapsed)
@@ -107,8 +124,16 @@ class BaseConnector(ABC):
             httpx.Response on success.
 
         Raises:
+            RuntimeError: If offline_mode is enabled.
             httpx.HTTPError: After all retries are exhausted.
         """
+        # Fail fast in offline mode
+        if self.config.offline_mode:
+            raise RuntimeError(
+                f"离线模式已启用: 无法请求 {url}。"
+                "请设置 FUSION_OFFLINE_MODE=false 以启用网络请求。"
+            )
+
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
@@ -132,23 +157,28 @@ class BaseConnector(ABC):
         raise last_error or httpx.HTTPError("Request failed after retries")
 
     def _check_cache(self, key: str) -> Any | None:
-        """Check if a cached result exists and is still valid."""
-        import time
+        """Check if a cached result exists and is still valid (LRU-aware)."""
         if not self.config.cache_enabled:
             return None
         entry = self._cache.get(key)
         if entry:
             timestamp, data = entry
             if time.time() - timestamp < self.config.cache_ttl:
+                # Move to end (most recently used) for LRU tracking
+                self._cache.move_to_end(key)
                 return data
             del self._cache[key]
         return None
 
     def _set_cache(self, key: str, data: Any) -> None:
-        """Cache a result."""
-        if self.config.cache_enabled:
-            import time
-            self._cache[key] = (time.time(), data)
+        """Cache a result with LRU eviction."""
+        if not self.config.cache_enabled:
+            return
+        # Evict oldest entry if at capacity
+        if len(self._cache) >= _MAX_CACHE_SIZE:
+            self._cache.popitem(last=False)  # Remove least recently used
+        self._cache[key] = (time.time(), data)
+        self._cache.move_to_end(key)  # Mark as most recently used
 
     def clear_cache(self) -> None:
         """Clear all cached results."""

@@ -7,6 +7,7 @@ for drug discovery and medicinal chemistry research.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from .base import BaseConnector, ConnectorConfig, DatabaseResult
@@ -28,7 +29,6 @@ class ChEMBLConnector(BaseConnector):
         use_mirror: bool | None = None,
         offline_mode: bool | None = None,
     ):
-        import os
         if use_mirror is None:
             use_mirror = os.getenv("FUSION_SCIENCE_USE_MIRRORS", "").lower() in ("true", "1", "yes")
         if offline_mode is None:

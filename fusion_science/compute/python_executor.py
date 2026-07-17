@@ -89,13 +89,33 @@ class PythonExecutor:
             if self.extra_paths:
                 env["PYTHONPATH"] = ":".join(self.extra_paths + [env.get("PYTHONPATH", "")])
 
-            # Run the subprocess
+            # Run the subprocess with resource limits
+            try:
+                import resource
+            except ImportError:
+                resource = None  # Windows / non-UNIX fallback
+
+            def _set_limits():
+                """Apply resource limits (CPU, memory, processes) to child process."""
+                if resource is None:
+                    return
+                try:
+                    # 30 seconds CPU time
+                    resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+                    # 2 GB virtual memory
+                    resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024))
+                    # 50 child processes max
+                    resource.setrlimit(resource.RLIMIT_NPROC, (50, 50))
+                except (ValueError, resource.error):
+                    pass  # Some limits may not be supported on all platforms
+
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, script_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.work_dir,
                 env=env,
+                preexec_fn=_set_limits,
             )
 
             try:
@@ -151,14 +171,13 @@ class PythonExecutor:
             )
 
         finally:
-            # Cleanup temp files
-            try:
-                if os.path.exists(script_path):
-                    os.remove(script_path)
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-            except Exception:
-                pass
+            # Cleanup temp files — each removal is independent
+            for p in [script_path, output_path]:
+                try:
+                    if p and os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
 
     def _build_wrapper(
         self,

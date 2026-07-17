@@ -73,6 +73,10 @@ class ScienceConfig:
 def load_config(path: str | None = None) -> ScienceConfig:
     """Load configuration from a file, with environment variable overrides.
 
+    Also loads .env file from config/ directory if present (python-dotenv).
+    Supports both FUSION_SCIENCE_* (for ScienceConfig fields) and
+    FUSION_SCI_* (for database mirror URLs) and FUSION_OFFLINE_MODE.
+
     Args:
         path: Path to config file (JSON/YAML). If None, searches standard locations.
 
@@ -80,6 +84,9 @@ def load_config(path: str | None = None) -> ScienceConfig:
         ScienceConfig with merged settings.
     """
     config = ScienceConfig()
+
+    # Try to load .env file (optional, requires python-dotenv)
+    _try_load_dotenv()
 
     # Search for config files
     if path is None:
@@ -138,6 +145,18 @@ def load_config(path: str | None = None) -> ScienceConfig:
                 setattr(config, config_key, value)
 
     return config
+
+
+def _try_load_dotenv() -> None:
+    """Try to load .env file from config/ directory (optional dependency)."""
+    try:
+        from dotenv import load_dotenv
+        env_path = Path(__file__).resolve().parent.parent / "config" / ".env"
+        if env_path.exists():
+            load_dotenv(str(env_path))
+            logger.info("Loaded .env from %s", env_path)
+    except ImportError:
+        pass  # python-dotenv not installed, skip
 
 
 def save_config(config: ScienceConfig, path: str) -> None:

@@ -228,6 +228,7 @@ class ScienceCache:
     def __init__(self, config: CacheConfig | None = None):
         self.config = config or CacheConfig()
         self._conn: sqlite3.Connection | None = None
+        self._approx_count: int = 0  # Approximate entry count (avoids COUNT query)
         self._init_db()
 
     def _get_cache_dir(self) -> Path:
@@ -304,6 +305,7 @@ class ScienceCache:
                 (key, json.dumps(data, ensure_ascii=False), source, now, now + ttl, now),
             )
             self._conn.commit()
+            self._approx_count += 1
         except Exception as e:
             logger.warning("Cache write error: %s", e)
 
@@ -313,6 +315,7 @@ class ScienceCache:
         try:
             self._conn.execute("DELETE FROM science_cache WHERE key = ?", (key,))
             self._conn.commit()
+            self._approx_count = max(0, self._approx_count - 1)
         except Exception as e:
             logger.warning("Cache delete error: %s", e)
 
@@ -325,6 +328,7 @@ class ScienceCache:
             else:
                 self._conn.execute("DELETE FROM science_cache")
             self._conn.commit()
+            self._approx_count = 0
         except Exception as e:
             logger.warning("Cache clear error: %s", e)
 
@@ -352,15 +356,14 @@ class ScienceCache:
         if self._conn is None:
             return
         try:
-            cur = self._conn.execute("SELECT COUNT(*) FROM science_cache")
-            count = cur.fetchone()[0]
-            if count >= self.config.max_entries:
+            if self._approx_count >= self.config.max_entries:
                 to_delete = max(100, self.config.max_entries // 10)
                 self._conn.execute(
                     "DELETE FROM science_cache WHERE rowid IN ("
                     "SELECT rowid FROM science_cache ORDER BY last_accessed ASC LIMIT ?)", (to_delete,)
                 )
                 self._conn.commit()
+                self._approx_count = max(0, self._approx_count - to_delete)
         except Exception as e:
             logger.warning("Cache eviction error: %s", e)
 

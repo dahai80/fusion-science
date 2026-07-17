@@ -23,6 +23,31 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Sensitive field patterns — values matching these keys are redacted in audit logs
+_SENSITIVE_PATTERNS = ["patient", "身份证", "姓名", "phone", "email", "password", "token", "secret", "api_key", "私钥"]
+
+
+def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Redact sensitive parameter values before logging.
+
+    Args:
+        params: Original parameters dict.
+
+    Returns:
+        Sanitized copy with sensitive values replaced by ***REDACTED***.
+    """
+    sanitized = {}
+    for k, v in params.items():
+        if any(p in k.lower() for p in _SENSITIVE_PATTERNS):
+            sanitized[k] = "***REDACTED***"
+        elif isinstance(v, dict):
+            sanitized[k] = _sanitize_params(v)  # Recurse nested dicts
+        elif isinstance(v, str) and len(v) > 1000:
+            sanitized[k] = v[:1000] + "... [truncated]"  # Truncate long strings
+        else:
+            sanitized[k] = v
+    return sanitized
+
 
 @dataclass
 class TraceEntry:
@@ -106,7 +131,9 @@ class TraceRecorder:
             len(self._session.entries),
             self._session.end_time - self._session.start_time,
         )
-        return self._session
+        session = self._session
+        self._session = None  # Release reference so GC can collect
+        return session
 
     def record(
         self,
@@ -144,7 +171,7 @@ class TraceRecorder:
             operation=operation,
             source=source,
             description=description,
-            parameters=parameters or {},
+            parameters=_sanitize_params(parameters or {}),  # Sanitize before recording
             result_summary=result_summary,
             duration_ms=duration_ms,
             success=success,

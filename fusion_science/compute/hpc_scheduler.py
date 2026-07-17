@@ -254,11 +254,13 @@ class HPCScheduler:
         # Write and execute the script
         script_path = self._write_script(script_content, f"{job_name}_{job_id}")
 
-        # Run in background
+        # Run in background with async-safe file handles
+        out_fd = await asyncio.to_thread(lambda: open(out_path, "w"))
+        err_fd = await asyncio.to_thread(lambda: open(err_path, "w"))
         proc = await asyncio.create_subprocess_exec(
             "/bin/bash", script_path,
-            stdout=open(out_path, "w"),
-            stderr=open(err_path, "w"),
+            stdout=out_fd,
+            stderr=err_fd,
         )
 
         logger.info("Local job %s started (PID: %s)", job_id, proc.pid)

@@ -180,23 +180,32 @@ class JupyterKernelManager:
             return KernelResult(success=False, error=str(e))
 
     async def shutdown(self) -> None:
-        """Shutdown the kernel and clean up resources."""
+        """Shutdown the kernel and clean up resources.
+
+        Always attempts both stop_channels and shutdown_kernel,
+        even if one of them fails.
+        """
+        exc = None
         if self._kernel_client:
             try:
                 self._kernel_client.stop_channels()
-            except Exception:
-                pass
+            except Exception as e:
+                exc = e
+                logger.warning("Failed to stop kernel channels: %s", e)
             self._kernel_client = None
 
         if self._kernel_manager:
             try:
                 self._kernel_manager.shutdown_kernel()
-            except Exception:
-                pass
+            except Exception as e:
+                exc = e
+                logger.warning("Failed to shut down kernel manager: %s", e)
             self._kernel_manager = None
 
         self._running = False
         logger.info("Jupyter kernel shut down")
+        if exc:
+            raise exc
 
     @staticmethod
     def list_available_kernels() -> list[KernelInfo]:
