@@ -8,13 +8,8 @@ Enables interactive notebook-style execution within the science workflow.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
-import signal
-import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -110,7 +105,7 @@ class JupyterKernelManager:
 
         try:
             # Execute code
-            msg_id = self._kernel_client.execute(code)
+            self._kernel_client.execute(code)
 
             # Collect results
             output_parts = []
@@ -126,7 +121,7 @@ class JupyterKernelManager:
                         ),
                         timeout=timeout,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
 
                 msg_type = msg.get("msg_type", "")
@@ -145,7 +140,7 @@ class JupyterKernelManager:
 
                 elif msg_type == "stream":
                     text = content.get("text", "")
-                    stream_name = content.get("name", "stdout")
+                    content.get("name", "stdout")
                     output_parts.append(text)
 
                 elif msg_type == "display_data":
@@ -215,7 +210,7 @@ class JupyterKernelManager:
             List of KernelInfo with available kernels.
         """
         try:
-            import jupyter_client  # type: ignore[import-untyped]
+            import jupyter_client  # noqa: F401  # type: ignore[import-untyped]
             from jupyter_client.kernelspec import KernelSpecManager  # type: ignore[import-untyped]
 
             ksm = KernelSpecManager()
@@ -247,9 +242,8 @@ class JupyterKernelManager:
         """
         try:
             import json
-            import os
-            from pathlib import Path
             import sys
+            from pathlib import Path
 
             kernel_dir = Path.home() / ".local" / "share" / "jupyter" / "kernels" / "fusion-science"
             kernel_dir.mkdir(parents=True, exist_ok=True)

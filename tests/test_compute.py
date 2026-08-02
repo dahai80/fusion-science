@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
-import tempfile
-import os
 
-from fusion_science.compute.python_executor import PythonExecutor, ExecutionResult
-from fusion_science.compute.hpc_scheduler import HPCScheduler, HPCJob, HPCClusterInfo
+from fusion_science.compute.hpc_scheduler import HPCClusterInfo, HPCJob, HPCScheduler
+from fusion_science.compute.python_executor import PythonExecutor
 
 
 class TestPythonExecutor:

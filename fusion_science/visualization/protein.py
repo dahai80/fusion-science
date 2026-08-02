@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -73,13 +73,13 @@ class ProteinVisualizer:
         """
         output_dir = tempfile.gettempdir()
         html_path = os.path.join(output_dir, f"{pdb_id}_protein.html")
-        image_path = os.path.join(output_dir, f"{pdb_id}_protein.png")
+        os.path.join(output_dir, f"{pdb_id}_protein.png")
         pdb_path = os.path.join(output_dir, f"{pdb_id}.pdb")
 
         try:
             if not pdb_content:
+
                 import httpx
-                import os
                 pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
                 if pdb_base.endswith("/rest/v1"):
                     pdb_base = "https://files.rcsb.org"
@@ -117,7 +117,6 @@ class ProteinVisualizer:
                 )
             else:
                 html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"
-                import os
                 if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
                     html_path = f"file://{pdb_path}"
 
@@ -252,11 +251,11 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
 
         try:
             import base64
+
             import httpx
 
             pdb_contents = []
             for pdb_id in pdb_ids:
-                import os
                 pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
                 if pdb_base.endswith("/rest/v1"):
                     pdb_base = "https://files.rcsb.org"
@@ -270,7 +269,7 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
             # Generate comparison HTML
             colors = ["blue", "red", "green", "orange", "purple", "cyan"]
             model_js = ""
-            for i, (pid, content) in enumerate(pdb_contents):
+            for i, (_pid, content) in enumerate(pdb_contents):
                 b64 = base64.b64encode(content.encode()).decode()
                 color = colors[i % len(colors)]
                 model_js += f"""

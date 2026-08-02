@@ -15,7 +15,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,11 @@ class ScienceConfig:
     engine_timeout: float = 300.0
     engine_temperature: float = 0.3
     engine_max_tokens: int = 8192
+
+    # API server
+    api_host: str = "0.0.0.0"
+    api_port: int = 8300
+    api_cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
     # Database
     use_mirrors: bool = False
@@ -106,7 +110,7 @@ def load_config(path: str | None = None) -> ScienceConfig:
     # Load from file
     if path and os.path.exists(path):
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 if path.endswith((".yml", ".yaml")):
                     import yaml
                     data = yaml.safe_load(f)

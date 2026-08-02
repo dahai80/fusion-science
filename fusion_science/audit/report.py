@@ -11,17 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import shutil
-import tempfile
-import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .tracker import TraceRecorder, TraceSession
 from .provenance import ProvenanceTracker
+from .tracker import TraceRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -225,9 +221,9 @@ class ReportGenerator:
         if report.llm_interactions:
             lines.append("## LLM Interactions")
             lines.append("")
-            for l in report.llm_interactions[:10]:
-                status = "✅" if l["success"] else "❌"
-                lines.append(f"- {status} {l['description']} ({l['duration_ms']:.0f}ms)")
+            for llm_entry in report.llm_interactions[:10]:
+                status = "✅" if llm_entry["success"] else "❌"
+                lines.append(f"- {status} {llm_entry['description']} ({llm_entry['duration_ms']:.0f}ms)")
             if len(report.llm_interactions) > 10:
                 lines.append(f"- *... and {len(report.llm_interactions) - 10} more*")
             lines.append("")

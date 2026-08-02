@@ -10,6 +10,8 @@ import logging
 import os
 from typing import Any
 
+import httpx
+
 from .base import BaseConnector, ConnectorConfig, DatabaseResult
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,7 @@ class PDBConnector(BaseConnector):
         super().__init__(config)
 
     @property
-    def search_client(self) -> "httpx.AsyncClient":
+    def search_client(self) -> httpx.AsyncClient:
         import httpx
         if self._search_client is None:
             self._search_client = httpx.AsyncClient(
@@ -97,7 +99,6 @@ class PDBConnector(BaseConnector):
         }
 
         try:
-            import httpx
             resp = await self._request_with_retry(
                 "POST", "", json=search_payload,
                 client_override=self.search_client,

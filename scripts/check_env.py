@@ -97,10 +97,10 @@ def main():
     domestic_urls = [
         ("NGDC", os.getenv("FUSION_SCI_NGDC_URL", "https://ngdc.cncb.ac.cn")),
         ("CNGB", os.getenv("FUSION_SCI_CNGB_URL", "https://www.cngb.org")),
-        ("ScienceDB", os.getenv("FUSION_SCI_ScienceDB_URL", "https://www.scidb.cn")),
+        ("ScienceDB", os.getenv("FUSION_SCI_SCIENCEDB_URL", "https://www.scidb.cn")),
     ]
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     for name, url in domestic_urls:
         try:

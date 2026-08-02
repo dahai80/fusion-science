@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+import hmac
+import logging
+import os
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        api_key = os.getenv("FUSION_SCIENCE_API_KEY", "")
+        if not api_key:
+            return await call_next(request)
+
+        exempt_paths = {"/api/v1/health", "/docs", "/openapi.json", "/redoc"}
+        if request.url.path in exempt_paths:
+            return await call_next(request)
+
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+
+        key = request.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(key, api_key):
+            logger.warning("Unauthorized API access: %s %s", request.method, request.url.path)
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+
+        return await call_next(request)

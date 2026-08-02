@@ -16,9 +16,7 @@ import os
 import re
 import subprocess
 import tempfile
-import textwrap
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -255,8 +253,8 @@ class HPCScheduler:
         script_path = self._write_script(script_content, f"{job_name}_{job_id}")
 
         # Run in background with async-safe file handles
-        out_fd = await asyncio.to_thread(lambda: open(out_path, "w"))
-        err_fd = await asyncio.to_thread(lambda: open(err_path, "w"))
+        out_fd = await asyncio.to_thread(lambda: open(out_path, "w"))  # noqa: SIM115
+        err_fd = await asyncio.to_thread(lambda: open(err_path, "w"))  # noqa: SIM115
         proc = await asyncio.create_subprocess_exec(
             "/bin/bash", script_path,
             stdout=out_fd,
@@ -386,7 +384,7 @@ class HPCScheduler:
         # Try standard Slurm output pattern
         out_path = os.path.join(log_dir, f"{job_name}_{job_id}.out")
         if os.path.exists(out_path):
-            with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(out_path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         return ""
 

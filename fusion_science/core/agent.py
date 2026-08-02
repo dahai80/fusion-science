@@ -1,10 +1,3 @@
-"""Science agent runtime — multi-agent orchestration for scientific workflows.
-
-Leverages the multi-agent architecture to decompose complex scientific
-research tasks into sub-tasks, execute them in parallel or sequence,
-and synthesize results with full provenance tracking.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -15,16 +8,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .engine import LLMResponse, ScienceEngine
+from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class AgentStep:
-    """A single step in an agent's execution trace."""
-
     step: int
-    action: str  # "think", "tool_call", "tool_result", "output"
+    action: str
     content: str
     metadata: dict = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
@@ -32,8 +24,6 @@ class AgentStep:
 
 @dataclass
 class AgentResult:
-    """Result of a single agent execution."""
-
     agent_name: str
     output: str
     steps: list[AgentStep] = field(default_factory=list)
@@ -44,8 +34,6 @@ class AgentResult:
 
 @dataclass
 class PipelineResult:
-    """Result of a full scientific pipeline execution."""
-
     task: str
     agent_results: list[AgentResult] = field(default_factory=list)
     total_duration: float = 0.0
@@ -53,19 +41,14 @@ class PipelineResult:
     trace_id: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Science Agent — a single research agent with tool-use capability
-# ---------------------------------------------------------------------------
-
 class ScienceAgent:
-    """A single research agent that can use tools and reason about scientific tasks."""
-
     def __init__(
         self,
         name: str,
         engine: ScienceEngine,
         system_prompt: str = "",
         tools: list[dict] | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self.name = name
         self.engine = engine
@@ -74,20 +57,12 @@ class ScienceAgent:
             "You reason step-by-step, use available tools when needed, "
             "and provide precise, evidence-based answers."
         )
+        self.tool_registry = tool_registry
         self.tools = tools or []
         self.steps: list[AgentStep] = []
         self._messages: list[dict] = []
 
     async def run(self, task: str, max_iterations: int = 10) -> AgentResult:
-        """Execute the agent on a given task.
-
-        Args:
-            task: The task description.
-            max_iterations: Maximum reasoning/tool-use iterations.
-
-        Returns:
-            AgentResult with output, steps, and usage.
-        """
         start = time.time()
         self._messages = [
             {"role": "system", "content": self.system_prompt},
@@ -102,22 +77,20 @@ class ScienceAgent:
                 content=resp.content or "",
             ))
 
-            # If the model made tool calls, execute them
             if resp.tool_calls:
                 for tc in resp.tool_calls:
                     result = await self._execute_tool(tc)
                     self._messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
-                        "content": json.dumps(result, ensure_ascii=False),
+                        "content": json.dumps(result, ensure_ascii=False, default=str),
                     })
                     self.steps.append(AgentStep(
                         step=i, action="tool_result",
-                        content=f"Tool {tc.get('function', {}).get('name', 'unknown')}: {json.dumps(result, ensure_ascii=False)[:500]}",
+                        content=f"Tool {tc.get('function', {}).get('name', 'unknown')}: {json.dumps(result, ensure_ascii=False, default=str)[:500]}",
                         metadata={"tool_call": tc, "result": result},
                     ))
             else:
-                # No tool calls — final answer
                 duration = time.time() - start
                 return AgentResult(
                     agent_name=self.name,
@@ -127,7 +100,6 @@ class ScienceAgent:
                     duration=duration,
                 )
 
-        # Fallback if max iterations reached
         duration = time.time() - start
         return AgentResult(
             agent_name=self.name,
@@ -139,7 +111,6 @@ class ScienceAgent:
         )
 
     async def _call_llm(self) -> LLMResponse:
-        """Call the LLM with current message history."""
         tools_param = self.tools if self.tools else None
         resp = await self.engine.chat(
             messages=self._messages,
@@ -156,63 +127,40 @@ class ScienceAgent:
         return resp
 
     async def _execute_tool(self, tool_call: dict) -> Any:
-        """Execute a tool call. Placeholder — actual tool execution is
-        wired up by the pipeline orchestrator."""
-        # In production, this dispatches to the ToolRegistry.
-        # For now, return a placeholder.
         func_name = tool_call.get("function", {}).get("name", "unknown")
         arguments = tool_call.get("function", {}).get("arguments", "{}")
         try:
             args = json.loads(arguments) if isinstance(arguments, str) else arguments
         except json.JSONDecodeError:
             args = {}
+
+        if self.tool_registry and self.tool_registry.has_tool(func_name):
+            logger.info("Executing tool '%s' via ToolRegistry", func_name)
+            return await self.tool_registry.execute(func_name, args)
+
+        logger.warning("Tool '%s' not found in registry", func_name)
         return {
             "tool": func_name,
             "args": args,
-            "status": "not_implemented",
-            "message": f"Tool {func_name} is not yet wired.",
+            "status": "not_found",
+            "message": f"Tool '{func_name}' is not registered.",
         }
 
 
-# ---------------------------------------------------------------------------
-# Pipeline Orchestrator — coordinates multi-step scientific workflows
-# ---------------------------------------------------------------------------
-
 class SciencePipeline:
-    """Orchestrates a multi-step scientific research pipeline.
-
-    Supports sequential, parallel, and master-worker execution patterns
-    for complex scientific workflows.
-    """
-
-    def __init__(self, engine: ScienceEngine):
+    def __init__(self, engine: ScienceEngine, tool_registry: ToolRegistry | None = None):
         self.engine = engine
+        self.tool_registry = tool_registry
         self.agents: dict[str, ScienceAgent] = {}
 
     def register_agent(self, agent: ScienceAgent) -> None:
-        """Register an agent for use in pipelines."""
         self.agents[agent.name] = agent
-
-    # ------------------------------------------------------------------
-    # Pipeline execution patterns
-    # ------------------------------------------------------------------
 
     async def sequential(
         self,
         agent_names: list[str],
         task: str,
     ) -> PipelineResult:
-        """Execute agents sequentially — each agent's output feeds the next.
-
-        Typical use: literature search → data analysis → visualization → paper.
-
-        Args:
-            agent_names: Ordered list of agent names to execute.
-            task: The initial task description.
-
-        Returns:
-            PipelineResult with all agent outputs.
-        """
         result = PipelineResult(task=task)
         start = time.time()
         current_input = task
@@ -243,17 +191,6 @@ class SciencePipeline:
         agent_names: list[str],
         task: str,
     ) -> PipelineResult:
-        """Execute agents in parallel on the same task.
-
-        Typical use: simultaneous database queries, parallel analyses.
-
-        Args:
-            agent_names: List of agent names to run in parallel.
-            task: The task description shared by all agents.
-
-        Returns:
-            PipelineResult with all agent outputs.
-        """
         result = PipelineResult(task=task)
         start = time.time()
         semaphore = asyncio.Semaphore(5)
@@ -281,18 +218,6 @@ class SciencePipeline:
         worker_names: list[str],
         task: str,
     ) -> PipelineResult:
-        """Master agent decomposes a task, workers execute sub-tasks, master summarizes.
-
-        Typical use: complex research question broken into sub-questions.
-
-        Args:
-            master_name: The master agent (decomposes and summarizes).
-            worker_names: Worker agents (execute sub-tasks).
-            task: The overall research task.
-
-        Returns:
-            PipelineResult with decomposition, worker results, and summary.
-        """
         result = PipelineResult(task=task)
         start = time.time()
         master = self.agents.get(master_name)
@@ -302,7 +227,6 @@ class SciencePipeline:
             ))
             return result
 
-        # 1. Master decomposes the task
         decompose_prompt = (
             f"Decompose the following research task into {len(worker_names)} sub-tasks, "
             f"one for each worker agent. Return a JSON array of sub-task descriptions:\n\n{task}"
@@ -310,10 +234,8 @@ class SciencePipeline:
         decomposition = await master.run(decompose_prompt)
         result.agent_results.append(decomposition)
 
-        # Extract sub-tasks from master output
         sub_tasks = self._extract_sub_tasks(decomposition.output, len(worker_names))
 
-        # 2. Workers execute sub-tasks in parallel
         semaphore = asyncio.Semaphore(5)
 
         async def run_worker(name: str, sub_task: str) -> AgentResult:
@@ -333,7 +255,6 @@ class SciencePipeline:
         worker_results = await asyncio.gather(*worker_coros)
         result.agent_results.extend(worker_results)
 
-        # 3. Master summarizes
         summary_prompt = (
             f"Original task: {task}\n\n"
             f"Worker results:\n"
@@ -349,24 +270,11 @@ class SciencePipeline:
         result.total_duration = time.time() - start
         return result
 
-    # ------------------------------------------------------------------
-    # Built-in scientific pipelines
-    # ------------------------------------------------------------------
-
     async def literature_review_pipeline(
         self,
         query: str,
         max_papers: int = 20,
     ) -> PipelineResult:
-        """End-to-end literature review: search → analyze → summarize.
-
-        Args:
-            query: Research query for literature search.
-            max_papers: Maximum papers to review.
-
-        Returns:
-            PipelineResult with search results, analysis, and summary.
-        """
         return await self.sequential(
             ["literature_search", "literature_analysis", "literature_summary"],
             f"Search and analyze literature on: {query}\nMax papers: {max_papers}",
@@ -377,40 +285,24 @@ class SciencePipeline:
         data_description: str,
         analysis_type: str = "exploratory",
     ) -> PipelineResult:
-        """End-to-end data analysis: plan → execute → visualize → report.
-
-        Args:
-            data_description: Description of the data to analyze.
-            analysis_type: Type of analysis (exploratory, statistical, ml).
-
-        Returns:
-            PipelineResult with analysis plan, code, results, and report.
-        """
         return await self.sequential(
             ["data_planner", "data_executor", "data_reporter"],
             f"Analyze the following data:\n{data_description}\nAnalysis type: {analysis_type}",
         )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _extract_sub_tasks(self, output: str, expected_count: int) -> list[str]:
-        """Extract sub-task descriptions from master agent output."""
         try:
             tasks = json.loads(output)
             if isinstance(tasks, list):
                 return [str(t) for t in tasks[:expected_count]]
         except (json.JSONDecodeError, TypeError):
             pass
-        # Fallback: split by numbered lines
-        lines = [l.strip() for l in output.split("\n") if l.strip()]
+        lines = [ln.strip() for ln in output.split("\n") if ln.strip()]
         return lines[:expected_count]
 
     def _generate_summary(self, result: PipelineResult) -> str:
-        """Generate a brief summary of pipeline results."""
         parts = []
         for r in result.agent_results:
-            status = "✓" if not r.error else "✗"
+            status = "ok" if not r.error else "FAIL"
             parts.append(f"{status} {r.agent_name} ({r.duration:.1f}s)")
         return " | ".join(parts) if parts else "No results"

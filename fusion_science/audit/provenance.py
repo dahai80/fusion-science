@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -316,7 +316,7 @@ class ProvenanceTracker:
             True if loaded successfully.
         """
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
 
             nodes = {}
@@ -367,7 +367,6 @@ class ProvenanceTracker:
             "## Data Sources",
             "",
         ]
-        from datetime import datetime
 
         sources = [(nid, n) for nid, n in nodes.items() if n.get("type") == "source"]
         if sources:

@@ -12,7 +12,6 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,6 @@ class RExecutor:
         Returns:
             RExecutionResult with output and plots.
         """
-        import time
         start = time.time()
 
         if not self._r_available:
@@ -131,7 +129,7 @@ class RExecutor:
             List of temporary file paths for plots.
         """
         import tempfile
-        plot_dir = tempfile.mkdtemp(prefix="fusion_r_plots_")
+        tempfile.mkdtemp(prefix="fusion_r_plots_")
         plot_paths = []
         return plot_paths
 
@@ -146,7 +144,7 @@ class RExecutor:
             Modified R code with plot capture.
         """
         # Redirect R plots to PNG files
-        plot_dir = tempfile.gettempdir()
+        tempfile.gettempdir()
         wrapped = f"""
 # Fusion-Science: plot capture enabled
 options(device = function() png(tempfile(fileext = ".png"), width = 800, height = 600, res = 120))
@@ -166,7 +164,6 @@ options(device = function() png(tempfile(fileext = ".png"), width = 800, height 
         plot_dir = tempfile.gettempdir()
         plots = glob.glob(os.path.join(plot_dir, "fusion_r_plots_*.png"))
         # Rename to more descriptive names
-        import os
         named_plots = []
         for i, plot in enumerate(plots):
             new_name = os.path.join(plot_dir, f"fusion_r_plot_{i}.png")

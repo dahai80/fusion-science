@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-
-from fusion_science.database.base import BaseConnector, ConnectorConfig, DatabaseResult
-from fusion_science.database.mirror import ScienceCache, CacheConfig, MirrorRouter, MirrorEndpoint, DOMESTIC_MIRRORS, CHINESE_DATABASES
+from fusion_science.database.base import ConnectorConfig, DatabaseResult
+from fusion_science.database.mirror import (
+    CHINESE_DATABASES,
+    DOMESTIC_MIRRORS,
+    CacheConfig,
+    MirrorRouter,
+    ScienceCache,
+)
 
 
 class TestConnectorConfig:

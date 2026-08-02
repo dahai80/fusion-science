@@ -14,7 +14,7 @@ import logging
 import os
 import sqlite3
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +173,7 @@ def _load_mirrors_from_env() -> dict[str, MirrorEndpoint]:
         FUSION_SCI_NGDC_URL         - 国家基因组科学数据中心
         FUSION_SCI_CNGB_URL         - 国家基因库
         FUSION_SCI_CNKI_URL         - 中国知网
-        FUSION_SCI_ScienceDB_URL    - 科学数据银行
+        FUSION_SCI_SCIENCEDB_URL    - 科学数据银行
     """
     overrides = {}
     env_map = {
@@ -206,7 +206,7 @@ _env_db_map = {
     "FUSION_SCI_NGDC_URL": "NGDC",
     "FUSION_SCI_CNGB_URL": "CNGB",
     "FUSION_SCI_CNKI_URL": "CNKI",
-    "FUSION_SCI_ScienceDB_URL": "ScienceDB",
+    "FUSION_SCI_SCIENCEDB_URL": "ScienceDB",
 }
 for env_var, db_key in _env_db_map.items():
     value = os.getenv(env_var, "")

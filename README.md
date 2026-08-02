@@ -34,14 +34,65 @@ fusion-science-web
 
 ```
 fusion-science/
-├── core/           # MLX inference engine & agent runtime
-├── database/       # Scientific database connectors + domestic mirrors
-├── compute/        # Code execution (Python/R/Jupyter) & HPC scheduling
-├── visualization/  # Charts, 3D molecules, protein structures
-├── literature/     # Search, review, paper generation
-├── audit/          # Provenance tracking & reproducibility reports
-└── utils/          # Mirror configuration, helpers
+├── core/
+│   ├── gateway.py      # LLMGateway — httpx to fusion-mlx HTTP API (streaming, structured output)
+│   ├── engine.py       # Backward-compat re-export of LLMGateway as ScienceEngine
+│   ├── tools.py        # ToolRegistry — MCP-compatible tool registration with OpenAI function calling
+│   ├── agent.py        # ScienceAgent (tool-use loop) + SciencePipeline (sequential/parallel/master-worker)
+│   └── pipeline.py     # PipelineFactory + built-in templates (literature, bioinformatics, molecular)
+├── session/            # Research session management
+│   ├── models.py       # ResearchSession, Artifact, ResearchContext dataclasses
+│   ├── store.py        # MemorySessionStore (LRU) + SQLiteSessionStore (persistence)
+│   └── manager.py      # SessionManager with EventBus integration
+├── api/                # FastAPI HTTP server
+│   ├── app.py          # create_app() factory, lifespan, audit auto-integration
+│   ├── sse.py          # SSE streaming (token-by-token + done/error)
+│   ├── middleware.py   # APIKeyMiddleware (hmac, exempt paths)
+│   └── routes/         # /api/v1/health, /sessions, /chat
+├── database/           # Scientific database connectors + domestic mirrors
+│   ├── aggregator.py   # DatabaseAggregator — multi-DB parallel search with dedup
+├── compute/            # Code execution (Python/R/Jupyter) & HPC scheduling
+├── visualization/      # Charts, 3D molecules, protein structures
+├── literature/         # Search, reading, extraction, synthesis, review, citations
+│   ├── search.py       # LiteratureSearch + SearchPreset (quick/pro/deep) + PRISMA flow
+│   ├── reader.py       # LiteratureReader — LLM deep reading with section summaries & TLDR
+│   ├── extractor.py    # LiteratureExtractor — PICO, structured data, study type classification
+│   ├── synthesizer.py  # LiteratureSynthesizer — consensus analysis, contradiction detection
+│   ├── review.py       # LiteratureReviewer — async review with LLM sections + PRISMA
+│   ├── citation.py     # CitationManager — APA/Vancouver/BibTeX, dedup, graph, verify
+│   └── paper.py        # PaperGenerator — IMRaD paper drafting
+├── audit/              # Provenance tracking & reproducibility reports
+└── utils/
+    └── events.py       # EventBus — async pub/sub for cross-module decoupling & audit auto-integration
 ```
+
+### Phase 1 Foundation (v0.2.0)
+
+- **LLMGateway** (`core/gateway.py`): Direct httpx.AsyncClient to fusion-mlx. Supports `chat()`, `chat_stream()` (SSE), `structured_output()`, lazy client creation.
+- **ToolRegistry** (`core/tools.py`): MCP-compatible tool center. 5 built-in tools (search_literature, search_database, execute_python, generate_chart, fetch_paper). Exports OpenAI function calling and MCP tool formats.
+- **EventBus** (`utils/events.py`): Async event bus for module decoupling. Auto-integrates with audit trail.
+- **ScienceAgent refactor**: `_execute_tool()` now dispatches via ToolRegistry instead of returning "not_implemented" stubs.
+- **ScienceConfig**: Added `api_host`, `api_port`, `api_cors_origins` for Phase 2 API server.
+
+### Phase 2 Session + API (v0.2.0)
+
+- **Session Management** (`session/`): ResearchSession with messages, artifacts, context. MemorySessionStore (LRU 1000) + SQLiteSessionStore for persistence. SessionManager with EventBus auto-emit.
+- **FastAPI Server** (`api/`): `create_app()` factory with lifespan, CORS + APIKeyMiddleware. Routes: `/api/v1/health`, `/api/v1/sessions` (CRUD), `/api/v1/chat` (sync + SSE stream).
+- **SSE Streaming** (`api/sse.py`): Token-by-token streaming with done/error events. Anti-buffering headers.
+- **Audit Auto-Integration**: EventBus handler in app lifespan auto-records all events (db_query, code_execution, llm_call, tool_executed, etc.) to TraceRecorder.
+- **CLI Serve Command**: `fusion-science serve [--host] [--port] [--reload]` starts uvicorn with API server.
+
+### Phase 3 Literature System (v0.3.0)
+
+Five-layer literature architecture with LLM-driven deep analysis and rule-based fallbacks:
+
+- **LiteratureSearch** (`literature/search.py`): SearchPreset levels — QUICK (10 papers, <5s), PROFESSIONAL (30 papers, <15s), DEEP (100 papers, <60s with PRISMA flow). Dedup + relevance scoring.
+- **LiteratureReader** (`literature/reader.py`): LLM-driven paper deep reading. Section summarization, TLDR generation, methodology assessment, strength/weakness analysis. Falls back to stub reading without LLM.
+- **LiteratureExtractor** (`literature/extractor.py`): Structured data extraction — PICO (Population/Intervention/Comparator/Outcome), study type classification (RCT/cohort/meta-analysis/etc.), sample size, p-value, effect size, limitations. Rule-based fallback when no LLM.
+- **LiteratureSynthesizer** (`literature/synthesizer.py`): Multi-paper consensus analysis. Consensus score (-1.0~1.0), contradiction detection, research gap identification, trend analysis. Keyword-frequency fallback path.
+- **LiteratureReviewer** (`literature/review.py`): **Breaking**: `analyze_papers()` is now `async`. Generates IMRaD sections via LLM with consensus data, or rule-based theme clustering. PRISMA flow diagram support.
+- **CitationManager** (`literature/citation.py`): APA/Vancouver/BibTeX formatting, auto key generation, deduplication, citation graph (keyword-based relation), citation verification.
+- **DatabaseAggregator** (`database/aggregator.py`): Multi-database parallel search across PubMed/UniProt/PDB/Ensembl/ChEMBL. Async semaphore-controlled concurrency, result merging with dedup, unified ranking.
 
 ## Domestic Research Environment
 
