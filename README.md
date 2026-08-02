@@ -48,7 +48,7 @@ fusion-science/
 │   ├── app.py          # create_app() factory, lifespan, audit auto-integration
 │   ├── sse.py          # SSE streaming (token-by-token + done/error)
 │   ├── middleware.py   # APIKeyMiddleware (hmac, exempt paths)
-│   └── routes/         # /api/v1/health, /sessions, /chat
+│   └── routes/         # /api/v1/health, /sessions, /chat, /search, /analyze, /visualize, /review, /databases, /pipelines, /models
 ├── database/           # Scientific database connectors + domestic mirrors
 │   ├── aggregator.py   # DatabaseAggregator — multi-DB parallel search with dedup
 ├── compute/            # Code execution (Python/R/Jupyter) & HPC scheduling
@@ -120,6 +120,17 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **MCP Server** (`mcp_server.py`): JSON-RPC 2.0 endpoint at `/mcp` for Model Context Protocol integration with Claude Desktop and Cursor. Methods: initialize, tools/list, tools/call. Full error code support (-32700/-32600/-32601/-32602/-32603).
 - **Enhanced API Routes** (`api/routes/`): `/api/v1/search` (literature search), `/api/v1/analyze` (DataAgent), `/api/v1/visualize` (VizAgent), `/api/v1/review` (LiteratureAgent), `/api/v1/sessions/{id}/audit` (compliance check).
 - **ComplianceChecker** (`audit/compliance.py`): 4 compliance dimensions — data_residency (no remote API calls), algorithm_registration (personal/lab exempt), ethics_review (human/animal data), sensitive_data (genomic/clinical/patient). `check_report()` returns structured results with severity levels.
+- **232 tests passing** across all modules.
+
+### Phase 8 API Coverage (v0.5.0)
+
+- **Databases Route** (`api/routes/databases.py`): GET `/api/v1/databases` lists 8 scientific databases with mirror info. GET `/api/v1/databases/{name}/status` per-database health check with async connectivity test.
+- **Pipelines Route** (`api/routes/pipelines.py`): GET `/api/v1/pipelines` lists 3 built-in pipeline templates (literature_review, bioinformatics_analysis, molecular_analysis). POST `/api/v1/pipelines/{name}/run` executes a pipeline with query and config.
+- **Models Route** (`api/routes/models.py`): GET `/api/v1/models` lists available LLM models from fusion-mlx inference engine.
+- **Session History**: GET `/api/v1/sessions/{id}/history` returns full session message history.
+- **LLMGateway.list_models()** (`core/gateway.py`): New method to query fusion-mlx `/models` endpoint.
+- **MCP SSE Transport** (`mcp_server.py`): GET `/mcp/sse` endpoint with Server-Sent Events transport and ping keepalive. POST `/mcp` handles JSON-RPC 2.0 messages.
+- **Lint Clean**: All ruff issues resolved (I001 import sorting, F541 f-string fixes).
 - **232 tests passing** across all modules.
 
 ## Domestic Research Environment

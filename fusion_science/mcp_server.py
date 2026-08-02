@@ -1,14 +1,17 @@
 # mcp_server.py — MCP JSON-RPC 2.0 endpoint (F-21)
 # Importers: api/app.py mounts router at /mcp
 # API: POST / with JSON-RPC methods: initialize, tools/list, tools/call
-# User instruction: "启动下一个阶段的任务实施"
+#       GET /sse for MCP SSE transport (persistent connections)
+# User instruction: "继续实施下一个阶段"
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,7 @@ async def handle_mcp(request: Request):
         return _success_response(req_id, {
             "protocolVersion": _PROTOCOL_VERSION,
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "fusion-science-mcp", "version": "0.4.0"},
+            "serverInfo": {"name": "fusion-science-mcp", "version": "0.5.0"},
         })
 
     if method == "tools/list":
@@ -71,3 +74,34 @@ def _success_response(req_id, result):
 
 def _error_response(req_id, code, message):
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+@router.get("/sse")
+async def mcp_sse(request: Request):
+    async def event_stream():
+        endpoint_msg = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "notifications/endpoint",
+            "params": {"endpoint": "http://localhost:8200/mcp/"},
+        })
+        yield f"event: endpoint\ndata: {endpoint_msg}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                await asyncio.sleep(30)
+                yield "event: ping\ndata: {}\n\n"
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("MCP SSE stream error: %s", e)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

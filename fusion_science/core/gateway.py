@@ -226,6 +226,20 @@ class LLMGateway:
             logger.warning("fusion-mlx health check failed")
             return False
 
+    # Called by api/routes/models.py to list available LLM models from fusion-mlx
+    # Returns OpenAI-compatible model list: [{id, object, owned_by, ...}]
+    # User instruction: "继续实施下一个阶段"
+    async def list_models(self) -> list[dict]:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/models")
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("data", [])
+        except Exception as e:
+            logger.error("list_models failed: %s", e)
+            return []
+
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()

@@ -22,7 +22,19 @@ from ..utils.events import (
     get_event_bus,
 )
 from .middleware import APIKeyMiddleware
-from .routes import analysis, audit_route, chat, health, review, search, sessions, visualize
+from .routes import (
+    analysis,
+    audit_route,
+    chat,
+    databases,
+    health,
+    models,
+    pipelines,
+    review,
+    search,
+    sessions,
+    visualize,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +102,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
     )
 
@@ -114,6 +126,9 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app.include_router(visualize.router, prefix="/api/v1/visualize", tags=["visualize"])
     app.include_router(review.router, prefix="/api/v1/review", tags=["review"])
     app.include_router(audit_route.router, prefix="/api/v1/sessions/{session_id}/audit", tags=["audit"])
+    app.include_router(databases.router, prefix="/api/v1/databases", tags=["databases"])
+    app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])
+    app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
 
     from ..mcp_server import router as mcp_router
     app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])

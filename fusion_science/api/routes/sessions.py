@@ -63,3 +63,13 @@ async def update_session(request: Request, session_id: str, body: UpdateSessionR
     if not session:
         return {"error": "session_not_found", "session_id": session_id}
     return {"session_id": session.id, "title": session.title}
+
+
+@router.get("/{session_id}/history")
+async def session_history(request: Request, session_id: str) -> dict[str, Any]:
+    mgr = request.app.state.session_manager
+    session = mgr.get_session(session_id)
+    if not session:
+        return {"error": "session_not_found", "session_id": session_id}
+    messages = session.messages if hasattr(session, "messages") else []
+    return {"session_id": session_id, "messages": messages, "count": len(messages)}
