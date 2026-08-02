@@ -304,7 +304,7 @@ Write only the section content, not the heading."""
         methods = "## Methods\n\n"
 
         if unique_packages:
-            methods += f"### Software and Packages\n\n"
+            methods += "### Software and Packages\n\n"
             methods += f"Data analysis was performed using {language} with the following packages: "
             methods += ", ".join(sorted(unique_packages))
             methods += ".\n\n"
@@ -334,7 +334,7 @@ Write only the section content, not the heading."""
         word_counts = [s.word_count for s in paper.sections]
         avg_words = sum(word_counts) / len(word_counts) if word_counts else 0
 
-        for section, wc in zip(paper.sections, word_counts):
+        for section, wc in zip(paper.sections, word_counts, strict=False):
             if wc == 0:
                 warnings.append(f"Section '{section.heading}' is empty.")
             elif wc < avg_words * 0.3:

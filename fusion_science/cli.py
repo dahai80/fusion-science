@@ -17,19 +17,13 @@ Commands:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import os
 import sys
-import textwrap
-from pathlib import Path
-from typing import Any
 
 import click
 
 from . import __version__
-from .config import ScienceConfig, load_config, create_default_config
+from .config import ScienceConfig, create_default_config, load_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,18 +121,17 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
     cfg: ScienceConfig = ctx.obj["config"]
     click.echo(f"🔬 Running pipeline '{pipeline_name}' with query: {query}")
 
+    from .core.engine import ScienceEngine
     from .core.pipeline import PipelineFactory
-    from .core.engine import ScienceEngine, ModelConfig
 
-    engine_config = ModelConfig(
-        name=cfg.model_name,
+    engine = ScienceEngine(
+        model=cfg.model_name,
         base_url=cfg.engine_base_url,
         api_key=cfg.engine_api_key,
         timeout=cfg.engine_timeout,
         temperature=cfg.engine_temperature,
         max_tokens=cfg.engine_max_tokens,
     )
-    engine = ScienceEngine(engine_config)
 
     factory = PipelineFactory(engine)
     try:
@@ -198,7 +191,7 @@ def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, o
 
     Provide a data file or use --code to pass code directly.
     """
-    cfg: ScienceConfig = ctx.obj["config"]
+    ctx.obj["config"]
     click.echo(f"📊 Analyzing data ({lang})")
 
     if code:
@@ -231,7 +224,7 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
 
     Types: chart, molecule (from SMILES), protein (from PDB ID).
     """
-    cfg: ScienceConfig = ctx.obj["config"]
+    ctx.obj["config"]
     click.echo(f"🎨 Generating {type} visualization")
     if data:
         click.echo(f"   Data: {data}")
@@ -250,7 +243,7 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
 @click.pass_context
 def review(ctx: click.Context, query: str, max_papers: int, output: str | None) -> None:
     """Conduct a literature review on a research topic."""
-    cfg: ScienceConfig = ctx.obj["config"]
+    ctx.obj["config"]
     click.echo(f"📚 Literature review: {query}")
     click.echo(f"   Max papers: {max_papers}")
     if output:
@@ -267,7 +260,7 @@ def review(ctx: click.Context, query: str, max_papers: int, output: str | None) 
 @click.pass_context
 def audit(ctx: click.Context, output: str, format: str) -> None:
     """Generate an audit/reproducibility report for the current session."""
-    cfg: ScienceConfig = ctx.obj["config"]
+    ctx.obj["config"]
     click.echo(f"📋 Generating audit report: {output}")
     click.echo(f"   Format: {format}")
 
@@ -355,14 +348,44 @@ def info(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 @cli.command()
+@click.option("--host", default=None, help="Host to bind to (default: config api_host)")
+@click.option("--port", default=None, type=int, help="Port to listen on (default: config api_port)")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+@click.pass_context
+def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) -> None:
+    """Start the Fusion-Science API server."""
+    cfg: ScienceConfig = ctx.obj["config"]
+    host = host or cfg.api_host
+    port = port or cfg.api_port
+
+    click.echo(f"🚀 Starting Fusion-Science API at http://{host}:{port}")
+    click.echo(f"   Docs: http://{host}:{port}/docs")
+    click.echo(f"   Model: {cfg.model_name}")
+    click.echo(f"   Engine: {cfg.engine_base_url}")
+    if reload:
+        click.echo("   Auto-reload: enabled")
+
+    try:
+        import uvicorn
+        uvicorn.run(
+            "fusion_science.api.app:app",
+            host=host,
+            port=port,
+            reload=reload,
+            log_level="info",
+        )
+    except ImportError:
+        click.echo("❌ uvicorn not installed. Install with: pip install 'fusion-science[api]'")
+        sys.exit(1)
+
+
+@cli.command()
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
 @click.option("--port", default=8080, help="Port to listen on")
 @click.pass_context
 def web(ctx: click.Context, host: str, port: int) -> None:
-    """Launch the Fusion-Science web interface."""
-    cfg: ScienceConfig = ctx.obj["config"]
-    click.echo(f"🌐 Starting Fusion-Science web UI at http://{host}:{port}")
-    click.echo("   (Web UI not yet implemented — coming soon)")
+    """Launch the Fusion-Science web interface (alias for serve)."""
+    ctx.invoke(serve, host=host, port=port)
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [project]
 name = "fusion-science"
-version = "0.1.0"
+version = "0.3.1"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,7 +10,6 @@ authors = [
 ]
 
 dependencies = [
-    "fusion-core>=0.1.0",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
     "aiofiles>=23.0.0",
@@ -35,6 +34,11 @@ test = [
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.14.0",
 ]
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "sse-starlette>=2.0.0",
+]
 mlx = [
     "mlx>=0.20.0",
     "mlx-lm>=0.20.0",
@@ -52,7 +56,7 @@ molecule = [
     "py3Dmol>=2.0.0",
 ]
 all = [
-    "fusion-science[test,mlx,jupyter,r,molecule]",
+    "fusion-science[test,api,mlx,jupyter,r,molecule]",
 ]
 
 [project.scripts]
@@ -81,3 +85,19 @@ exclude_lines = [
 
 [tool.setuptools.packages.find]
 include = ["fusion_science*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["fusion_science", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008", "SIM108"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fusion_science"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

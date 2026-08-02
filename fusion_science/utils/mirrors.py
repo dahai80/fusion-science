@@ -6,10 +6,8 @@ offline cache, and other China-specific research environment utilities.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -25,7 +23,6 @@ def get_mirror_config() -> dict[str, Any]:
     Returns:
         Dict with mirror configuration, reading from environment variables.
     """
-    import os
     return {
         "enabled": os.environ.get("FUSION_SCIENCE_USE_MIRRORS", "false").lower() == "true",
         "offline_mode": os.environ.get("FUSION_OFFLINE_MODE", "false").lower() in ("true", "1", "yes"),

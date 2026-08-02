@@ -13,9 +13,7 @@ import os
 import sys
 import tempfile
 import textwrap
-import traceback
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -122,7 +120,7 @@ class PythonExecutor:
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(), timeout=self.timeout
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.wait()
                 duration = asyncio.get_event_loop().time() - start
@@ -144,7 +142,7 @@ class PythonExecutor:
             if os.path.exists(output_path):
                 try:
                     import json
-                    with open(output_path, "r", encoding="utf-8") as f:
+                    with open(output_path, encoding="utf-8") as f:
                         result_data = json.load(f)
                     parsed_output = result_data.get("output", "")
                     figures = result_data.get("figures", [])
@@ -279,8 +277,8 @@ if _output_path:
 
             # Capture R output
             import io
-            r_stdout = io.StringIO()
-            r_stderr = io.StringIO()
+            io.StringIO()
+            io.StringIO()
 
             try:
                 result = robjects.r(code)

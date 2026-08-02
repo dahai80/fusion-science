@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class ChartGenerator:
 
             fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
             x = np.arange(len(categories))
-            bars = ax.bar(x, values, yerr=errors, capsize=5, alpha=0.8)
+            ax.bar(x, values, yerr=errors, capsize=5, alpha=0.8)
 
             ax.set_xticks(x)
             ax.set_xticklabels(categories, rotation=45, ha="right")
@@ -212,8 +212,8 @@ class ChartGenerator:
 
         try:
             import matplotlib.pyplot as plt
-            import seaborn as sns
             import numpy as np
+            import seaborn as sns
 
             fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
             data_arr = np.array(data)
@@ -338,7 +338,6 @@ class ChartGenerator:
 
         try:
             import matplotlib.pyplot as plt
-            import seaborn as sns
 
             fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
 
@@ -386,8 +385,8 @@ class ChartGenerator:
 
         try:
             import matplotlib.pyplot as plt
-            import seaborn as sns
             import pandas as pd
+            import seaborn as sns
 
             # Convert to long format
             long_data = []

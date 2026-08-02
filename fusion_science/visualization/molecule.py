@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +77,8 @@ class MoleculeVisualizer:
             MoleculeVisualization with generated files.
         """
         if not self._rdkit_available:
-            return MoleculeVisualization(
-                success=False,
-                error="RDKit not installed. Install with: pip install fusion-science[molecule]",
-                smiles=smiles,
-            )
+            logger.info("RDKit unavailable, using 2D fallback for SMILES: %s", smiles)
+            return await self.from_smiles_2d_fallback(smiles, name)
 
         try:
             from rdkit import Chem  # type: ignore[import-untyped]
@@ -149,6 +145,167 @@ class MoleculeVisualizer:
                 smiles=smiles,
             )
 
+    async def from_smiles_2d_fallback(
+        self,
+        smiles: str,
+        name: str = "molecule",
+    ) -> MoleculeVisualization:
+        output_dir = tempfile.gettempdir()
+        html_path = os.path.join(output_dir, f"{name}_2d_fallback.html")
+
+        logger.info("Generating 2D fallback HTML for SMILES: %s", smiles)
+
+        smiles_escaped = smiles.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        atom_count = sum(1 for c in smiles if c.isupper())
+        bond_chars = smiles.count("=") + smiles.count("#") + smiles.count("/")
+        has_ring = any(c.isdigit() for c in smiles)
+        has_branch = smiles.count("(")
+        has_aromatic = any(c in smiles for c in "cnops")
+
+        features: list[str] = []
+        if has_ring:
+            features.append("Ring structures detected")
+        if has_branch:
+            features.append(f"{has_branch} branch(es)")
+        if bond_chars:
+            features.append(f"{bond_chars} multiple/rotatable bond(s)")
+        if has_aromatic:
+            features.append("Aromatic atoms present")
+
+        features_html = ""
+        if features:
+            items = "".join(f"<li>{f}</li>" for f in features)
+            features_html = f"""
+            <div class="section">
+                <h3>Structural Features</h3>
+                <ul>{items}</ul>
+            </div>"""
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{name} - SMILES Visualization</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 40px;
+            font-family: 'Courier New', monospace;
+            background: #f5f5f5;
+        }}
+        .card {{
+            max-width: 720px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 40px;
+        }}
+        h1 {{
+            font-size: 24px;
+            color: #1a1a2e;
+            margin: 0 0 8px 0;
+        }}
+        .subtitle {{
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 24px;
+        }}
+        .smiles-display {{
+            font-family: 'Courier New', monospace;
+            font-size: 22px;
+            background: #eef2f7;
+            border-left: 4px solid #4a6fa5;
+            padding: 16px 20px;
+            border-radius: 4px;
+            word-break: break-all;
+            letter-spacing: 1px;
+            color: #2d3748;
+        }}
+        .section {{
+            margin-top: 24px;
+        }}
+        .section h3 {{
+            font-size: 14px;
+            color: #4a6fa5;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 0 0 8px 0;
+        }}
+        .meta-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        .meta-table td {{
+            padding: 6px 12px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }}
+        .meta-table td:first-child {{
+            color: #666;
+            width: 140px;
+        }}
+        ul {{
+            margin: 0;
+            padding-left: 20px;
+        }}
+        li {{
+            font-size: 14px;
+            color: #444;
+            margin-bottom: 4px;
+        }}
+        .note {{
+            margin-top: 24px;
+            padding: 12px 16px;
+            background: #fff8e1;
+            border-left: 4px solid #f9a825;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #5d4037;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>{name}</h1>
+        <div class="subtitle">SMILES Notation Visualization (Fallback Mode)</div>
+        <div class="smiles-display">{smiles_escaped}</div>
+        {features_html}
+        <div class="section">
+            <h3>Quick Stats</h3>
+            <table class="meta-table">
+                <tr><td>SMILES</td><td>{smiles_escaped}</td></tr>
+                <tr><td>Heavy atoms</td><td>~{atom_count}</td></tr>
+                <tr><td>Notation type</td><td>SMILES (Simplified Molecular-Input Line-Entry System)</td></tr>
+            </table>
+        </div>
+        <div class="note">
+            Note: This is a text-based fallback representation. Install RDKit
+            (<code>pip install fusion-science[molecule]</code>) for interactive 2D/3D rendering.
+        </div>
+    </div>
+</body>
+</html>"""
+
+        try:
+            with open(html_path, "w") as f:
+                f.write(html)
+            logger.info("2D fallback HTML written to %s", html_path)
+        except Exception as e:
+            logger.error("Failed to write fallback HTML: %s", e)
+            return MoleculeVisualization(
+                success=False,
+                error=f"Fallback HTML write failed: {e}",
+                smiles=smiles,
+            )
+
+        return MoleculeVisualization(
+            success=True,
+            html_path=html_path,
+            smiles=smiles,
+        )
+
     async def from_pdb(
         self,
         pdb_id: str,
@@ -172,8 +329,8 @@ class MoleculeVisualizer:
         try:
             if not pdb_content:
                 # Fetch from RCSB with configurable mirror URL
+
                 import httpx
-                import os
                 pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
                 # Normalize: if the mirror URL is an API endpoint, extract the download host
                 if pdb_base.endswith("/rest/v1"):

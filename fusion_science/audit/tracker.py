@@ -17,7 +17,6 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -419,7 +418,7 @@ class TraceRecorder:
         # Try to load from storage
         session_path = self.storage_dir / f"{session_id}.json"
         if session_path.exists():
-            with open(session_path, "r") as f:
+            with open(session_path) as f:
                 data = json.load(f)
             return TraceSession(**data)
         return None
@@ -444,7 +443,7 @@ class TraceRecorder:
         sessions = []
         for f in self.storage_dir.glob("trace_*.json"):
             try:
-                with open(f, "r") as fh:
+                with open(f) as fh:
                     data = json.load(fh)
                 sessions.append({
                     "session_id": data.get("session_id", ""),

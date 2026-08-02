@@ -8,6 +8,7 @@ Science Library mirrors.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from .base import BaseConnector, ConnectorConfig, DatabaseResult
@@ -188,7 +189,6 @@ class PubMedConnector(BaseConnector):
     def _parse_single_article(self, article: Any) -> dict[str, Any] | None:
         """Parse a single PubmedArticle XML element."""
         try:
-            import xml.etree.ElementTree as ET
 
             medline = article.find(".//MedlineCitation")
             if medline is None:
