@@ -121,18 +121,26 @@ class TestBuiltinTools:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         tools = reg.list_tools()
-        assert len(tools) == 5
+        # 5 original + 7 Phase 7 tools = 12
+        assert len(tools) == 12
         assert reg.has_tool("search_literature")
         assert reg.has_tool("search_database")
         assert reg.has_tool("execute_python")
         assert reg.has_tool("generate_chart")
         assert reg.has_tool("fetch_paper")
+        assert reg.has_tool("extract_findings")
+        assert reg.has_tool("analyze_consensus")
+        assert reg.has_tool("execute_r")
+        assert reg.has_tool("visualize_molecule")
+        assert reg.has_tool("visualize_protein")
+        assert reg.has_tool("write_section")
+        assert reg.has_tool("manage_citations")
 
     def test_builtin_openai_format(self):
         reg = ToolRegistry()
         register_builtin_tools(reg)
         openai_tools = reg.get_openai_tools()
-        assert len(openai_tools) == 5
+        assert len(openai_tools) == 12
         for t in openai_tools:
             assert t["type"] == "function"
             assert "name" in t["function"]

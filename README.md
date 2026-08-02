@@ -113,6 +113,15 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **Ruff Configuration** (`pyproject.toml`): `target-version="py312"`, `line-length=120`, rules E/F/W/I/UP/B/SIM. Auto-formatting with double quotes, space indentation.
 - **216 tests passing** across all modules: core, session, API, literature, audit, compute, visualization, database, events, tools, phases 4-6.
 
+### Phase 7 Professional Agents + MCP + Compliance (v0.4.0)
+
+- **Professional Agent System** (`core/agents/`): 5 specialized agents + QueryRouterAgent with keyword-based routing. LiteratureAgent (search, extract, consensus), DataAgent (Python/R execution), VizAgent (charts, molecules, proteins), WriterAgent (paper sections, citations), ErrorAnalysisAgent (failure diagnosis). Error escalation from any agent to ErrorAnalysisAgent on failure.
+- **7 New Tools** (`core/tools.py`): extract_findings, analyze_consensus, execute_r, visualize_molecule, visualize_protein, write_section (internal), manage_citations (internal). 12 tools total registered in ToolRegistry.
+- **MCP Server** (`mcp_server.py`): JSON-RPC 2.0 endpoint at `/mcp` for Model Context Protocol integration with Claude Desktop and Cursor. Methods: initialize, tools/list, tools/call. Full error code support (-32700/-32600/-32601/-32602/-32603).
+- **Enhanced API Routes** (`api/routes/`): `/api/v1/search` (literature search), `/api/v1/analyze` (DataAgent), `/api/v1/visualize` (VizAgent), `/api/v1/review` (LiteratureAgent), `/api/v1/sessions/{id}/audit` (compliance check).
+- **ComplianceChecker** (`audit/compliance.py`): 4 compliance dimensions — data_residency (no remote API calls), algorithm_registration (personal/lab exempt), ethics_review (human/animal data), sensitive_data (genomic/clinical/patient). `check_report()` returns structured results with severity levels.
+- **232 tests passing** across all modules.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:
