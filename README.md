@@ -94,6 +94,30 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **CitationManager** (`literature/citation.py`): APA/Vancouver/BibTeX formatting, auto key generation, deduplication, citation graph (keyword-based relation), citation verification.
 - **DatabaseAggregator** (`database/aggregator.py`): Multi-database parallel search across PubMed/UniProt/PDB/Ensembl/ChEMBL. Async semaphore-controlled concurrency, result merging with dedup, unified ranking.
 
+### Phase 7 Professional Agents + MCP + Compliance (v0.4.0)
+
+- **Professional Agent System** (`core/agents/`): 5 specialized agents + QueryRouterAgent with keyword-based routing. LiteratureAgent, DataAgent, VizAgent, WriterAgent, ErrorAnalysisAgent. Error escalation on failure.
+- **7 New Tools** (`core/tools.py`): 12 tools total in ToolRegistry.
+- **MCP Server** (`mcp_server.py`): JSON-RPC 2.0 + SSE transport for Claude Desktop / Cursor integration.
+- **Enhanced API Routes**: `/search`, `/analyze`, `/visualize`, `/review`, `/sessions/{id}/audit`.
+- **ComplianceChecker** (`audit/compliance.py`): 4 compliance dimensions — data_residency, algorithm_registration, ethics_review, sensitive_data.
+
+### Phase 8 API Coverage (v0.5.0)
+
+- **Databases Route**: GET `/api/v1/databases` + GET `/api/v1/databases/{name}/status`.
+- **Pipelines Route**: GET `/api/v1/pipelines` + POST `/api/v1/pipelines/{name}/run`.
+- **Models Route**: GET `/api/v1/models`. Session history endpoint.
+- **MCP SSE Transport**: GET `/mcp/sse` with ping keepalive.
+- **232 tests passing**, ruff clean.
+
+### Phase 9 P2 Enhancements (v0.6.0)
+
+- **Multi-Model Switching** (F-31): `LLMGateway.set_model()`, `set_model_for_role()`, `get_model_for_role()`. Config fields: `model_reasoning`, `model_summarization`, `model_code`. API: PUT `/api/v1/models/current`, GET/PUT `/api/v1/models/roles`.
+- **Paper Writing Enhancement** (F-32): `PaperGenerator` with IMRaD section generation, LLM-driven writing, figure legends, methods-from-code, section balance checks.
+- **Citation Graph API** (F-34): GET `/api/v1/citations/graph`, POST `/api/v1/citations/add`, GET `/api/v1/citations/bibliography`.
+- **Math Explainer** (F-35): `MathExplainer` with 12 statistical formula patterns, LaTeX symbol conversion, LLM-enhanced explanation. API: POST `/api/v1/math/explain`, POST `/api/v1/math/explain-text`.
+- **269 tests passing**, ruff clean.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:

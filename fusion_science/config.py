@@ -31,6 +31,11 @@ class ScienceConfig:
     engine_temperature: float = 0.3
     engine_max_tokens: int = 8192
 
+    # Multi-model roles (F-31)
+    model_reasoning: str = ""
+    model_summarization: str = ""
+    model_code: str = ""
+
     # API server
     api_host: str = "0.0.0.0"
     api_port: int = 8300

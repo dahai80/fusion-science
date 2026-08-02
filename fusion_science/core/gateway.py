@@ -10,6 +10,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+MODEL_ROLES = {
+    "reasoning": "qwen3.5-9b",
+    "summarization": "qwen3.5-9b",
+    "code": "qwen3.5-9b",
+}
+
 
 @dataclass
 class LLMResult:
@@ -43,12 +49,48 @@ class LLMGateway:
         timeout: float = 300.0,
     ):
         self.model = model
+        self.default_model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._api_key = api_key
         self._client: httpx.AsyncClient | None = None
+        self._model_roles: dict[str, str] = dict(MODEL_ROLES)
+        self._model_roles["reasoning"] = model
+        self._model_roles["summarization"] = model
+        self._model_roles["code"] = model
+        self._available_models: list[dict] = []
+
+    def set_model(self, model: str) -> None:
+        logger.info("Switching model: %s -> %s", self.model, model)
+        self.model = model
+
+    def set_model_for_role(self, role: str, model: str) -> None:
+        self._model_roles[role] = model
+        logger.info("Set model for role '%s': %s", role, model)
+
+    def get_model_for_role(self, role: str) -> str:
+        return self._model_roles.get(role, self.model)
+
+    def get_model_roles(self) -> dict[str, str]:
+        return dict(self._model_roles)
+
+    async def refresh_available_models(self) -> list[dict]:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/models")
+            resp.raise_for_status()
+            data = resp.json()
+            self._available_models = data.get("data", [])
+            logger.info("Refreshed model list: %d models", len(self._available_models))
+            return self._available_models
+        except Exception as e:
+            logger.error("refresh_available_models failed: %s", e)
+            return []
+
+    def get_available_models(self) -> list[dict]:
+        return list(self._available_models)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -69,10 +111,12 @@ class LLMGateway:
         tools: list[dict] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        model: str | None = None,
         **kwargs,
     ) -> LLMResponse:
+        use_model = model or self.model
         payload: dict[str, Any] = {
-            "model": self.model,
+            "model": use_model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
@@ -83,7 +127,7 @@ class LLMGateway:
 
         logger.debug(
             "LLM request: model=%s, msgs=%d, temp=%.2f, max_tokens=%d",
-            self.model, len(messages),
+            use_model, len(messages),
             temperature if temperature is not None else self.temperature,
             max_tokens if max_tokens is not None else self.max_tokens,
         )
@@ -96,23 +140,23 @@ class LLMGateway:
 
             choice = data.get("choices", [{}])[0]
             msg = choice.get("message", {})
-            logger.info("LLM response: model=%s, len=%d", self.model, len(msg.get("content", "")))
+            logger.info("LLM response: model=%s, len=%d", use_model, len(msg.get("content", "")))
             return LLMResponse(
                 content=msg.get("content", ""),
                 tool_calls=msg.get("tool_calls", []),
                 usage=data.get("usage", {}),
-                model=data.get("model", self.model),
+                model=data.get("model", use_model),
                 finish_reason=choice.get("finish_reason", ""),
             )
         except httpx.HTTPStatusError as e:
             logger.error("LLM HTTP error: %s %s", e.response.status_code, e.response.text[:200])
             return LLMResponse(
-                content="", error=f"HTTP {e.response.status_code}", model=self.model,
+                content="", error=f"HTTP {e.response.status_code}", model=use_model,
             )
         except Exception as e:
             logger.error("LLM error: %s", type(e).__name__, exc_info=True)
             return LLMResponse(
-                content="", error=str(e), model=self.model,
+                content="", error=str(e), model=use_model,
             )
 
     async def chat_stream(
@@ -121,10 +165,12 @@ class LLMGateway:
         tools: list[dict] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        model: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        use_model = model or self.model
         payload: dict[str, Any] = {
-            "model": self.model,
+            "model": use_model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
@@ -134,7 +180,7 @@ class LLMGateway:
             payload["tools"] = tools
         payload.update(kwargs)
 
-        logger.debug("LLM stream request: model=%s, msgs=%d", self.model, len(messages))
+        logger.debug("LLM stream request: model=%s, msgs=%d", use_model, len(messages))
 
         client = await self._get_client()
         try:
@@ -165,6 +211,7 @@ class LLMGateway:
         schema: dict,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
         schema_instruction = (
             "You MUST respond with valid JSON matching this schema. "
@@ -178,6 +225,7 @@ class LLMGateway:
             messages=augmented,
             temperature=temperature or 0.1,
             max_tokens=max_tokens,
+            model=model,
         )
 
         if resp.error:
@@ -225,6 +273,17 @@ class LLMGateway:
         except Exception:
             logger.warning("fusion-mlx health check failed")
             return False
+
+    async def list_models(self) -> list[dict]:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/models")
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("data", [])
+        except Exception as e:
+            logger.error("list_models failed: %s", e)
+            return []
 
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
