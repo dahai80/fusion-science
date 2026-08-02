@@ -1,7 +1,16 @@
-"""Provenance tracking, audit trail, and reproducibility reports."""
+# audit/__init__.py — exports for audit module
+# Importers: api/routes/audit_route.py imports ComplianceChecker
+#            tests/test_compliance.py imports ComplianceResult, ComplianceChecker
 
 from __future__ import annotations
 
-from .reproducibility import ComplianceCheck, ComplianceChecker, ReproducibilityPack, ReproducibilityPackBuilder
+from .compliance import ComplianceChecker, ComplianceResult
+from .reproducibility import ComplianceCheck, ReproducibilityPack, ReproducibilityPackBuilder
 
-__all__ = ["ReproducibilityPack", "ReproducibilityPackBuilder", "ComplianceChecker", "ComplianceCheck"]
+__all__ = [
+    "ReproducibilityPack",
+    "ReproducibilityPackBuilder",
+    "ComplianceCheck",
+    "ComplianceChecker",
+    "ComplianceResult",
+]
