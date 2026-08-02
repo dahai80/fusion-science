@@ -94,6 +94,25 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **CitationManager** (`literature/citation.py`): APA/Vancouver/BibTeX formatting, auto key generation, deduplication, citation graph (keyword-based relation), citation verification.
 - **DatabaseAggregator** (`database/aggregator.py`): Multi-database parallel search across PubMed/UniProt/PDB/Ensembl/ChEMBL. Async semaphore-controlled concurrency, result merging with dedup, unified ranking.
 
+### Phase 4 Compute & Visualization (v0.3.1)
+
+- **CodeGenerator** (`compute/code_generator.py`): Rule-based + LLM-driven code generation. 6 bioinformatics templates (DESeq2, GO enrichment, correlation, t-test, PCA, clustering). Returns `CodeSuggestion` with confidence scores and package requirements.
+- **SandboxManager** (`compute/sandbox.py`): AST-based code validation, blocked pattern detection (eval/exec/os.system/subprocess), tempdir sandbox creation with resource limits. `validate_code()` returns `{valid, issues, risk_level}`.
+- **SmartVisualizer** (`visualization/smart_viz.py`): Rule-based + LLM-driven visualization recommendations. 9 keyword-to-chart mappings. Returns `VizRecommendation` with confidence and suggested config.
+
+### Phase 5 Audit & Chinese DB (v0.3.1)
+
+- **ReproducibilityPack** (`audit/reproducibility.py`): Full environment + trace + provenance snapshot with SHA256 checksum. `ReproducibilityPackBuilder` collects platform/dependency/trace/provenance data. `export_to_dir()` for sharing.
+- **ComplianceChecker** (`audit/reproducibility.py`): 6 built-in compliance rules (data_provenance, execution_trace, platform_recorded, dependencies_recorded, version_pinned, checksum_integrity). Custom rule support. `check_report()` generates full compliance report.
+- **Chinese DB Connectors** (`database/chinese.py`): `NGDCConnector` (国家基因库), `CNKIConnector` (知网), `ScienceDBConnector` (ScienceDB). All extend `BaseConnector` with domestic mirror support.
+- **MirrorRouter** (`database/chinese.py`): Smart mirror routing with offline mode. `get_url()` selects best mirror, `list_mirrors()` shows available routes.
+
+### Phase 6 CI & Quality (v0.3.1)
+
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): Lint job (ruff check + format check) and test job (pytest on Python 3.11/3.12 matrix).
+- **Ruff Configuration** (`pyproject.toml`): `target-version="py312"`, `line-length=120`, rules E/F/W/I/UP/B/SIM. Auto-formatting with double quotes, space indentation.
+- **216 tests passing** across all modules: core, session, API, literature, audit, compute, visualization, database, events, tools, phases 4-6.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:
