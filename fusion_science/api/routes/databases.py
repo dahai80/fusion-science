@@ -41,6 +41,9 @@ async def database_status(name: str):
             "pdb": ("fusion_science.database.pdb", "PDBConnector"),
             "ensembl": ("fusion_science.database.ensembl", "EnsemblConnector"),
             "chembl": ("fusion_science.database.chembl", "ChEMBLConnector"),
+            "ngdc": ("fusion_science.database.chinese.ngdc", "NGDCConnector"),
+            "cnki": ("fusion_science.database.chinese.cnki", "CNKIConnector"),
+            "scidb": ("fusion_science.database.chinese.scidb", "ScienceDBConnector"),
         }
         module_path, class_name = connector_map.get(name, (None, None))
         if not module_path:

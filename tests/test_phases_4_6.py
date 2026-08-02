@@ -19,12 +19,11 @@ from fusion_science.audit.tracker import TraceRecorder
 from fusion_science.compute.code_generator import CodeGenerator, CodeSuggestion
 from fusion_science.compute.sandbox import SandboxConfig, SandboxManager
 from fusion_science.database.chinese import (
-    ChineseDBResult,
     CNKIConnector,
-    MirrorRouter,
     NGDCConnector,
     ScienceDBConnector,
 )
+from fusion_science.database.mirror import MirrorRouter
 from fusion_science.visualization.smart_viz import SmartVisualizer, VizRecommendation
 
 # =========================================================================
@@ -315,16 +314,17 @@ class TestComplianceChecker:
 # =========================================================================
 
 class TestChineseDBResult:
-    def test_to_dict(self):
-        r = ChineseDBResult(database="NGDC", query="test", items=[{"id": 1}], total=1)
-        d = r.to_dict()
-        assert d["database"] == "NGDC"
-        assert d["total"] == 1
+    def test_success_result(self):
+        from fusion_science.database.base import DatabaseResult
+        r = DatabaseResult(source="ngdc", query="test", items=[{"id": 1}], total_count=1)
+        assert r.source == "ngdc"
+        assert r.total_count == 1
 
     def test_error_result(self):
-        r = ChineseDBResult(database="CNKI", query="test", error="timeout")
+        from fusion_science.database.base import DatabaseResult
+        r = DatabaseResult(source="cnki", query="test", error="timeout")
         assert r.error == "timeout"
-        assert r.total == 0
+        assert r.total_count == 0
 
 
 class TestNGDCConnector:
@@ -332,18 +332,22 @@ class TestNGDCConnector:
         conn = NGDCConnector()
         assert conn.config.base_url == "https://ngdc.cncb.ac.cn"
 
-    def test_parse_response_dict(self):
-        data = {"data": [{"id": 1, "title": "test"}]}
-        result = NGDCConnector._parse_ngdc_response(data)
+    def test_parse_search_results_dict(self):
+        conn = NGDCConnector()
+        data = {"total": 1, "results": [{"accession": "A1", "title": "test"}]}
+        result = conn._parse_search_results(data, sub_db="gsa")
         assert len(result) == 1
+        assert result[0]["accession"] == "A1"
 
-    def test_parse_response_list(self):
-        data = [{"id": 1}, {"id": 2}]
-        result = NGDCConnector._parse_ngdc_response(data)
+    def test_parse_search_results_list(self):
+        conn = NGDCConnector()
+        data = {"total": 2, "results": [{"accession": "A1"}, {"accession": "A2"}]}
+        result = conn._parse_search_results(data, sub_db="gsa")
         assert len(result) == 2
 
-    def test_parse_response_empty(self):
-        result = NGDCConnector._parse_ngdc_response(None)
+    def test_parse_search_results_empty(self):
+        conn = NGDCConnector()
+        result = conn._parse_search_results({}, sub_db="gsa")
         assert result == []
 
 
@@ -352,10 +356,12 @@ class TestCNKIConnector:
         conn = CNKIConnector()
         assert "cnki.net" in conn.config.base_url
 
-    def test_parse_response(self):
-        data = {"items": [{"title": "paper1"}]}
-        result = CNKIConnector._parse_cnki_response(data)
+    def test_parse_search_results(self):
+        conn = CNKIConnector()
+        data = {"total": 1, "results": [{"docId": "D1", "title": "paper1"}]}
+        result = conn._parse_search_results(data)
         assert len(result) == 1
+        assert result[0]["doc_id"] == "D1"
 
 
 class TestScienceDBConnector:
@@ -363,16 +369,18 @@ class TestScienceDBConnector:
         conn = ScienceDBConnector()
         assert "scidb.cn" in conn.config.base_url
 
-    def test_parse_response(self):
-        data = {"results": [{"name": "dataset1"}]}
-        result = ScienceDBConnector._parse_scidb_response(data)
+    def test_parse_search_results(self):
+        conn = ScienceDBConnector()
+        data = {"total": 1, "results": [{"id": "DS1", "title": "dataset1"}]}
+        result = conn._parse_search_results(data)
         assert len(result) == 1
+        assert result[0]["dataset_id"] == "DS1"
 
 
 class TestMirrorRouter:
     def test_init(self):
         router = MirrorRouter()
-        assert isinstance(router.is_offline(), bool)
+        assert isinstance(router.is_offline_mode(), bool)
 
     def test_get_url(self):
         router = MirrorRouter()

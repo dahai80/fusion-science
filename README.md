@@ -51,6 +51,7 @@ fusion-science/
 │   └── routes/         # /api/v1/health, /sessions, /chat
 ├── database/           # Scientific database connectors + domestic mirrors
 │   ├── aggregator.py   # DatabaseAggregator — multi-DB parallel search with dedup
+│   ├── chinese/        # Chinese domestic DB connectors (NGDC, CNKI, ScienceDB)
 ├── compute/            # Code execution (Python/R/Jupyter) & HPC scheduling
 ├── visualization/      # Charts, 3D molecules, protein structures
 ├── literature/         # Search, reading, extraction, synthesis, review, citations
@@ -138,6 +139,15 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **Security API** (NF-03): `api/routes/security.py` — POST/GET/DELETE `/api/v1/security/keys` for API key lifecycle management (values never exposed in responses).
 - **Enhanced System Status** (NF-01): `/api/v1/system/status` now includes connection state and performance metrics.
 - **324 tests passing**, ruff clean.
+
+### Phase 12 Chinese Databases + Mirror Smart Routing (v0.9.0)
+
+- **NGDC Connector** (F-18/T5.4): `NGDCConnector` — 国家基因组科学数据中心, supports GSA/GWH/OMIX sub-databases via `sub_db` parameter. Env override: `FUSION_SCI_NGDC_URL`.
+- **CNKI Connector** (F-18/T5.5): `CNKIConnector` — 中国知网, search with `search_type` filter, fetch with institution/fund detail. Env override: `FUSION_SCI_CNKI_URL`.
+- **ScienceDB Connector** (F-18/T5.6): `ScienceDBConnector` — 科学数据银行, dataset search/fetch with DOI and license info. Env override: `FUSION_SCI_SCIENCEDB_URL`.
+- **CHINESE_CONNECTORS registry**: `database/chinese/__init__.py` — dict mapping `"ngdc"/"cnki"/"scidb"` to connector classes.
+- **MirrorRouter Smart Routing** (F-20/T5.3): Latency testing (`test_latency`, `test_all_latency`), auto-switch mode (`enable_auto_switch`), smart URL selection (`smart_get_url` — picks faster endpoint). API: `GET /system/mirrors/latency`, `GET /system/mirrors/status`, `POST /system/mirrors/auto-switch`.
+- **363 tests passing**, ruff clean.
 
 ## Domestic Research Environment
 

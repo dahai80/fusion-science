@@ -7,6 +7,7 @@ for the Chinese research environment.
 
 from __future__ import annotations
 
-from .chinese import CNKIConnector, MirrorRouter, NGDCConnector, ScienceDBConnector
+from .chinese import CNKIConnector, NGDCConnector, ScienceDBConnector
+from .mirror import MirrorRouter
 
 __all__ = ["NGDCConnector", "CNKIConnector", "ScienceDBConnector", "MirrorRouter"]

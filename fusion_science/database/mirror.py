@@ -386,6 +386,7 @@ class MirrorRouter:
     - Offline mode auto-detection (FUSION_OFFLINE_MODE=true)
     - Domestic alternatives for unreachable international databases
     - Online-to-cached data fallback
+    - Smart routing: latency testing + auto-switch to fastest endpoint
     """
 
     def __init__(self, cache: ScienceCache | None = None):
@@ -394,6 +395,9 @@ class MirrorRouter:
         self.alternatives = dict(DOMESTIC_ALTERNATIVES)
         self._use_mirrors: bool = False
         self._offline_mode: bool = self._detect_offline_mode()
+        self._latency_cache: dict[str, dict[str, float]] = {}
+        self._auto_switch: bool = False
+        self._last_latency_test: float = 0.0
 
     @staticmethod
     def _detect_offline_mode() -> bool:
@@ -546,5 +550,117 @@ class MirrorRouter:
                 1 for m in self.mirrors.values()
                 if m.enabled and (self._use_mirrors or self._offline_mode)
             ),
+            "auto_switch": self._auto_switch,
             "cache_status": self.cache.stats() if self.cache else {"enabled": False},
         }
+
+    # ------------------------------------------------------------------
+    # Smart routing: latency test + auto-switch (F-20)
+    # ------------------------------------------------------------------
+
+    async def test_latency(self, db_name: str, timeout: float = 5.0) -> dict[str, float]:
+        """Test latency to primary and mirror endpoints for a database.
+
+        Args:
+            db_name: Database name (e.g., "pubmed", "uniprot").
+            timeout: HTTP request timeout in seconds.
+
+        Returns:
+            Dict with "primary" and "mirror" latency in seconds.
+            -1.0 means unreachable.
+        """
+        import httpx
+
+        endpoint = self.get_endpoint(db_name)
+        results: dict[str, float] = {}
+
+        for key, url in [("primary", endpoint.primary_url), ("mirror", endpoint.mirror_url)]:
+            if not url:
+                results[key] = -1.0
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    t0 = time.time()
+                    resp = await client.get(url)
+                    elapsed = time.time() - t0
+                    results[key] = elapsed if resp.status_code < 500 else -1.0
+            except Exception as e:
+                logger.info("Latency test %s %s failed: %s", key, url, e)
+                results[key] = -1.0
+
+        self._latency_cache[db_name] = results
+        self._last_latency_test = time.time()
+        logger.info(
+            "Latency test [%s]: primary=%.3fs, mirror=%.3fs",
+            db_name, results.get("primary", -1.0), results.get("mirror", -1.0),
+        )
+        return results
+
+    async def test_all_latency(self, timeout: float = 5.0) -> dict[str, dict[str, float]]:
+        """Test latency for all configured mirrors.
+
+        Args:
+            timeout: HTTP request timeout in seconds.
+
+        Returns:
+            Dict mapping db_name to {"primary": float, "mirror": float}.
+        """
+        results = {}
+        for db_name in self.mirrors:
+            results[db_name] = await self.test_latency(db_name, timeout)
+        return results
+
+    def enable_auto_switch(self, enabled: bool = True) -> None:
+        """Enable or disable automatic switching to the fastest endpoint.
+
+        When enabled, get_url() will prefer the endpoint with the lowest
+        measured latency. Falls back to mirror/offline logic if no latency
+        data is available.
+
+        Args:
+            enabled: True to enable auto-switch based on latency.
+        """
+        self._auto_switch = enabled
+        if enabled:
+            logger.info("镜像智能路由已启用 — 根据延迟自动选择最优端点")
+
+    def get_latency_results(self) -> dict[str, dict[str, float]]:
+        """Get the latest latency test results.
+
+        Returns:
+            Dict mapping db_name to {"primary": float, "mirror": float}.
+        """
+        return dict(self._latency_cache)
+
+    def smart_get_url(self, db_name: str) -> str:
+        """Get the best URL considering latency, mirror, and offline settings.
+
+        Priority order when auto_switch is enabled:
+        1. Fastest endpoint based on latency data
+        2. Mirror URL if mirrors/offline enabled
+        3. Primary URL as fallback
+
+        Args:
+            db_name: Database name.
+
+        Returns:
+            Best available URL string.
+        """
+        if self._auto_switch and db_name in self._latency_cache:
+            latencies = self._latency_cache[db_name]
+            endpoint = self.get_endpoint(db_name)
+            primary_lat = latencies.get("primary", -1.0)
+            mirror_lat = latencies.get("mirror", -1.0)
+
+            if primary_lat >= 0 and mirror_lat >= 0:
+                if mirror_lat < primary_lat and endpoint.mirror_url:
+                    logger.debug("Smart route [%s]: mirror (%.3fs < %.3fs)", db_name, mirror_lat, primary_lat)
+                    return endpoint.mirror_url
+                logger.debug("Smart route [%s]: primary (%.3fs <= %.3fs)", db_name, primary_lat, mirror_lat)
+                return endpoint.primary_url
+            if mirror_lat >= 0 and endpoint.mirror_url:
+                return endpoint.mirror_url
+            if primary_lat >= 0:
+                return endpoint.primary_url
+
+        return self.get_url(db_name)
