@@ -22,7 +22,7 @@ fi
 # 默认参数
 MODE="${MODE:-science}"
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-11434}"
 DAEMON=false
 
 # 解析参数
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --daemon, -d     后台运行"
             echo "  --mode, -m MODE  运行模式 (science|agent|cli)"
             echo "  --host HOST      绑定地址 (默认 127.0.0.1)"
-            echo "  --port, -p PORT  监听端口 (默认 8000)"
+            echo "  --port, -p PORT  监听端口 (默认 11434)"
             exit 0
             ;;
         *) echo "未知参数: $1"; exit 1 ;;

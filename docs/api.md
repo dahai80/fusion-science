@@ -23,7 +23,7 @@ from fusion_science.core.engine import ScienceEngine, ModelConfig
 # HTTP mode (default)
 engine = ScienceEngine(ModelConfig(
     name="qwen3.5-9b",
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:11434/v1",
 ))
 
 # Direct MLX mode

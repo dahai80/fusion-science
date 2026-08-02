@@ -227,7 +227,7 @@ from fusion_science.core.engine import ScienceEngine, ModelConfig
 # HTTP 模式（连接 fusion-mlx 服务器）
 engine = ScienceEngine(ModelConfig(
     name="qwen3.5-9b",
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:11434/v1",
 ))
 
 # 直接 MLX 模式（需要 mlx-lm）

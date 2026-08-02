@@ -13,7 +13,7 @@ class TestModelConfig:
     def test_default_config(self):
         config = ModelConfig()
         assert config.name == "qwen3.5-9b"
-        assert config.base_url == "http://localhost:8000/v1"
+        assert config.base_url == "http://localhost:11434/v1"
         assert config.temperature == 0.3
         assert config.max_tokens == 8192
 
