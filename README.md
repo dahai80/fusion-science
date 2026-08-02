@@ -118,6 +118,16 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **Math Explainer** (F-35): `MathExplainer` with 12 statistical formula patterns, LaTeX symbol conversion, LLM-enhanced explanation. API: POST `/api/v1/math/explain`, POST `/api/v1/math/explain-text`.
 - **269 tests passing**, ruff clean.
 
+### Phase 10 Remaining P2 Features (v0.7.0)
+
+- **Molecule Visualization API** (F-24): POST `/api/v1/viz/molecule/smiles`, POST `/api/v1/viz/molecule/pdb`. Graceful rdkit/py3Dmol degradation with 2D fallback.
+- **Protein Visualization API** (F-25): POST `/api/v1/viz/protein`, POST `/api/v1/viz/protein/compare`. py3Dmol-based 3D rendering with style/color controls.
+- **Jupyter Integration API** (F-26): POST `/api/v1/compute/jupyter/execute`, GET `/api/v1/compute/jupyter/kernels`. Kernel lifecycle management.
+- **Code Generation API** (F-30): POST `/api/v1/compute/code-gen`, POST `/api/v1/compute/code-gen/batch`. Rule-based + LLM-driven analysis code.
+- **Compliance API** (F-29): POST `/api/v1/compute/compliance`. Full 4-dimension compliance check with trace integration.
+- **Offline Mode Enhancement** (F-33): Auto-detect offline via network probe + `FUSION_OFFLINE_MODE` env. GET `/api/v1/system/status`, GET `/api/v1/system/connectivity`.
+- **283 tests passing**, ruff clean.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:

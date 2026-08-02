@@ -25,6 +25,7 @@ from .routes import (
     audit_route,
     chat,
     citations,
+    compute,
     databases,
     health,
     math,
@@ -33,7 +34,9 @@ from .routes import (
     review,
     search,
     sessions,
+    system,
     visualize,
+    visualize_ext,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,7 +109,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="0.6.0",
+        version="0.7.0",
         lifespan=lifespan,
     )
 
@@ -135,6 +138,9 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
     app.include_router(citations.router, prefix="/api/v1/citations", tags=["citations"])
     app.include_router(math.router, prefix="/api/v1/math", tags=["math"])
+    app.include_router(visualize_ext.router, prefix="/api/v1/viz", tags=["visualization-ext"])
+    app.include_router(compute.router, prefix="/api/v1/compute", tags=["compute"])
+    app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
 
     return app
 
