@@ -25,7 +25,7 @@ class ScienceEngine:
     def __init__(
         self,
         model: str = "qwen3.5-9b",
-        base_url: str = "http://localhost:8000/v1",
+        base_url: str = "http://localhost:11434/v1",
         temperature: float = 0.3,
         max_tokens: int = 8192,
     ):

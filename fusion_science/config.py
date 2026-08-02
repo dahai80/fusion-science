@@ -26,7 +26,7 @@ class ScienceConfig:
 
     # Inference engine
     model_name: str = "qwen3.5-9b"
-    engine_base_url: str = "http://localhost:8000/v1"
+    engine_base_url: str = "http://localhost:11434/v1"
     engine_api_key: str = "local"
     engine_timeout: float = 300.0
     engine_temperature: float = 0.3
