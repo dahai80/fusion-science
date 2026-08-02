@@ -128,6 +128,17 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **Offline Mode Enhancement** (F-33): Auto-detect offline via network probe + `FUSION_OFFLINE_MODE` env. GET `/api/v1/system/status`, GET `/api/v1/system/connectivity`.
 - **283 tests passing**, ruff clean.
 
+### Phase 11 Non-Functional Requirements (v0.8.0)
+
+- **Connection Monitoring & Auto-Reconnection** (NF-04): `ConnectionMonitor` in `core/retry.py` — periodic health checks, consecutive failure tracking, connection state (connected/disconnected). `retry_with_backoff()` with exponential backoff + jitter for LLM gateway calls.
+- **LLMGateway Retry** (NF-01/04): `chat()` wraps HTTP calls in `retry_with_backoff()` for ConnectError/ReadTimeout/PoolTimeout. Response time tracking with `get_avg_response_time()`. Connection stats via `get_connection_stats()`.
+- **Secure Key Storage** (NF-03): `utils/keychain.py` — macOS Keychain integration via `security` CLI. Store/retrieve/delete API keys with `SecureConfig` high-level wrapper and in-memory fallback.
+- **Custom Tool Registration** (NF-05): `api/routes/tools.py` — POST/GET/DELETE `/api/v1/tools` for MCP-compatible custom tool registration at runtime.
+- **Audit Integrity Verification** (NF-08): `audit/integrity.py` — `AuditIntegrityChecker` validates session coverage, parent references, provenance chain integrity, missing parameters, and failed entry diagnostics. API: GET `/api/v1/sessions/{id}/audit/integrity`, GET `/api/v1/sessions/{id}/audit/provenance-integrity`.
+- **Security API** (NF-03): `api/routes/security.py` — POST/GET/DELETE `/api/v1/security/keys` for API key lifecycle management (values never exposed in responses).
+- **Enhanced System Status** (NF-01): `/api/v1/system/status` now includes connection state and performance metrics.
+- **324 tests passing**, ruff clean.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:

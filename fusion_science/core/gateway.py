@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from .retry import ConnectionMonitor, RetryStats, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,9 @@ class LLMGateway:
         self._model_roles["summarization"] = model
         self._model_roles["code"] = model
         self._available_models: list[dict] = []
+        self._connection_monitor: ConnectionMonitor | None = None
+        self._max_retries: int = 3
+        self._request_times: list[float] = []
 
     def set_model(self, model: str) -> None:
         logger.info("Switching model: %s -> %s", self.model, model)
@@ -91,6 +97,40 @@ class LLMGateway:
 
     def get_available_models(self) -> list[dict]:
         return list(self._available_models)
+
+    def get_connection_stats(self) -> RetryStats:
+        if self._connection_monitor:
+            return self._connection_monitor.stats
+        return RetryStats()
+
+    def get_avg_response_time(self) -> float:
+        if not self._request_times:
+            return 0.0
+        return sum(self._request_times[-20:]) / len(self._request_times[-20:])
+
+    def start_connection_monitor(self, interval: float = 30.0) -> None:
+        if self._connection_monitor:
+            return
+        self._connection_monitor = ConnectionMonitor(
+            health_check=self.health,
+            check_interval=interval,
+        )
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._connection_monitor.start_monitor())
+        except RuntimeError:
+            logger.debug("No running loop for connection monitor; will start on first use")
+
+    def stop_connection_monitor(self) -> None:
+        if not self._connection_monitor:
+            return
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._connection_monitor.stop_monitor())
+        except RuntimeError:
+            pass
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -133,14 +173,26 @@ class LLMGateway:
         )
 
         client = await self._get_client()
+        t0 = time.time()
         try:
-            resp = await client.post("/chat/completions", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            async def _do_chat():
+                resp = await client.post("/chat/completions", json=payload)
+                resp.raise_for_status()
+                return resp.json()
+
+            data = await retry_with_backoff(
+                _do_chat,
+                max_retries=self._max_retries,
+                retryable_exceptions=(httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout),
+            )
 
             choice = data.get("choices", [{}])[0]
             msg = choice.get("message", {})
-            logger.info("LLM response: model=%s, len=%d", use_model, len(msg.get("content", "")))
+            elapsed = time.time() - t0
+            self._request_times.append(elapsed)
+            if self._connection_monitor:
+                self._connection_monitor.record_success()
+            logger.info("LLM response: model=%s, len=%d, %.2fs", use_model, len(msg.get("content", "")), elapsed)
             return LLMResponse(
                 content=msg.get("content", ""),
                 tool_calls=msg.get("tool_calls", []),
@@ -149,11 +201,19 @@ class LLMGateway:
                 finish_reason=choice.get("finish_reason", ""),
             )
         except httpx.HTTPStatusError as e:
+            elapsed = time.time() - t0
+            self._request_times.append(elapsed)
+            if self._connection_monitor:
+                self._connection_monitor.record_failure(f"HTTP {e.response.status_code}")
             logger.error("LLM HTTP error: %s %s", e.response.status_code, e.response.text[:200])
             return LLMResponse(
                 content="", error=f"HTTP {e.response.status_code}", model=use_model,
             )
         except Exception as e:
+            elapsed = time.time() - t0
+            self._request_times.append(elapsed)
+            if self._connection_monitor:
+                self._connection_monitor.record_failure(str(e))
             logger.error("LLM error: %s", type(e).__name__, exc_info=True)
             return LLMResponse(
                 content="", error=str(e), model=use_model,
@@ -286,6 +346,8 @@ class LLMGateway:
             return []
 
     async def close(self) -> None:
+        if self._connection_monitor:
+            await self._connection_monitor.stop_monitor()
         if self._client and not self._client.is_closed:
             await self._client.aclose()
             logger.debug("Closed httpx.AsyncClient")

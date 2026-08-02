@@ -33,8 +33,10 @@ from .routes import (
     pipelines,
     review,
     search,
+    security,
     sessions,
     system,
+    tools,
     visualize,
     visualize_ext,
 )
@@ -83,6 +85,7 @@ async def lifespan(app: FastAPI):
     if config.model_code:
         app.state.gateway.set_model_for_role("code", config.model_code)
     app.state.session_manager = SessionManager(store=MemorySessionStore())
+    app.state.gateway.start_connection_monitor(interval=30.0)
 
     recorder = TraceRecorder()
     recorder.start_session(metadata={"api": True})
@@ -100,6 +103,10 @@ async def lifespan(app: FastAPI):
     for event_type in _OP_MAP:
         bus.off(event_type, _audit_handler)
 
+    gw = getattr(app.state, "gateway", None)
+    if gw:
+        gw.stop_connection_monitor()
+
     with suppress(Exception):
         recorder.end_session()
     logger.info("Fusion-Science API shutdown")
@@ -109,7 +116,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="0.7.0",
+        version="0.8.0",
         lifespan=lifespan,
     )
 
@@ -141,6 +148,8 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app.include_router(visualize_ext.router, prefix="/api/v1/viz", tags=["visualization-ext"])
     app.include_router(compute.router, prefix="/api/v1/compute", tags=["compute"])
     app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
+    app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
+    app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
 
     return app
 

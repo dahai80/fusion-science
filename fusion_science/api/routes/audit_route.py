@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Request
 
 from ...audit.compliance import ComplianceChecker
+from ...audit.integrity import AuditIntegrityChecker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,3 +29,21 @@ async def get_audit(session_id: str, request: Request):
         trace_entries=trace_entries,
     )
     return {"session_id": session_id, "trace_count": len(trace_entries), "compliance": report}
+
+
+@router.get("/integrity")
+async def check_audit_integrity(session_id: str, request: Request):
+    recorder = getattr(request.app.state, "recorder", None)
+    session = recorder.get_session() if recorder else None
+    integrity_checker = AuditIntegrityChecker()
+    report = integrity_checker.check_session(session)
+    return report.to_dict()
+
+
+@router.get("/provenance-integrity")
+async def check_provenance_integrity(request: Request):
+    provenance = getattr(request.app.state, "provenance_tracker", None)
+    graph = provenance.get_graph() if provenance else None
+    integrity_checker = AuditIntegrityChecker()
+    report = integrity_checker.check_provenance_chain(graph)
+    return report.to_dict()
