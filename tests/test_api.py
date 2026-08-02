@@ -5,14 +5,19 @@ from httpx import ASGITransport, AsyncClient
 
 from fusion_science.api.app import create_app
 from fusion_science.config import ScienceConfig
+from fusion_science.core.gateway import LLMGateway
+from fusion_science.session import MemorySessionStore, SessionManager
 from fusion_science.utils.events import reset_event_bus
 
 
 @pytest.fixture
 def app():
     reset_event_bus()
-    config = ScienceConfig.from_env()
+    config = ScienceConfig()
     application = create_app(config=config)
+    application.state.config = config
+    application.state.gateway = LLMGateway(config)
+    application.state.session_manager = SessionManager(MemorySessionStore())
     yield application
     reset_event_bus()
 

@@ -149,6 +149,40 @@ Five-layer literature architecture with LLM-driven deep analysis and rule-based 
 - **MirrorRouter Smart Routing** (F-20/T5.3): Latency testing (`test_latency`, `test_all_latency`), auto-switch mode (`enable_auto_switch`), smart URL selection (`smart_get_url` — picks faster endpoint). API: `GET /system/mirrors/latency`, `GET /system/mirrors/status`, `POST /system/mirrors/auto-switch`.
 - **363 tests passing**, ruff clean.
 
+### Phase 13 v1.0.0 Release (v1.0.0)
+
+All planned features and non-functional requirements are complete. This is the first production-ready release.
+
+**Feature Summary (F-01 ~ F-35):**
+
+| Category | Features |
+|---|---|
+| Core Engine | LLMGateway (streaming, structured output, retry), ScienceAgent + SciencePipeline, ToolRegistry (12+ tools) |
+| Session & API | FastAPI server with SSE streaming, session CRUD, API key middleware, CORS |
+| Literature | 5-layer system: Search → Reader → Extractor → Synthesizer → Reviewer, CitationManager (APA/Vancouver/BibTeX), PaperGenerator |
+| Database | 8 overseas connectors (PubMed, UniProt, PDB, Ensembl, ChEMBL, etc.) + 3 Chinese connectors (NGDC, CNKI, ScienceDB), DatabaseAggregator, MirrorRouter smart routing |
+| Compute | PythonExecutor, RExecutor, JupyterKernel, HPCScheduler, CodeGenerator |
+| Visualization | 2D charts, 3D molecule (SMILES/PDB), protein structures |
+| Agents | 5 professional agents + QueryRouterAgent, MCP server (JSON-RPC 2.0 + SSE) |
+| Math | MathExplainer with 12 statistical formula patterns + LaTeX |
+| Audit | TraceRecorder, Provenance chain, ComplianceChecker (4 dimensions), AuditIntegrityChecker |
+| Security | macOS Keychain integration, SecureConfig, API key lifecycle |
+
+**Non-Functional Requirements (NF-01 ~ NF-08):**
+
+| ID | Requirement | Implementation |
+|---|---|---|
+| NF-01 | <1s response (cached), <5s (uncached) | Response time tracking, offline cache, connection stats |
+| NF-02 | <2s cold start | Lazy client creation, deferred imports |
+| NF-03 | Secure key storage | macOS Keychain + SecureConfig + in-memory fallback |
+| NF-04 | Auto-reconnection | ConnectionMonitor + retry_with_backoff with jitter |
+| NF-05 | Custom tool registration | Runtime MCP tool CRUD via API |
+| NF-06 | Full audit trail | EventBus auto-integration, TraceRecorder, provenance chains |
+| NF-07 | Offline-first | Mirror fallback, SQLite cache, FUSION_OFFLINE_MODE |
+| NF-08 | Audit integrity | IntegrityChecker validates coverage, chain, parameters |
+
+- **374 tests passing**, ruff clean, all phases complete.
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:
