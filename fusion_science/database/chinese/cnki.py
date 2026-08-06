@@ -54,7 +54,9 @@ class CNKIConnector(BaseConnector):
                 "type": search_type,
             }
             resp = await self._request_with_retry(
-                "GET", "/api/search", params=params,
+                "GET",
+                "/api/search",
+                params=params,
             )
             data = resp.json()
             items = self._parse_search_results(data)
@@ -79,7 +81,8 @@ class CNKIConnector(BaseConnector):
 
         try:
             resp = await self._request_with_retry(
-                "GET", f"/api/detail/{identifier}",
+                "GET",
+                f"/api/detail/{identifier}",
             )
             data = resp.json()
             item = self._parse_detail(data)

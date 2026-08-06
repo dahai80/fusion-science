@@ -16,7 +16,6 @@ from fusion_science.database.mirror import MirrorRouter
 
 
 class TestNGDCConnector:
-
     def test_init_defaults(self):
         c = NGDCConnector()
         assert c.config.base_url == "https://ngdc.cncb.ac.cn"
@@ -126,7 +125,6 @@ class TestNGDCConnector:
 
 
 class TestCNKIConnector:
-
     def test_init_defaults(self):
         c = CNKIConnector()
         assert c.config.base_url == "https://www.cnki.net"
@@ -157,8 +155,11 @@ class TestCNKIConnector:
         c = CNKIConnector()
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
-            "docId": "DOC001", "title": "Detail", "abstract": "Full abstract",
-            "institution": "Peking University", "fund": "NSFC",
+            "docId": "DOC001",
+            "title": "Detail",
+            "abstract": "Full abstract",
+            "institution": "Peking University",
+            "fund": "NSFC",
         }
         mock_resp.raise_for_status = MagicMock()
         c._request_with_retry = AsyncMock(return_value=mock_resp)
@@ -182,7 +183,6 @@ class TestCNKIConnector:
 
 
 class TestScienceDBConnector:
-
     def test_init_defaults(self):
         c = ScienceDBConnector()
         assert c.config.base_url == "https://www.scidb.cn"
@@ -213,7 +213,9 @@ class TestScienceDBConnector:
         c = ScienceDBConnector()
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
-            "id": "DS001", "title": "Detail", "institution": "CAS",
+            "id": "DS001",
+            "title": "Detail",
+            "institution": "CAS",
         }
         mock_resp.raise_for_status = MagicMock()
         c._request_with_retry = AsyncMock(return_value=mock_resp)
@@ -236,7 +238,6 @@ class TestScienceDBConnector:
 
 
 class TestChineseConnectorsRegistry:
-
     def test_registry_has_three(self):
         assert len(CHINESE_CONNECTORS) == 3
         assert "ngdc" in CHINESE_CONNECTORS
@@ -255,7 +256,6 @@ class TestChineseConnectorsRegistry:
 
 
 class TestMirrorRouterSmartRouting:
-
     def test_auto_switch_default_off(self):
         mr = MirrorRouter()
         assert mr._auto_switch is False
@@ -274,8 +274,10 @@ class TestMirrorRouterSmartRouting:
         mock_client.get = AsyncMock(return_value=MagicMock(status_code=200))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        with patch("httpx.AsyncClient", return_value=mock_client), \
-             patch("fusion_science.database.mirror.time.time", return_value=100.0):
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            patch("fusion_science.database.mirror.time.time", return_value=100.0),
+        ):
             results = await mr.test_latency("pubmed")
         assert "primary" in results
         assert "mirror" in results
@@ -348,7 +350,6 @@ class TestMirrorRouterSmartRouting:
 
 
 class TestAPIRoutesPhase12:
-
     @pytest.fixture
     def client(self):
         from httpx import ASGITransport, AsyncClient

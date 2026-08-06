@@ -39,6 +39,7 @@ class LLMResponse:
     usage: dict = field(default_factory=dict)
     model: str = ""
     finish_reason: str = ""
+    error: str = ""
 
 
 class LLMGateway:
@@ -50,12 +51,15 @@ class LLMGateway:
         temperature: float = 0.3,
         max_tokens: int = 8192,
         timeout: float = 300.0,
+        enable_thinking: bool = True,
     ):
         self.model = model
         self.default_model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.enable_thinking = enable_thinking
         self._base_url = base_url.rstrip("/")
+        self._engine_base_url = self._base_url.replace("/v1", "") or "http://localhost:11434"
         self._timeout = timeout
         self._api_key = api_key
         self._client: httpx.AsyncClient | None = None
@@ -63,18 +67,35 @@ class LLMGateway:
         self._model_roles["reasoning"] = model
         self._model_roles["summarization"] = model
         self._model_roles["code"] = model
+        self._role_max_tokens: dict[str, int] = {}
         self._available_models: list[dict] = []
         self._connection_monitor: ConnectionMonitor | None = None
         self._max_retries: int = 3
         self._request_times: list[float] = []
+        self._memory_check_enabled: bool = True
+        self._memory_soft_threshold: float = 0.85
 
     def set_model(self, model: str) -> None:
         logger.info("Switching model: %s -> %s", self.model, model)
         self.model = model
 
-    def set_model_for_role(self, role: str, model: str) -> None:
+    def set_model_for_role(self, role: str, model: str, max_tokens: int | None = None) -> None:
         self._model_roles[role] = model
-        logger.info("Set model for role '%s': %s", role, model)
+        if max_tokens is not None:
+            self._role_max_tokens[role] = max_tokens
+        else:
+            if role == "reasoning":
+                self._role_max_tokens[role] = 8192
+            elif role == "summarization":
+                self._role_max_tokens[role] = 4096
+            elif role == "code":
+                self._role_max_tokens[role] = 8192
+            else:
+                self._role_max_tokens[role] = self.max_tokens
+        logger.info("Set model for role '%s': %s (max_tokens=%d)", role, model, self._role_max_tokens[role])
+
+    def get_max_tokens_for_role(self, role: str) -> int:
+        return self._role_max_tokens.get(role, self.max_tokens)
 
     def get_model_for_role(self, role: str) -> str:
         return self._model_roles.get(role, self.model)
@@ -116,6 +137,7 @@ class LLMGateway:
             check_interval=interval,
         )
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._connection_monitor.start_monitor())
@@ -126,6 +148,7 @@ class LLMGateway:
         if not self._connection_monitor:
             return
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._connection_monitor.stop_monitor())
@@ -134,7 +157,7 @@ class LLMGateway:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            headers = {}
+            headers = {"X-Fusion-Route": "fusion-science"}
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
             self._client = httpx.AsyncClient(
@@ -145,6 +168,63 @@ class LLMGateway:
             logger.debug("Created httpx.AsyncClient, base_url=%s", self._base_url)
         return self._client
 
+    async def check_mlx_memory(self) -> dict[str, Any]:
+        try:
+            headers = {"X-Fusion-Route": "fusion-science"}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            async with httpx.AsyncClient(
+                base_url=self._engine_base_url,
+                headers=headers,
+                timeout=10.0,
+            ) as status_client:
+                resp = await status_client.get("/api/status")
+                resp.raise_for_status()
+                data = resp.json()
+                logger.debug("MLX api/status: %s", json.dumps(data, ensure_ascii=False)[:300])
+                return data
+        except Exception as e:
+            logger.warning("check_mlx_memory failed (non-fatal): %s", e)
+            return {}
+
+    def evaluate_memory_pressure(self, status: dict[str, Any]) -> tuple[bool, str]:
+        if not status:
+            return True, "status_unavailable_proceed"
+        ceiling = status.get("model_memory_max", 0)
+        current = status.get("model_memory_used", 0)
+        if ceiling > 0 and current > 0:
+            ratio = current / ceiling
+            if ratio >= self._memory_soft_threshold:
+                return False, f"memory_pressure_high ratio={ratio:.2f}"
+            return True, f"memory_ok ratio={ratio:.2f}"
+        loaded = status.get("loaded_models", [])
+        if isinstance(loaded, list) and len(loaded) > 3:
+            return False, f"too_many_models_loaded count={len(loaded)}"
+        return True, "status_inconclusive_proceed"
+
+    async def unload_model(self, model_id: str) -> bool:
+        if model_id == self.default_model:
+            logger.debug("Skip unloading default model: %s", model_id)
+            return False
+        try:
+            headers = {"X-Fusion-Route": "fusion-science"}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            async with httpx.AsyncClient(
+                base_url=self._engine_base_url,
+                headers=headers,
+                timeout=30.0,
+            ) as unload_client:
+                resp = await unload_client.post(f"/v1/models/{model_id}/unload")
+                if resp.status_code == 200:
+                    logger.info("Unloaded non-default model: %s", model_id)
+                    return True
+                logger.warning("Unload model %s returned %d", model_id, resp.status_code)
+                return False
+        except Exception as e:
+            logger.warning("unload_model(%s) failed (non-fatal): %s", model_id, e)
+            return False
+
     async def chat(
         self,
         messages: list[dict],
@@ -152,29 +232,52 @@ class LLMGateway:
         temperature: float | None = None,
         max_tokens: int | None = None,
         model: str | None = None,
+        enable_thinking: bool | None = None,
+        check_memory: bool = True,
         **kwargs,
     ) -> LLMResponse:
         use_model = model or self.model
+        effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        if effective_max_tokens < 4096:
+            effective_max_tokens = 4096
+            logger.debug("Bumped max_tokens to 4096 minimum for thinking model safety")
         payload: dict[str, Any] = {
             "model": use_model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+            "max_tokens": effective_max_tokens,
         }
         if tools:
             payload["tools"] = tools
+        thinking_flag = enable_thinking if enable_thinking is not None else self.enable_thinking
+        payload["chat_template_kwargs"] = {"enable_thinking": thinking_flag}
         payload.update(kwargs)
 
         logger.debug(
-            "LLM request: model=%s, msgs=%d, temp=%.2f, max_tokens=%d",
-            use_model, len(messages),
+            "LLM request: model=%s, msgs=%d, temp=%.2f, max_tokens=%d, thinking=%s",
+            use_model,
+            len(messages),
             temperature if temperature is not None else self.temperature,
-            max_tokens if max_tokens is not None else self.max_tokens,
+            effective_max_tokens,
+            thinking_flag,
         )
+
+        if check_memory and self._memory_check_enabled:
+            status = await self.check_mlx_memory()
+            ok, reason = self.evaluate_memory_pressure(status)
+            if not ok:
+                logger.warning("Pre-call memory check FAILED: %s (model=%s)", reason, use_model)
+                return LLMResponse(
+                    content="",
+                    error=f"memory_pressure: {reason}",
+                    model=use_model,
+                )
+            logger.debug("Pre-call memory check: %s", reason)
 
         client = await self._get_client()
         t0 = time.time()
         try:
+
             async def _do_chat():
                 resp = await client.post("/chat/completions", json=payload)
                 resp.raise_for_status()
@@ -188,13 +291,16 @@ class LLMGateway:
 
             choice = data.get("choices", [{}])[0]
             msg = choice.get("message", {})
+            content = msg.get("content") or ""
             elapsed = time.time() - t0
             self._request_times.append(elapsed)
             if self._connection_monitor:
                 self._connection_monitor.record_success()
-            logger.info("LLM response: model=%s, len=%d, %.2fs", use_model, len(msg.get("content", "")), elapsed)
+            logger.info("LLM response: model=%s, len=%d, %.2fs", use_model, len(content), elapsed)
+            if use_model != self.default_model:
+                await self.unload_model(use_model)
             return LLMResponse(
-                content=msg.get("content", ""),
+                content=content,
                 tool_calls=msg.get("tool_calls", []),
                 usage=data.get("usage", {}),
                 model=data.get("model", use_model),
@@ -207,7 +313,9 @@ class LLMGateway:
                 self._connection_monitor.record_failure(f"HTTP {e.response.status_code}")
             logger.error("LLM HTTP error: %s %s", e.response.status_code, e.response.text[:200])
             return LLMResponse(
-                content="", error=f"HTTP {e.response.status_code}", model=use_model,
+                content="",
+                error=f"HTTP {e.response.status_code}",
+                model=use_model,
             )
         except Exception as e:
             elapsed = time.time() - t0
@@ -216,7 +324,9 @@ class LLMGateway:
                 self._connection_monitor.record_failure(str(e))
             logger.error("LLM error: %s", type(e).__name__, exc_info=True)
             return LLMResponse(
-                content="", error=str(e), model=use_model,
+                content="",
+                error=str(e),
+                model=use_model,
             )
 
     async def chat_stream(

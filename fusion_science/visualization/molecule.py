@@ -22,7 +22,7 @@ class MoleculeVisualization:
     success: bool
     html_path: str = ""  # Interactive 3D HTML view
     image_path: str = ""  # Static 2D image
-    pdb_path: str = ""    # PDB file if applicable
+    pdb_path: str = ""  # PDB file if applicable
     error: str = ""
     smiles: str = ""
     formula: str = ""
@@ -48,12 +48,14 @@ class MoleculeVisualizer:
         """Check for optional visualization dependencies."""
         try:
             import rdkit  # type: ignore[import-untyped]  # noqa: F401
+
             self._rdkit_available = True
         except ImportError:
             self._rdkit_available = False
 
         try:
             import py3Dmol  # type: ignore[import-untyped]  # noqa: F401
+
             self._py3dmol_available = True
         except ImportError:
             self._py3dmol_available = False
@@ -331,6 +333,7 @@ class MoleculeVisualizer:
                 # Fetch from RCSB with configurable mirror URL
 
                 import httpx
+
                 pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
                 # Normalize: if the mirror URL is an API endpoint, extract the download host
                 if pdb_base.endswith("/rest/v1"):
@@ -360,7 +363,6 @@ class MoleculeVisualizer:
                 success=True,
                 html_path=html_path,
                 pdb_path=pdb_path,
-                pdb_id=pdb_id,
             )
 
         except Exception as e:
@@ -386,6 +388,7 @@ class MoleculeVisualizer:
             style: Visualization style.
         """
         import base64
+
         pdb_b64 = base64.b64encode(pdb_content.encode()).decode()
 
         style_config = {
@@ -435,8 +438,20 @@ class MoleculeVisualizer:
             {"name": "Ibuprofen", "smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "description": "NSAID"},
             {"name": "Paracetamol", "smiles": "CC(=O)NC1=CC=C(C=C1)O", "description": "Analgesic"},
             {"name": "Caffeine", "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", "description": "Stimulant"},
-            {"name": "Penicillin G", "smiles": "CC1(C(N2C(S1)C(C2=O)NC(=O)CC3=CC=CC=C3)C(=O)O)C", "description": "Antibiotic"},
-            {"name": "Morphine", "smiles": "CN1CC[C@@]23[C@@H]4[C@H]1CC5=C2C(=C(C=C5)O)O[C@@H]3[C@H](C=C4)O", "description": "Opioid analgesic"},
+            {
+                "name": "Penicillin G",
+                "smiles": "CC1(C(N2C(S1)C(C2=O)NC(=O)CC3=CC=CC=C3)C(=O)O)C",
+                "description": "Antibiotic",
+            },
+            {
+                "name": "Morphine",
+                "smiles": "CN1CC[C@@]23[C@@H]4[C@H]1CC5=C2C(=C(C=C5)O)O[C@@H]3[C@H](C=C4)O",
+                "description": "Opioid analgesic",
+            },
             {"name": "Dopamine", "smiles": "C1=CC(=C(C=C1CCN)O)O", "description": "Neurotransmitter"},
-            {"name": "Remdesivir", "smiles": "CCC(CC)COC(=O)[C@H](C)[P@@](=O)(O)OC[C@H]1O[C@@](C#N)([C@@H](O)[C@H]1O)N1C=CC2=C1N=CN=C2N", "description": "Antiviral"},
+            {
+                "name": "Remdesivir",
+                "smiles": "CCC(CC)COC(=O)[C@H](C)[P@@](=O)(O)OC[C@H]1O[C@@](C#N)([C@@H](O)[C@H]1O)N1C=CC2=C1N=CN=C2N",
+                "description": "Antiviral",
+            },
         ]

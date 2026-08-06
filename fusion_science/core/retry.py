@@ -94,7 +94,8 @@ class ConnectionMonitor:
             self._stats.connection_state = "disconnected"
             logger.warning(
                 "Connection lost after %d failures: %s",
-                self._consecutive_failures, reason,
+                self._consecutive_failures,
+                reason,
             )
         else:
             self._stats.connection_state = "reconnecting"
@@ -135,12 +136,15 @@ async def retry_with_backoff(
         except retryable_exceptions as e:
             last_error = e
             if attempt < max_retries:
-                delay = min(base_delay * (exponential_base ** attempt), max_delay)
+                delay = min(base_delay * (exponential_base**attempt), max_delay)
                 if jitter:
-                    delay *= (0.5 + random.random())
+                    delay *= 0.5 + random.random()
                 logger.warning(
                     "Retry %d/%d after %.1fs: %s",
-                    attempt + 1, max_retries, delay, e,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    e,
                 )
                 if on_retry:
                     on_retry(attempt + 1, e)

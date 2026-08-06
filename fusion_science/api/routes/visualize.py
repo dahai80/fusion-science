@@ -1,8 +1,3 @@
-# api/routes/visualize.py — POST /api/v1/visualize
-# Importers: api/app.py includes router
-# API: VisualizeRequest(query, chart_type, data_description, max_iterations) -> VizAgent result
-# User instruction: "启动下一个阶段的任务实施"
-
 from __future__ import annotations
 
 import logging
@@ -21,8 +16,13 @@ class VisualizeRequest(BaseModel):
     max_iterations: int = Field(default=10, ge=1, le=50)
 
 
-@router.post("")
-async def visualize(req: VisualizeRequest, request: Request):
+@router.post("/visualize")
+async def visualize(session_id: str, request: Request, req: VisualizeRequest):
+    mgr = request.app.state.session_manager
+    session = mgr.get_session(session_id)
+    if not session:
+        return {"error": "session_not_found", "session_id": session_id}
+
     router_agent = getattr(request.app.state, "router_agent", None)
     if not router_agent:
         return {"error": "router_agent not available"}

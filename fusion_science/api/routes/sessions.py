@@ -32,8 +32,7 @@ async def list_sessions(request: Request) -> dict[str, Any]:
     sessions = mgr.list_sessions()
     return {
         "sessions": [
-            {"id": s.id, "title": s.title, "created_at": s.created_at, "updated_at": s.updated_at}
-            for s in sessions
+            {"id": s.id, "title": s.title, "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions
         ]
     }
 
@@ -44,7 +43,12 @@ async def get_session(request: Request, session_id: str) -> dict[str, Any]:
     session = mgr.get_session(session_id)
     if not session:
         return {"error": "session_not_found", "session_id": session_id}
-    return {"session_id": session.id, "title": session.title, "messages": session.messages, "artifacts": [a.to_dict() for a in session.artifacts]}
+    return {
+        "session_id": session.id,
+        "title": session.title,
+        "messages": session.messages,
+        "artifacts": [a.to_dict() for a in session.artifacts],
+    }
 
 
 @router.delete("/{session_id}")

@@ -166,14 +166,18 @@ class LiteratureSynthesizer:
 
         messages = [
             {"role": "system", "content": _SYNTHESIS_PROMPT},
-            {"role": "user", "content": (
-                f"Synthesize the following {len(papers)} papers on topic: {topic}\n\n"
-                f"Papers:\n{papers_text[:6000]}"
-            )},
+            {
+                "role": "user",
+                "content": (
+                    f"Synthesize the following {len(papers)} papers on topic: {topic}\n\nPapers:\n{papers_text[:6000]}"
+                ),
+            },
         ]
 
         result = await self._gateway.structured_output(
-            messages, _CONSENSUS_SCHEMA, temperature=0.2,
+            messages,
+            _CONSENSUS_SCHEMA,
+            temperature=0.2,
         )
         if result.error or not result.parsed:
             logger.warning("LLM synthesis failed: %s", result.error)
@@ -182,23 +186,27 @@ class LiteratureSynthesizer:
         data = result.parsed
         key_findings = []
         for f in data.get("key_findings", []):
-            key_findings.append(Finding(
-                statement=f.get("statement", ""),
-                supporting_papers=f.get("supporting_papers", []),
-                contradicting_papers=f.get("contradicting_papers", []),
-                confidence=f.get("confidence", 0.5),
-            ))
+            key_findings.append(
+                Finding(
+                    statement=f.get("statement", ""),
+                    supporting_papers=f.get("supporting_papers", []),
+                    contradicting_papers=f.get("contradicting_papers", []),
+                    confidence=f.get("confidence", 0.5),
+                )
+            )
 
         contradictions = []
         for c in data.get("contradictions", []):
-            contradictions.append(Contradiction(
-                topic=c.get("topic", ""),
-                position_a=c.get("position_a", ""),
-                position_a_papers=c.get("position_a_papers", []),
-                position_b=c.get("position_b", ""),
-                position_b_papers=c.get("position_b_papers", []),
-                possible_reason=c.get("possible_reason", ""),
-            ))
+            contradictions.append(
+                Contradiction(
+                    topic=c.get("topic", ""),
+                    position_a=c.get("position_a", ""),
+                    position_a_papers=c.get("position_a_papers", []),
+                    position_b=c.get("position_b", ""),
+                    position_b_papers=c.get("position_b_papers", []),
+                    possible_reason=c.get("possible_reason", ""),
+                )
+            )
 
         supporting = data.get("supporting_count", 0)
         contradicting = data.get("contradicting_count", 0)
@@ -230,7 +238,10 @@ class LiteratureSynthesizer:
         )
         logger.info(
             "Synthesis complete: %d papers, score=%.2f, findings=%d, contradictions=%d",
-            len(papers), analysis.consensus_score, len(key_findings), len(contradictions),
+            len(papers),
+            analysis.consensus_score,
+            len(key_findings),
+            len(contradictions),
         )
         return analysis
 
@@ -279,11 +290,13 @@ class LiteratureSynthesizer:
             seen_keywords[kw_lower] = seen_keywords.get(kw_lower, 0) + 1
         for kw, count in sorted(seen_keywords.items(), key=lambda x: -x[1])[:5]:
             if count >= 2:
-                findings.append(Finding(
-                    statement=f"'{kw}' appears in {count} papers",
-                    supporting_papers=[],
-                    confidence=min(count / len(papers), 1.0),
-                ))
+                findings.append(
+                    Finding(
+                        statement=f"'{kw}' appears in {count} papers",
+                        supporting_papers=[],
+                        confidence=min(count / len(papers), 1.0),
+                    )
+                )
 
         total = len(papers)
         supporting = sum(1 for f in findings if f.confidence >= 0.5)
@@ -313,7 +326,7 @@ class LiteratureSynthesizer:
         for i, paper in enumerate(papers):
             ext = extractions[i] if i < len(extractions) else None
             pid = getattr(paper, "pmid", "") or getattr(paper, "doi", "") or paper.title[:30]
-            section = f"[Paper {i+1}] {pid}: {paper.title}"
+            section = f"[Paper {i + 1}] {pid}: {paper.title}"
             if paper.abstract:
                 section += f"\nAbstract: {paper.abstract[:500]}"
             if ext and ext.study_type:

@@ -62,14 +62,16 @@ class ToolRegistry:
     def get_openai_tools(self) -> list[dict]:
         result = []
         for tool in self._tools.values():
-            result.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                },
-            })
+            result.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    },
+                }
+            )
         return result
 
     def get_mcp_tools(self) -> list[dict]:
@@ -77,11 +79,13 @@ class ToolRegistry:
         for tool in self._tools.values():
             if not tool.mcp_exposed:
                 continue
-            result.append({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.parameters,
-            })
+            result.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "inputSchema": tool.parameters,
+                }
+            )
         return result
 
     def list_tools(self) -> list[str]:
@@ -191,29 +195,82 @@ def register_builtin_tools(registry: ToolRegistry, config: Any = None) -> None:
         mcp_exposed=True,
     )
 
+    registry.register(
+        name="extract_findings",
+        description="Extract structured findings (PICO, effect size, study type) from a paper's abstract or text",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Paper title"},
+                "abstract": {"type": "string", "description": "Paper abstract or full text snippet"},
+                "paper_id": {"type": "string", "description": "Paper identifier (PMID/DOI)", "default": ""},
+            },
+            "required": ["title", "abstract"],
+        },
+        handler=_extract_findings_handler,
+        mcp_exposed=True,
+    )
+
+    registry.register(
+        name="analyze_consensus",
+        description="Analyze consensus and contradictions across multiple study findings",
+        parameters={
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Research topic or question"},
+                "findings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of finding statements or paper abstracts to synthesize",
+                },
+            },
+            "required": ["topic", "findings"],
+        },
+        handler=_analyze_consensus_handler,
+        mcp_exposed=True,
+    )
+
+    registry.register(
+        name="execute_r",
+        description="Execute R code for statistical analysis (requires R+rpy2 installed)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "R code to execute"},
+                "capture_plots": {"type": "boolean", "description": "Whether to capture plots", "default": True},
+            },
+            "required": ["code"],
+        },
+        handler=_execute_r_handler,
+        mcp_exposed=True,
+    )
+
     logger.info("Registered %d builtin tools", len(registry.list_tools()))
 
 
 async def _search_literature_handler(query: str, max_results: int = 20, sources: list[str] | None = None) -> dict:
     from ..literature.search import LiteratureSearch
+
     searcher = LiteratureSearch()
     try:
         result = await searcher.search(query, max_results=max_results, sources=sources)
         papers = []
         for p in result.papers:
-            papers.append({
-                "title": p.title,
-                "authors": p.authors,
-                "abstract": p.abstract[:500] if p.abstract else "",
-                "journal": p.journal,
-                "year": p.year,
-                "doi": p.doi,
-                "pmid": p.pmid,
-                "arxiv_id": p.arxiv_id,
-                "source": p.source,
-                "url": p.url,
-                "relevance_score": p.relevance_score,
-            })
+            papers.append(
+                {
+                    "title": p.title,
+                    "authors": p.authors,
+                    "abstract": p.abstract[:500] if p.abstract else "",
+                    "journal": p.journal,
+                    "year": p.year,
+                    "doi": p.doi,
+                    "pmid": p.pmid,
+                    "arxiv_id": p.arxiv_id,
+                    "source": p.source,
+                    "url": p.url,
+                    "relevance_score": p.relevance_score,
+                }
+            )
         return {"papers": papers, "total_count": result.total_count, "sources_used": result.sources_used}
     except Exception as e:
         logger.error("search_literature failed: %s", e)
@@ -234,6 +291,7 @@ async def _search_database_handler(database: str, query: str, max_results: int =
     module_path, class_name = entry
     try:
         import importlib
+
         module = importlib.import_module(module_path)
         connector_cls = getattr(module, class_name)
         connector = connector_cls()
@@ -253,6 +311,7 @@ async def _search_database_handler(database: str, query: str, max_results: int =
 
 async def _execute_python_handler(code: str, input_data: dict | None = None) -> dict:
     from ..compute.python_executor import PythonExecutor
+
     executor = PythonExecutor()
     try:
         result = await executor.execute(code, input_data=input_data)
@@ -270,6 +329,7 @@ async def _execute_python_handler(code: str, input_data: dict | None = None) -> 
 
 async def _generate_chart_handler(chart_type: str, data_description: str, code: str | None = None) -> dict:
     from ..compute.python_executor import PythonExecutor
+
     if not code:
         code = f"""
 import matplotlib.pyplot as plt
@@ -327,6 +387,7 @@ async def _fetch_paper_handler(identifier: str, id_type: str = "auto") -> dict:
 
     if id_type == "pmid":
         from ..database.pubmed import PubMedConnector
+
         connector = PubMedConnector()
         try:
             result = await connector.fetch(identifier)
@@ -335,6 +396,7 @@ async def _fetch_paper_handler(identifier: str, id_type: str = "auto") -> dict:
             await connector.close()
     elif id_type == "doi":
         from ..database.pubmed import PubMedConnector
+
         connector = PubMedConnector()
         try:
             result = await connector.search(identifier, max_results=1)
@@ -345,6 +407,7 @@ async def _fetch_paper_handler(identifier: str, id_type: str = "auto") -> dict:
             await connector.close()
     elif id_type == "arxiv":
         from ..literature.search import LiteratureSearch
+
         searcher = LiteratureSearch()
         try:
             result = await searcher._search_arxiv(identifier, max_results=1)
@@ -363,3 +426,75 @@ async def _fetch_paper_handler(identifier: str, id_type: str = "auto") -> dict:
             return {"error": str(e)}
     else:
         return {"error": f"Unsupported id_type: {id_type}"}
+
+
+async def _extract_findings_handler(title: str, abstract: str, paper_id: str = "") -> dict:
+    from ..literature.extractor import LiteratureExtractor
+    from ..literature.search import Paper
+
+    extractor = LiteratureExtractor()
+    paper = Paper(title=title, abstract=abstract, pmid=paper_id)
+    try:
+        extraction = await extractor.extract(paper, paper_id=paper_id)
+        logger.info("extract_findings: type=%s for %s", extraction.study_type, paper_id or title[:40])
+        return {
+            "study_type": extraction.study_type,
+            "pico": extraction.pico.__dict__,
+            "sample_size": extraction.sample_size,
+            "effect_size": extraction.effect_size,
+            "p_value": extraction.p_value,
+            "limitations": extraction.limitations,
+            "funding_source": extraction.funding_source,
+        }
+    except Exception as e:
+        logger.error("extract_findings failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _analyze_consensus_handler(topic: str, findings: list[str]) -> dict:
+    from ..literature.search import Paper
+    from ..literature.synthesizer import LiteratureSynthesizer
+
+    synthesizer = LiteratureSynthesizer()
+    papers = [Paper(title=f"Finding {i + 1}", abstract=f) for i, f in enumerate(findings)]
+    try:
+        consensus = await synthesizer.synthesize(papers, topic=topic)
+        logger.info(
+            "analyze_consensus: score=%.2f, findings=%d", consensus.consensus_score, len(consensus.key_findings)
+        )
+        return {
+            "topic": topic,
+            "consensus_score": consensus.consensus_score,
+            "key_findings": [f.statement for f in consensus.key_findings],
+            "contradictions": [
+                {"topic": c.topic, "position_a": c.position_a, "position_b": c.position_b}
+                for c in consensus.contradictions
+            ],
+            "research_gaps": consensus.research_gaps,
+        }
+    except Exception as e:
+        logger.error("analyze_consensus failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _execute_r_handler(code: str, capture_plots: bool = True) -> dict:
+    from ..compute.r_executor import RExecutor
+
+    executor = RExecutor()
+    if not executor.available:
+        return {
+            "success": False,
+            "error": "R is not available. Install R and rpy2 (pip install fusion-science[r])",
+        }
+    try:
+        result = await executor.execute(code, capture_plots=capture_plots)
+        return {
+            "success": result.success,
+            "output": result.output[:5000] if result.output else "",
+            "error": result.error[:2000] if result.error else "",
+            "plots": result.plots,
+            "execution_time": result.execution_time,
+        }
+    except Exception as e:
+        logger.error("execute_r failed: %s", e)
+        return {"success": False, "error": str(e)}

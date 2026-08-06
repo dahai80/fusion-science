@@ -18,15 +18,24 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Sentinel defaults: when load_config() sees these unchanged values, it tries to
+# auto-resolve them from the running fusion-mlx service (settings.json + /api/status).
+# Env vars / config files override these before auto-resolve runs, so explicit
+# settings always win; auto-resolve only fills in sentinels.
+_SENTINEL_MODEL_NAME = "qwen3.5-9b"
+_SENTINEL_ENGINE_API_KEY = "local"
+_MLX_SETTINGS_PATH = Path.home() / ".fusion-mlx" / "settings.json"
+_MLX_STATUS_URL = "http://localhost:11434/api/status"
+
 
 @dataclass
 class ScienceConfig:
     """Complete configuration for fusion-science."""
 
     # Inference engine
-    model_name: str = "qwen3.5-9b"
+    model_name: str = _SENTINEL_MODEL_NAME
     engine_base_url: str = "http://localhost:11434/v1"
-    engine_api_key: str = "local"
+    engine_api_key: str = _SENTINEL_ENGINE_API_KEY
     engine_timeout: float = 300.0
     engine_temperature: float = 0.3
     engine_max_tokens: int = 8192
@@ -38,7 +47,7 @@ class ScienceConfig:
 
     # API server
     api_host: str = "0.0.0.0"
-    api_port: int = 8300
+    api_port: int = 8200
     api_cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
     # Database
@@ -118,6 +127,7 @@ def load_config(path: str | None = None) -> ScienceConfig:
             with open(path) as f:
                 if path.endswith((".yml", ".yaml")):
                     import yaml
+
                     data = yaml.safe_load(f)
                 else:
                     data = json.load(f)
@@ -136,7 +146,7 @@ def load_config(path: str | None = None) -> ScienceConfig:
         if key == "FUSION_OFFLINE_MODE":
             config.offline_mode = value.lower() in ("true", "1", "yes")
         elif key.startswith("FUSION_SCIENCE_"):
-            config_key = key[len("FUSION_SCIENCE_"):].lower()
+            config_key = key[len("FUSION_SCIENCE_") :].lower()
             if hasattr(config, config_key):
                 current = getattr(config, config_key)
                 if isinstance(current, bool):
@@ -149,17 +159,57 @@ def load_config(path: str | None = None) -> ScienceConfig:
                     setattr(config, config_key, value)
         elif key.startswith("FUSION_SCI_"):
             # Map FUSION_SCI_* to config fields (e.g. FUSION_SCI_PUBMED_MIRROR -> pubmed_mirror)
-            config_key = key[len("FUSION_SCI_"):].lower()
+            config_key = key[len("FUSION_SCI_") :].lower()
             if hasattr(config, config_key):
                 setattr(config, config_key, value)
 
+    # Auto-resolve sentinel defaults from running fusion-mlx (non-fatal).
+    # Env vars / config files have already overridden above; this only fills
+    # in values that are still the sentinel defaults.
+    if config.engine_api_key == _SENTINEL_ENGINE_API_KEY or config.model_name == _SENTINEL_MODEL_NAME:
+        _resolve_from_mlx(config)
+
     return config
+
+
+def _resolve_from_mlx(config: ScienceConfig) -> None:
+    # Resolve sentinel engine_api_key / model_name from the local fusion-mlx
+    # service. Any failure is non-fatal: log a warning and keep existing values.
+    import httpx
+
+    if config.engine_api_key == _SENTINEL_ENGINE_API_KEY:
+        try:
+            with open(_MLX_SETTINGS_PATH) as f:
+                data = json.load(f)
+            key = data.get("auth", {}).get("api_key", "")
+            if key:
+                config.engine_api_key = key
+                logger.info("Auto-resolved engine_api_key from fusion-mlx settings")
+        except Exception as e:
+            logger.warning("Could not read api_key from %s: %s", _MLX_SETTINGS_PATH, e)
+
+    if config.model_name == _SENTINEL_MODEL_NAME:
+        try:
+            headers = {"X-Fusion-Route": "fusion-science"}
+            if config.engine_api_key and config.engine_api_key != _SENTINEL_ENGINE_API_KEY:
+                headers["Authorization"] = f"Bearer {config.engine_api_key}"
+            with httpx.Client(timeout=2.0) as client:
+                resp = client.get(_MLX_STATUS_URL, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+            loaded = data.get("loaded_models", [])
+            if isinstance(loaded, list) and loaded:
+                config.model_name = loaded[0]
+                logger.info("Auto-resolved model_name from fusion-mlx: %s", loaded[0])
+        except Exception as e:
+            logger.warning("Could not auto-detect model from fusion-mlx: %s", e)
 
 
 def _try_load_dotenv() -> None:
     """Try to load .env file from config/ directory (optional dependency)."""
     try:
         from dotenv import load_dotenv
+
         env_path = Path(__file__).resolve().parent.parent / "config" / ".env"
         if env_path.exists():
             load_dotenv(str(env_path))
@@ -181,6 +231,7 @@ def save_config(config: ScienceConfig, path: str) -> None:
     with open(path, "w") as f:
         if path.endswith((".yml", ".yaml")):
             import yaml
+
             yaml.dump(data, f, default_flow_style=False)
         else:
             json.dump(data, f, indent=2, ensure_ascii=False)

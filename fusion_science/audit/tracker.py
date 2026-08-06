@@ -406,6 +406,7 @@ class TraceRecorder:
             return json.dumps({"error": "Session not found"})
 
         from dataclasses import asdict
+
         data = asdict(session)
         indent = 2 if pretty else None
         return json.dumps(data, indent=indent, default=str, ensure_ascii=False)
@@ -445,12 +446,14 @@ class TraceRecorder:
             try:
                 with open(f) as fh:
                     data = json.load(fh)
-                sessions.append({
-                    "session_id": data.get("session_id", ""),
-                    "start_time": data.get("start_time", 0),
-                    "status": data.get("status", "unknown"),
-                    "entry_count": len(data.get("entries", [])),
-                })
+                sessions.append(
+                    {
+                        "session_id": data.get("session_id", ""),
+                        "start_time": data.get("start_time", 0),
+                        "status": data.get("status", "unknown"),
+                        "entry_count": len(data.get("entries", [])),
+                    }
+                )
             except Exception:
                 continue
 

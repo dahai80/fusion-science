@@ -33,6 +33,10 @@ htmlcov/
 # Logs
 *.log
 fusion-science.log
+logs/
+
+# Runtime
+.fusion-science.pid
 
 # Offline packages
 offline_pkgs/

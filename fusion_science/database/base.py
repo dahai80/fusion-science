@@ -129,10 +129,7 @@ class BaseConnector(ABC):
         """
         # Fail fast in offline mode
         if self.config.offline_mode:
-            raise RuntimeError(
-                f"离线模式已启用: 无法请求 {url}。"
-                "请设置 FUSION_OFFLINE_MODE=false 以启用网络请求。"
-            )
+            raise RuntimeError(f"离线模式已启用: 无法请求 {url}。请设置 FUSION_OFFLINE_MODE=false 以启用网络请求。")
 
         last_error = None
         for attempt in range(self.config.max_retries):
@@ -143,15 +140,17 @@ class BaseConnector(ABC):
                 return resp
             except httpx.HTTPStatusError as e:
                 if e.response.status_code in (429, 503):
-                    wait = 2 ** attempt
-                    logger.warning("Rate limited, retrying in %ds (attempt %d/%d)", wait, attempt + 1, self.config.max_retries)
+                    wait = 2**attempt
+                    logger.warning(
+                        "Rate limited, retrying in %ds (attempt %d/%d)", wait, attempt + 1, self.config.max_retries
+                    )
                     await asyncio.sleep(wait)
                     last_error = e
                 else:
                     raise
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 logger.warning("Request failed: %s, retrying (attempt %d/%d)", e, attempt + 1, self.config.max_retries)
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
                 last_error = e
 
         raise last_error or httpx.HTTPError("Request failed after retries")

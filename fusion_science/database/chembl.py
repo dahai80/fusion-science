@@ -127,9 +127,7 @@ class ChEMBLConnector(BaseConnector):
                 error=str(e),
             )
 
-    async def _search_molecules(
-        self, query: str, max_results: int, search_type: str = "similarity"
-    ) -> DatabaseResult:
+    async def _search_molecules(self, query: str, max_results: int, search_type: str = "similarity") -> DatabaseResult:
         """Search for molecules in ChEMBL."""
         if search_type == "similarity":
             params = {
@@ -137,18 +135,14 @@ class ChEMBLConnector(BaseConnector):
                 "limit": max_results,
                 "format": "json",
             }
-            resp = await self._request_with_retry(
-                "GET", "/molecule.json", params=params
-            )
+            resp = await self._request_with_retry("GET", "/molecule.json", params=params)
         else:
             params = {
                 "q": query,
                 "limit": max_results,
                 "format": "json",
             }
-            resp = await self._request_with_retry(
-                "GET", "/molecule.json", params=params
-            )
+            resp = await self._request_with_retry("GET", "/molecule.json", params=params)
 
         data = resp.json()
         molecules = data.get("molecules", data.get("results", []))
@@ -168,9 +162,7 @@ class ChEMBLConnector(BaseConnector):
             "limit": max_results,
             "format": "json",
         }
-        resp = await self._request_with_retry(
-            "GET", "/target.json", params=params
-        )
+        resp = await self._request_with_retry("GET", "/target.json", params=params)
         data = resp.json()
         targets = data.get("targets", data.get("results", []))
         items = [self._parse_target(t) for t in targets]
@@ -184,25 +176,19 @@ class ChEMBLConnector(BaseConnector):
 
     async def _get_molecule(self, chembl_id: str) -> dict[str, Any]:
         """Fetch a single molecule by ChEMBL ID."""
-        resp = await self._request_with_retry(
-            "GET", f"/molecule/{chembl_id}.json"
-        )
+        resp = await self._request_with_retry("GET", f"/molecule/{chembl_id}.json")
         data = resp.json()
         return self._parse_molecule(data)
 
     async def _get_target(self, target_id: str) -> dict[str, Any]:
         """Fetch a single target by ChEMBL target ID."""
-        resp = await self._request_with_retry(
-            "GET", f"/target/{target_id}.json"
-        )
+        resp = await self._request_with_retry("GET", f"/target/{target_id}.json")
         data = resp.json()
         return self._parse_target(data)
 
     async def _get_assay(self, assay_id: str) -> dict[str, Any]:
         """Fetch a single assay by ChEMBL assay ID."""
-        resp = await self._request_with_retry(
-            "GET", f"/assay/{assay_id}.json"
-        )
+        resp = await self._request_with_retry("GET", f"/assay/{assay_id}.json")
         data = resp.json()
         return self._parse_assay(data)
 
@@ -236,7 +222,9 @@ class ChEMBLConnector(BaseConnector):
             "target_type": target.get("target_type", ""),
             "organism": target.get("organism", ""),
             "description": target.get("description", ""),
-            "uniprot_id": target.get("target_components", [{}])[0].get("accession", "") if target.get("target_components") else "",
+            "uniprot_id": target.get("target_components", [{}])[0].get("accession", "")
+            if target.get("target_components")
+            else "",
             "source": "ChEMBL",
         }
 
@@ -253,9 +241,7 @@ class ChEMBLConnector(BaseConnector):
             "source": "ChEMBL",
         }
 
-    async def get_bioactivities(
-        self, molecule_id: str, max_results: int = 20
-    ) -> list[dict[str, Any]]:
+    async def get_bioactivities(self, molecule_id: str, max_results: int = 20) -> list[dict[str, Any]]:
         """Fetch bioactivity data for a molecule.
 
         Args:
@@ -271,9 +257,7 @@ class ChEMBLConnector(BaseConnector):
                 "limit": max_results,
                 "format": "json",
             }
-            resp = await self._request_with_retry(
-                "GET", "/activity.json", params=params
-            )
+            resp = await self._request_with_retry("GET", "/activity.json", params=params)
             data = resp.json()
             activities = data.get("activities", [])
             return [
@@ -307,9 +291,7 @@ class ChEMBLConnector(BaseConnector):
                 "molecule_chembl_id": molecule_id,
                 "format": "json",
             }
-            resp = await self._request_with_retry(
-                "GET", "/drug_indication.json", params=params
-            )
+            resp = await self._request_with_retry("GET", "/drug_indication.json", params=params)
             data = resp.json()
             indications = data.get("drug_indications", [])
             return [

@@ -57,18 +57,21 @@ class ChartGenerator:
         """Apply matplotlib/seaborn style settings."""
         try:
             import matplotlib
+
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             import seaborn as sns
 
             sns.set_style(self.config.style)
             sns.set_palette(self.config.palette)
-            plt.rcParams.update({
-                "figure.dpi": self.config.dpi,
-                "font.size": self.config.font_size,
-                "font.family": self.config.font_family,
-                "figure.figsize": (self.config.width, self.config.height),
-            })
+            plt.rcParams.update(
+                {
+                    "figure.dpi": self.config.dpi,
+                    "font.size": self.config.font_size,
+                    "font.family": self.config.font_family,
+                    "figure.figsize": (self.config.width, self.config.height),
+                }
+            )
         except ImportError:
             logger.warning("matplotlib/seaborn not available for styling")
 
@@ -164,6 +167,7 @@ class ChartGenerator:
 
             if groups:
                 import pandas as pd
+
                 data = pd.DataFrame({"x": x, "y": y, "group": groups})
                 sns.scatterplot(data=data, x="x", y="y", hue="group", ax=ax)
             else:
@@ -281,12 +285,16 @@ class ChartGenerator:
 
             # Classify points
             up = [i for i in range(len(log2fc)) if log2fc[i] > fc_threshold and neg_log_p[i] > -np.log10(p_threshold)]
-            down = [i for i in range(len(log2fc)) if log2fc[i] < -fc_threshold and neg_log_p[i] > -np.log10(p_threshold)]
+            down = [
+                i for i in range(len(log2fc)) if log2fc[i] < -fc_threshold and neg_log_p[i] > -np.log10(p_threshold)
+            ]
             ns = [i for i in range(len(log2fc)) if i not in up and i not in down]
 
             ax.scatter([log2fc[i] for i in ns], [neg_log_p[i] for i in ns], alpha=0.5, s=10, label="NS")
             ax.scatter([log2fc[i] for i in up], [neg_log_p[i] for i in up], alpha=0.7, s=15, color="red", label="Up")
-            ax.scatter([log2fc[i] for i in down], [neg_log_p[i] for i in down], alpha=0.7, s=15, color="blue", label="Down")
+            ax.scatter(
+                [log2fc[i] for i in down], [neg_log_p[i] for i in down], alpha=0.7, s=15, color="blue", label="Down"
+            )
 
             # Threshold lines
             ax.axhline(-np.log10(p_threshold), color="grey", linestyle="--", alpha=0.5)

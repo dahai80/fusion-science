@@ -72,6 +72,7 @@ class JupyterKernelManager:
 
             # Wait for kernel info
             import time
+
             time.sleep(1)
 
             self._running = True
@@ -79,9 +80,7 @@ class JupyterKernelManager:
             return True
 
         except ImportError:
-            logger.error(
-                "jupyter-client not installed. Install with: pip install fusion-science[jupyter]"
-            )
+            logger.error("jupyter-client not installed. Install with: pip install fusion-science[jupyter]")
             return False
         except Exception as e:
             logger.error("Failed to start Jupyter kernel '%s': %s", kernel_name, e)
@@ -116,9 +115,7 @@ class JupyterKernelManager:
             while True:
                 try:
                     msg = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None, self._kernel_client.get_iopub_msg
-                        ),
+                        asyncio.get_event_loop().run_in_executor(None, self._kernel_client.get_iopub_msg),
                         timeout=timeout,
                     )
                 except TimeoutError:

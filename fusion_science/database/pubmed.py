@@ -175,6 +175,7 @@ class PubMedConnector(BaseConnector):
         """
         try:
             import xml.etree.ElementTree as ET
+
             root = ET.fromstring(xml_text)
             articles = []
             for article in root.findall(".//PubmedArticle"):
@@ -189,7 +190,6 @@ class PubMedConnector(BaseConnector):
     def _parse_single_article(self, article: Any) -> dict[str, Any] | None:
         """Parse a single PubmedArticle XML element."""
         try:
-
             medline = article.find(".//MedlineCitation")
             if medline is None:
                 return None

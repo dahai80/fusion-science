@@ -82,7 +82,8 @@ class LiteratureReviewer:
         self._gateway = gateway
         self._extractor = extractor or LiteratureExtractor(gateway=gateway)
         self._synthesizer = synthesizer or LiteratureSynthesizer(
-            gateway=gateway, extractor=self._extractor,
+            gateway=gateway,
+            extractor=self._extractor,
         )
         self._themes: dict[str, list[Paper]] = {}
 
@@ -106,9 +107,7 @@ class LiteratureReviewer:
         review.consensus = consensus
 
         review.key_findings = [f.statement for f in consensus.key_findings]
-        review.contradictions = [
-            f"{c.topic}: {c.position_a} vs {c.position_b}" for c in consensus.contradictions
-        ]
+        review.contradictions = [f"{c.topic}: {c.position_a} vs {c.position_b}" for c in consensus.contradictions]
         review.gaps = consensus.research_gaps
 
         if self._gateway:
@@ -121,7 +120,9 @@ class LiteratureReviewer:
 
         logger.info(
             "Review complete: %d papers, %d sections, consensus=%.2f",
-            len(papers), len(review.sections), consensus.consensus_score,
+            len(papers),
+            len(review.sections),
+            consensus.consensus_score,
         )
         return review
 
@@ -157,8 +158,7 @@ class LiteratureReviewer:
 
         if consensus.key_findings:
             findings_text = "\n".join(
-                f"- {f.statement} (confidence: {f.confidence:.0%})"
-                for f in consensus.key_findings
+                f"- {f.statement} (confidence: {f.confidence:.0%})" for f in consensus.key_findings
             )
             results = await self._generate_section(
                 "Results",
@@ -173,10 +173,7 @@ class LiteratureReviewer:
             sections.append(ReviewSection(title="Results", **results))
 
         if consensus.contradictions:
-            contra_text = "\n".join(
-                f"- {c.topic}: {c.position_a} vs {c.position_b}"
-                for c in consensus.contradictions
-            )
+            contra_text = "\n".join(f"- {c.topic}: {c.position_a} vs {c.position_b}" for c in consensus.contradictions)
             disc = await self._generate_section(
                 "Discussion",
                 (
@@ -223,8 +220,7 @@ class LiteratureReviewer:
         paper_context = ""
         if papers:
             paper_context = "\n\nAvailable citations:\n" + "\n".join(
-                f"[{p.pmid or p.doi or p.arxiv_id or i+1}] {p.title} ({p.year})"
-                for i, p in enumerate(papers[:20])
+                f"[{p.pmid or p.doi or p.arxiv_id or i + 1}] {p.title} ({p.year})" for i, p in enumerate(papers[:20])
             )
 
         messages = [
@@ -233,7 +229,10 @@ class LiteratureReviewer:
         ]
 
         result = await self._gateway.structured_output(
-            messages, _SECTION_SCHEMA, temperature=0.3, max_tokens=2048,
+            messages,
+            _SECTION_SCHEMA,
+            temperature=0.3,
+            max_tokens=2048,
         )
         if result.error or not result.parsed:
             logger.warning("Section '%s' LLM generation failed: %s", section_name, result.error)
@@ -273,45 +272,52 @@ class LiteratureReviewer:
     ) -> list[ReviewSection]:
         sections = []
 
-        sections.append(ReviewSection(
-            title="Introduction",
-            content=f"This review examines the research landscape on '{query}', "
-                    f"analyzing {len(papers)} papers from multiple sources.",
-            citations=[],
-        ))
+        sections.append(
+            ReviewSection(
+                title="Introduction",
+                content=f"This review examines the research landscape on '{query}', "
+                f"analyzing {len(papers)} papers from multiple sources.",
+                citations=[],
+            )
+        )
 
-        sections.append(ReviewSection(
-            title="Methods",
-            content=f"Systematic search identified {len(papers)} relevant papers. "
-                    f"Consensus score: {consensus.consensus_score:.2f}.",
-            citations=[],
-        ))
+        sections.append(
+            ReviewSection(
+                title="Methods",
+                content=f"Systematic search identified {len(papers)} relevant papers. "
+                f"Consensus score: {consensus.consensus_score:.2f}.",
+                citations=[],
+            )
+        )
 
         for theme, theme_papers in sorted(self._themes.items(), key=lambda x: len(x[1]), reverse=True):
             citations = [p.pmid or p.doi or p.arxiv_id for p in theme_papers if p.pmid or p.doi or p.arxiv_id]
-            content = (
-                f"Analysis of {len(theme_papers)} papers on {theme}. "
-                f"Key contributions: " + "; ".join(p.title for p in theme_papers[:5])
+            content = f"Analysis of {len(theme_papers)} papers on {theme}. Key contributions: " + "; ".join(
+                p.title for p in theme_papers[:5]
             )
             sections.append(ReviewSection(title=theme, content=content, citations=citations))
 
         if consensus.key_findings:
             findings_text = "; ".join(f.statement for f in consensus.key_findings[:5])
-            sections.append(ReviewSection(
-                title="Key Findings",
-                content=findings_text,
-                citations=[],
-            ))
+            sections.append(
+                ReviewSection(
+                    title="Key Findings",
+                    content=findings_text,
+                    citations=[],
+                )
+            )
 
-        sections.append(ReviewSection(
-            title="Discussion & Future Directions",
-            content=(
-                f"Summary: {len(papers)} papers reviewed, "
-                f"consensus score {consensus.consensus_score:.2f}. "
-                f"Gaps: {'; '.join(consensus.research_gaps[:3]) if consensus.research_gaps else 'None identified'}."
-            ),
-            citations=[],
-        ))
+        sections.append(
+            ReviewSection(
+                title="Discussion & Future Directions",
+                content=(
+                    f"Summary: {len(papers)} papers reviewed, "
+                    f"consensus score {consensus.consensus_score:.2f}. "
+                    f"Gaps: {'; '.join(consensus.research_gaps[:3]) if consensus.research_gaps else 'None identified'}."
+                ),
+                citations=[],
+            )
+        )
 
         return sections
 

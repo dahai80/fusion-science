@@ -22,7 +22,7 @@ fi
 # 默认参数
 MODE="${MODE:-science}"
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-11434}"
+PORT="${PORT:-8200}"
 DAEMON=false
 
 # 解析参数

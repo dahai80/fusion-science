@@ -40,7 +40,12 @@ async def generate_code(request: Request, body: CodeGenRequest):
     gen = CodeGenerator(gateway=gateway)
     try:
         result = await gen.generate(body.query, body.language)
-        return {"code": result.code, "language": result.language, "confidence": result.confidence, "packages": result.packages}
+        return {
+            "code": result.code,
+            "language": result.language,
+            "confidence": result.confidence,
+            "packages": result.packages,
+        }
     except Exception as e:
         logger.error("Code gen failed: %s", e)
         return {"error": str(e)}
@@ -52,10 +57,7 @@ async def generate_code_batch(request: Request, body: CodeGenBatchRequest):
     gen = CodeGenerator(gateway=gateway)
     try:
         results = await gen.generate_batch(body.queries, body.language)
-        return {"results": [
-            {"code": r.code, "language": r.language, "confidence": r.confidence}
-            for r in results
-        ]}
+        return {"results": [{"code": r.code, "language": r.language, "confidence": r.confidence} for r in results]}
     except Exception as e:
         logger.error("Batch code gen failed: %s", e)
         return {"error": str(e)}

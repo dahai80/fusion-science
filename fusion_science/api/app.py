@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..audit.tracker import TraceRecorder
 from ..config import ScienceConfig, load_config
+from ..core.agents import QueryRouterAgent
+from ..core.context_manager import ContextManager
 from ..core.gateway import LLMGateway
+from ..core.tools import ToolRegistry, register_builtin_tools
 from ..session import MemorySessionStore, SessionManager
 from ..utils.events import (
     EVENT_CODE_EXECUTION,
@@ -87,6 +90,23 @@ async def lifespan(app: FastAPI):
     app.state.session_manager = SessionManager(store=MemorySessionStore())
     app.state.gateway.start_connection_monitor(interval=30.0)
 
+    tool_registry = ToolRegistry()
+    register_builtin_tools(tool_registry, config=config)
+    app.state.tool_registry = tool_registry
+    logger.info("Tool registry ready: %d tools", len(tool_registry.list_tools()))
+
+    router_agent = QueryRouterAgent(engine=app.state.gateway, tool_registry=tool_registry)
+    app.state.router_agent = router_agent
+    logger.info("QueryRouterAgent ready: %d agents", len(router_agent.list_agents()))
+
+    context_manager = ContextManager(
+        session_manager=app.state.session_manager,
+        gateway=app.state.gateway,
+        max_tokens=config.engine_max_tokens,
+        model=config.model_name,
+    )
+    app.state.context_manager = context_manager
+
     recorder = TraceRecorder()
     recorder.start_session(metadata={"api": True})
     app.state.recorder = recorder
@@ -116,7 +136,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="1.0.0",
+        version="1.0.1",
         lifespan=lifespan,
     )
 
@@ -134,11 +154,11 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
 
     app.include_router(health.router, prefix="/api/v1", tags=["health"])
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
-    app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
-    app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
-    app.include_router(analysis.router, prefix="/api/v1/analyze", tags=["analysis"])
-    app.include_router(visualize.router, prefix="/api/v1/visualize", tags=["visualize"])
-    app.include_router(review.router, prefix="/api/v1/review", tags=["review"])
+    app.include_router(chat.router, prefix="/api/v1/sessions/{session_id}", tags=["chat"])
+    app.include_router(search.router, prefix="/api/v1/sessions/{session_id}", tags=["search"])
+    app.include_router(analysis.router, prefix="/api/v1/sessions/{session_id}", tags=["analysis"])
+    app.include_router(visualize.router, prefix="/api/v1/sessions/{session_id}", tags=["visualize"])
+    app.include_router(review.router, prefix="/api/v1/sessions/{session_id}", tags=["review"])
     app.include_router(audit_route.router, prefix="/api/v1/sessions/{session_id}/audit", tags=["audit"])
     app.include_router(databases.router, prefix="/api/v1/databases", tags=["databases"])
     app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])

@@ -82,7 +82,8 @@ class HPCScheduler:
         try:
             subprocess.run(
                 ["which", "sbatch"],
-                capture_output=True, timeout=5,
+                capture_output=True,
+                timeout=5,
                 check=False,
             )
             self._sbatch_available = True
@@ -142,9 +143,7 @@ class HPCScheduler:
 
         # If Slurm is not available, run locally
         if not self._check_sbatch() and not self.ssh_host:
-            return await self._run_locally(
-                script_content, job_name, memory_gb, time_limit
-            )
+            return await self._run_locally(script_content, job_name, memory_gb, time_limit)
 
         # Write the script to a temp file
         full_script = f"{slurm_headers}\n{env_section}\n{script_content}"
@@ -158,7 +157,9 @@ class HPCScheduler:
                 # Submit locally
                 result = subprocess.run(
                     ["sbatch", script_path],
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                     check=False,
                 )
                 if result.returncode != 0:
@@ -181,9 +182,7 @@ class HPCScheduler:
 
         except Exception as e:
             logger.error("Job submission failed: %s", e)
-            return await self._run_locally(
-                script_content, job_name, memory_gb, time_limit
-            )
+            return await self._run_locally(script_content, job_name, memory_gb, time_limit)
 
     def _build_slurm_headers(
         self,
@@ -242,6 +241,7 @@ class HPCScheduler:
     ) -> HPCJob:
         """Run the job locally as a subprocess (fallback)."""
         import time
+
         job_id = f"local_{int(time.time())}"
 
         log_dir = os.path.join(tempfile.gettempdir(), "fusion_science_jobs", "logs")
@@ -256,7 +256,8 @@ class HPCScheduler:
         out_fd = await asyncio.to_thread(lambda: open(out_path, "w"))  # noqa: SIM115
         err_fd = await asyncio.to_thread(lambda: open(err_path, "w"))  # noqa: SIM115
         proc = await asyncio.create_subprocess_exec(
-            "/bin/bash", script_path,
+            "/bin/bash",
+            script_path,
             stdout=out_fd,
             stderr=err_fd,
         )
@@ -274,9 +275,7 @@ class HPCScheduler:
     async def _submit_ssh(self, script_path: str) -> str:
         """Submit a job via SSH to a remote cluster."""
         cmd = ["ssh", "-i", self.ssh_key, self.ssh_host, f"sbatch {script_path}"]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, check=False
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"SSH sbatch failed: {result.stderr}")
         match = re.search(r"Submitted batch job (\d+)", result.stdout)
@@ -298,7 +297,10 @@ class HPCScheduler:
         try:
             result = subprocess.run(
                 ["sacct", "-j", job_id, "--format=State", "--noheader", "--parsable2"],
-                capture_output=True, text=True, timeout=30, check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
             )
             if result.returncode == 0:
                 state = result.stdout.strip().split("\n")[0] if result.stdout.strip() else "UNKNOWN"
@@ -306,7 +308,10 @@ class HPCScheduler:
             # Fallback to squeue
             result = subprocess.run(
                 ["squeue", "-j", job_id, "--noheader", "--format=%T"],
-                capture_output=True, text=True, timeout=30, check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
             )
             return result.stdout.strip() or "UNKNOWN"
         except Exception as e:
@@ -329,7 +334,10 @@ class HPCScheduler:
         try:
             result = subprocess.run(
                 ["scancel", job_id],
-                capture_output=True, text=True, timeout=30, check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
             )
             return result.returncode == 0
         except Exception as e:
@@ -352,19 +360,24 @@ class HPCScheduler:
             # Get partition info
             result = subprocess.run(
                 ["sinfo", "--format=%P|%D|%c|%m|%e", "--noheader"],
-                capture_output=True, text=True, timeout=30, check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n"):
                     parts = line.split("|")
                     if len(parts) >= 5:
-                        info.partitions.append({
-                            "name": parts[0].strip(),
-                            "nodes": parts[1].strip(),
-                            "cpus": parts[2].strip(),
-                            "memory": parts[3].strip(),
-                            "free": parts[4].strip(),
-                        })
+                        info.partitions.append(
+                            {
+                                "name": parts[0].strip(),
+                                "nodes": parts[1].strip(),
+                                "cpus": parts[2].strip(),
+                                "memory": parts[3].strip(),
+                                "free": parts[4].strip(),
+                            }
+                        )
         except Exception as e:
             logger.warning("Failed to get cluster info: %s", e)
 

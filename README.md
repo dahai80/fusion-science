@@ -193,4 +193,4 @@ Fusion-Science is designed for the Chinese domestic research environment:
 
 ## License
 
-MIT
+Apache License 2.0

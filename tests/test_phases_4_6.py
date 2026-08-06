@@ -30,6 +30,7 @@ from fusion_science.visualization.smart_viz import SmartVisualizer, VizRecommend
 # Phase 4: Compute
 # =========================================================================
 
+
 class TestCodeGenerator:
     def test_rule_based_correlation(self):
         gen = CodeGenerator()
@@ -153,6 +154,7 @@ class TestSandboxManager:
 # Phase 4: Visualization
 # =========================================================================
 
+
 class TestSmartVisualizer:
     def test_rule_based_volcano(self):
         viz = SmartVisualizer()
@@ -198,6 +200,7 @@ class TestSmartVisualizer:
 # =========================================================================
 # Phase 5: Audit - Reproducibility & Compliance
 # =========================================================================
+
 
 class TestReproducibilityPack:
     def test_pack_to_dict(self):
@@ -287,14 +290,16 @@ class TestComplianceChecker:
         assert isinstance(report["compliant"], bool)
 
     def test_custom_rules(self):
-        custom = [{
-            "id": "custom_check",
-            "category": "custom",
-            "name": "Custom Rule",
-            "description": "Test custom rule",
-            "check": lambda pack: True,
-            "severity": "info",
-        }]
+        custom = [
+            {
+                "id": "custom_check",
+                "category": "custom",
+                "name": "Custom Rule",
+                "description": "Test custom rule",
+                "check": lambda pack: True,
+                "severity": "info",
+            }
+        ]
         checker = ComplianceChecker(custom_rules=custom)
         pack = ReproducibilityPack(
             pack_id="repro_003",
@@ -313,15 +318,18 @@ class TestComplianceChecker:
 # Phase 5: Chinese Databases
 # =========================================================================
 
+
 class TestChineseDBResult:
     def test_success_result(self):
         from fusion_science.database.base import DatabaseResult
+
         r = DatabaseResult(source="ngdc", query="test", items=[{"id": 1}], total_count=1)
         assert r.source == "ngdc"
         assert r.total_count == 1
 
     def test_error_result(self):
         from fusion_science.database.base import DatabaseResult
+
         r = DatabaseResult(source="cnki", query="test", error="timeout")
         assert r.error == "timeout"
         assert r.total_count == 0
@@ -407,6 +415,7 @@ class TestMirrorRouter:
 # =========================================================================
 # Phase 6: Integration - Cross-module tests
 # =========================================================================
+
 
 class TestCrossModuleIntegration:
     def test_tracer_to_reproducibility_pack(self):

@@ -18,21 +18,58 @@ class SandboxConfig:
     max_memory_mb: int = 2048
     max_cpu_seconds: int = 60
     max_processes: int = 50
-    allowed_imports: list[str] = field(default_factory=lambda: [
-        "numpy", "pandas", "scipy", "matplotlib", "seaborn",
-        "sklearn", "statsmodels", "bio", "Bio", "rdkit",
-        "pymol", "py3Dmol", "json", "csv", "math",
-        "collections", "itertools", "functools", "re",
-        "datetime", "pathlib", "typing", "dataclasses",
-        "logging", "io", "copy", "operator",
-    ])
-    blocked_imports: list[str] = field(default_factory=lambda: [
-        "subprocess", "os.system", "shutil", "signal",
-        "ctypes", "multiprocessing", "threading",
-        "socket", "http", "urllib", "requests",
-        "ftplib", "smtplib", "telnetlib",
-        "pickle", "shelve", "marshal",
-    ])
+    allowed_imports: list[str] = field(
+        default_factory=lambda: [
+            "numpy",
+            "pandas",
+            "scipy",
+            "matplotlib",
+            "seaborn",
+            "sklearn",
+            "statsmodels",
+            "bio",
+            "Bio",
+            "rdkit",
+            "pymol",
+            "py3Dmol",
+            "json",
+            "csv",
+            "math",
+            "collections",
+            "itertools",
+            "functools",
+            "re",
+            "datetime",
+            "pathlib",
+            "typing",
+            "dataclasses",
+            "logging",
+            "io",
+            "copy",
+            "operator",
+        ]
+    )
+    blocked_imports: list[str] = field(
+        default_factory=lambda: [
+            "subprocess",
+            "os.system",
+            "shutil",
+            "signal",
+            "ctypes",
+            "multiprocessing",
+            "threading",
+            "socket",
+            "http",
+            "urllib",
+            "requests",
+            "ftplib",
+            "smtplib",
+            "telnetlib",
+            "pickle",
+            "shelve",
+            "marshal",
+        ]
+    )
 
 
 _BLOCKED_PATTERNS: list[tuple[str, str]] = [
@@ -51,13 +88,14 @@ _BLOCKED_PATTERNS: list[tuple[str, str]] = [
 
 
 class SandboxManager:
-
     def __init__(self, config: SandboxConfig | None = None):
         self._config = config or SandboxConfig()
         self._sandboxes: dict[str, dict] = {}
         logger.info(
             "SandboxManager initialized: timeout=%d, max_memory=%dMB, max_cpu=%ds",
-            self._config.timeout, self._config.max_memory_mb, self._config.max_cpu_seconds,
+            self._config.timeout,
+            self._config.max_memory_mb,
+            self._config.max_cpu_seconds,
         )
 
     def create_sandbox(self, config: SandboxConfig | None = None) -> dict:
@@ -136,6 +174,7 @@ class SandboxManager:
 
         # Regex-based pattern checks
         import re
+
         for pattern, description in _BLOCKED_PATTERNS:
             if re.search(pattern, code):
                 issues.append(description)
@@ -154,7 +193,9 @@ class SandboxManager:
         valid = risk_level != "high"
         logger.info(
             "validate_code: valid=%s risk=%s issues=%d",
-            valid, risk_level, len(issues),
+            valid,
+            risk_level,
+            len(issues),
         )
         return {"valid": valid, "issues": issues, "risk_level": risk_level}
 
@@ -235,10 +276,16 @@ class SandboxManager:
     def _check_file_writes(tree: ast.AST) -> list[str]:
         issues = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open" and node.args and isinstance(node.args[1], ast.Constant):
-                    mode = str(node.args[1].value)
-                    if "w" in mode or "a" in mode:
-                        issues.append("File write detected — ensure writes are within sandbox work_dir")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "open"
+                and node.args
+                and isinstance(node.args[1], ast.Constant)
+            ):
+                mode = str(node.args[1].value)
+                if "w" in mode or "a" in mode:
+                    issues.append("File write detected — ensure writes are within sandbox work_dir")
         return issues
 
     def cleanup_all(self) -> int:

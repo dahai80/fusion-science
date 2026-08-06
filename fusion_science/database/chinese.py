@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import BaseConnector, ConnectorConfig
+from .base import BaseConnector, ConnectorConfig, DatabaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -38,28 +38,31 @@ class NGDCConnector(BaseConnector):
         super().__init__(cfg)
         logger.info("NGDCConnector initialized")
 
-    async def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+    async def search(self, query: str, **kwargs: Any) -> DatabaseResult:
         logger.info("NGDC search: %r", query[:80])
         try:
             url = f"{self.config.base_url}/api/search"
             params = {"q": query, "page": kwargs.get("page", 1), "size": kwargs.get("size", 20)}
-            data = await self._request_with_retry("GET", url, params=params)
+            resp = await self._request_with_retry("GET", url, params=params)
+            data = resp.json() if hasattr(resp, "json") else resp
             items = self._parse_ngdc_response(data)
             logger.info("NGDC search returned %d items", len(items))
-            return items
+            return DatabaseResult(source="ngdc", query=query, items=items, total_count=len(items))
         except Exception as e:
             logger.error("NGDC search error: %s", e)
-            return []
+            return DatabaseResult(source="ngdc", query=query, error=str(e))
 
-    async def fetch(self, record_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    async def fetch(self, record_id: str, **kwargs: Any) -> DatabaseResult:
         logger.info("NGDC fetch: %s", record_id)
         try:
             url = f"{self.config.base_url}/api/record/{record_id}"
-            data = await self._request_with_retry("GET", url)
-            return data
+            resp = await self._request_with_retry("GET", url)
+            data = resp.json() if hasattr(resp, "json") else resp
+            items = [data] if isinstance(data, dict) else []
+            return DatabaseResult(source="ngdc", query=record_id, items=items, total_count=len(items))
         except Exception as e:
             logger.error("NGDC fetch error: %s", e)
-            return None
+            return DatabaseResult(source="ngdc", query=record_id, error=str(e))
 
     @staticmethod
     def _parse_ngdc_response(data: Any) -> list[dict[str, Any]]:
@@ -83,7 +86,7 @@ class CNKIConnector(BaseConnector):
         super().__init__(cfg)
         logger.info("CNKIConnector initialized")
 
-    async def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+    async def search(self, query: str, **kwargs: Any) -> DatabaseResult:
         logger.info("CNKI search: %r", query[:80])
         try:
             url = f"{self.config.base_url}/kns/brief/default_result.aspx"
@@ -93,24 +96,27 @@ class CNKIConnector(BaseConnector):
                 "dbPrefix": kwargs.get("db_prefix", "CJFQ"),
                 "page": kwargs.get("page", 1),
             }
-            data = await self._request_with_retry("GET", url, params=params)
+            resp = await self._request_with_retry("GET", url, params=params)
+            data = resp.json() if hasattr(resp, "json") else resp
             items = self._parse_cnki_response(data)
             logger.info("CNKI search returned %d items", len(items))
-            return items
+            return DatabaseResult(source="cnki", query=query, items=items, total_count=len(items))
         except Exception as e:
             logger.error("CNKI search error: %s", e)
-            return []
+            return DatabaseResult(source="cnki", query=query, error=str(e))
 
-    async def fetch(self, record_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    async def fetch(self, record_id: str, **kwargs: Any) -> DatabaseResult:
         logger.info("CNKI fetch: %s", record_id)
         try:
             url = f"{self.config.base_url}/kcms/detail/detail.aspx"
             params = {"dbcode": kwargs.get("dbcode", "CJFQ"), "filename": record_id}
-            data = await self._request_with_retry("GET", url, params=params)
-            return data
+            resp = await self._request_with_retry("GET", url, params=params)
+            data = resp.json() if hasattr(resp, "json") else resp
+            items = [data] if isinstance(data, dict) else []
+            return DatabaseResult(source="cnki", query=record_id, items=items, total_count=len(items))
         except Exception as e:
             logger.error("CNKI fetch error: %s", e)
-            return None
+            return DatabaseResult(source="cnki", query=record_id, error=str(e))
 
     @staticmethod
     def _parse_cnki_response(data: Any) -> list[dict[str, Any]]:
@@ -134,28 +140,31 @@ class ScienceDBConnector(BaseConnector):
         super().__init__(cfg)
         logger.info("ScienceDBConnector initialized")
 
-    async def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+    async def search(self, query: str, **kwargs: Any) -> DatabaseResult:
         logger.info("ScienceDB search: %r", query[:80])
         try:
             url = f"{self.config.base_url}/api/search"
             params = {"q": query, "page": kwargs.get("page", 1), "per_page": kwargs.get("size", 20)}
-            data = await self._request_with_retry("GET", url, params=params)
+            resp = await self._request_with_retry("GET", url, params=params)
+            data = resp.json() if hasattr(resp, "json") else resp
             items = self._parse_scidb_response(data)
             logger.info("ScienceDB search returned %d items", len(items))
-            return items
+            return DatabaseResult(source="sciencedb", query=query, items=items, total_count=len(items))
         except Exception as e:
             logger.error("ScienceDB search error: %s", e)
-            return []
+            return DatabaseResult(source="sciencedb", query=query, error=str(e))
 
-    async def fetch(self, record_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    async def fetch(self, record_id: str, **kwargs: Any) -> DatabaseResult:
         logger.info("ScienceDB fetch: %s", record_id)
         try:
             url = f"{self.config.base_url}/api/dataset/{record_id}"
-            data = await self._request_with_retry("GET", url)
-            return data
+            resp = await self._request_with_retry("GET", url)
+            data = resp.json() if hasattr(resp, "json") else resp
+            items = [data] if isinstance(data, dict) else []
+            return DatabaseResult(source="sciencedb", query=record_id, items=items, total_count=len(items))
         except Exception as e:
             logger.error("ScienceDB fetch error: %s", e)
-            return None
+            return DatabaseResult(source="sciencedb", query=record_id, error=str(e))
 
     @staticmethod
     def _parse_scidb_response(data: Any) -> list[dict[str, Any]]:
@@ -180,6 +189,7 @@ class MirrorRouter:
     @staticmethod
     def _detect_offline() -> bool:
         import os
+
         return os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes")
 
     def enable_mirrors(self, enabled: bool = True) -> None:
@@ -188,6 +198,7 @@ class MirrorRouter:
 
     def get_url(self, db_name: str) -> str:
         from .mirror import DOMESTIC_MIRRORS
+
         endpoint = DOMESTIC_MIRRORS.get(db_name)
         if endpoint is None:
             return ""
@@ -200,6 +211,7 @@ class MirrorRouter:
 
     def list_mirrors(self) -> list[dict[str, Any]]:
         from .mirror import DOMESTIC_MIRRORS
+
         return [
             {
                 "name": m.name,

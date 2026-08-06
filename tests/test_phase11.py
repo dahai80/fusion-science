@@ -34,7 +34,10 @@ class TestRetryWithBackoff:
     async def test_retry_then_success(self):
         fn = AsyncMock(side_effect=[ConnectionError("fail"), "ok"])
         result = await retry_with_backoff(
-            fn, max_retries=3, base_delay=0.01, jitter=False,
+            fn,
+            max_retries=3,
+            base_delay=0.01,
+            jitter=False,
         )
         assert result == "ok"
         assert fn.call_count == 2
@@ -50,7 +53,9 @@ class TestRetryWithBackoff:
         fn = AsyncMock(side_effect=ValueError("bad"))
         with pytest.raises(ValueError):
             await retry_with_backoff(
-                fn, max_retries=3, retryable_exceptions=(ConnectionError,),
+                fn,
+                max_retries=3,
+                retryable_exceptions=(ConnectionError,),
             )
 
     @pytest.mark.asyncio
@@ -143,8 +148,10 @@ class TestLLMGatewayRetry:
             def __init__(self, data):
                 self._data = data
                 self.status_code = 200
+
             def raise_for_status(self):
                 pass
+
             def json(self):
                 return self._data
 
@@ -156,11 +163,13 @@ class TestLLMGatewayRetry:
             call_count += 1
             if call_count == 1:
                 raise httpx.ConnectError("connection refused")
-            return MockResponse({
-                "choices": [{"message": {"content": "retry ok"}, "finish_reason": "stop"}],
-                "usage": {},
-                "model": "test-model",
-            })
+            return MockResponse(
+                {
+                    "choices": [{"message": {"content": "retry ok"}, "finish_reason": "stop"}],
+                    "usage": {},
+                    "model": "test-model",
+                }
+            )
 
         mock_client.post = mock_post
         gw._client = mock_client
@@ -174,8 +183,10 @@ class TestLLMGatewayRetry:
 
         class MockResponse:
             status_code = 200
+
             def raise_for_status(self):
                 pass
+
             def json(self):
                 return {
                     "choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}],
@@ -238,8 +249,11 @@ class TestAuditIntegrityChecker:
         recorder = TraceRecorder()
         recorder.start_session()
         recorder.record(
-            operation="db_query", source="test", description="q",
-            success=False, error="",
+            operation="db_query",
+            source="test",
+            description="q",
+            success=False,
+            error="",
         )
 
         checker = AuditIntegrityChecker()
@@ -293,8 +307,10 @@ class TestAuditIntegrityChecker:
 
 class TestSecureConfig:
     def test_store_and_retrieve_fallback(self):
-        with patch("fusion_science.utils.keychain.store_key", return_value=False), \
-             patch("fusion_science.utils.keychain.retrieve_key", return_value=None):
+        with (
+            patch("fusion_science.utils.keychain.store_key", return_value=False),
+            patch("fusion_science.utils.keychain.retrieve_key", return_value=None),
+        ):
             sc = SecureConfig()
             sc.store("test_key", "test_val")
             val = sc.retrieve("test_key")
@@ -322,8 +338,10 @@ class TestOfflineMode:
             assert is_offline() is True
 
     def test_offline_env_false(self):
-        with patch.dict("os.environ", {"FUSION_OFFLINE_MODE": "false"}), \
-             patch("socket.create_connection", return_value=None):
+        with (
+            patch.dict("os.environ", {"FUSION_OFFLINE_MODE": "false"}),
+            patch("socket.create_connection", return_value=None),
+        ):
             assert is_offline() is False
 
     def test_get_connectivity_offline(self):
@@ -339,6 +357,7 @@ class TestAPIRoutesPhase11:
 
         from fusion_science.api.app import create_app
         from fusion_science.config import ScienceConfig
+
         config = ScienceConfig(model_name="test-model")
         app = create_app(config)
         from fusion_science.audit.tracker import TraceRecorder

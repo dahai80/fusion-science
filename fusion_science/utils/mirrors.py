@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # Mirror configuration helpers
 # ---------------------------------------------------------------------------
 
+
 def get_mirror_config() -> dict[str, Any]:
     """Get the mirror configuration for the domestic research environment.
 
@@ -113,8 +114,20 @@ def get_available_databases() -> list[dict[str, str]]:
         {"name": "Ensembl", "type": "genomics", "connector": "EnsemblConnector", "offline": False},
         {"name": "ChEMBL", "type": "drug", "connector": "ChEMBLConnector", "offline": False},
         {"name": "arXiv", "type": "preprint", "connector": "LiteratureSearch", "offline": False},
-        {"name": "CNKI", "type": "literature", "connector": None, "offline": True, "note": "Chinese literature database"},
-        {"name": "NGDC", "type": "genomics", "connector": None, "offline": True, "note": "National Genomics Data Center"},
+        {
+            "name": "CNKI",
+            "type": "literature",
+            "connector": None,
+            "offline": True,
+            "note": "Chinese literature database",
+        },
+        {
+            "name": "NGDC",
+            "type": "genomics",
+            "connector": None,
+            "offline": True,
+            "note": "National Genomics Data Center",
+        },
     ]
 
 
@@ -124,7 +137,8 @@ def get_cache_stats() -> dict[str, Any]:
     Returns:
         Cache statistics dict.
     """
-    from .database.mirror import ScienceCache
+    from fusion_science.database.mirror import ScienceCache
+
     cache = ScienceCache()
     return cache.stats()
 
@@ -138,7 +152,8 @@ def clear_cache(source: str | None = None) -> int:
     Returns:
         Number of entries cleared.
     """
-    from .database.mirror import ScienceCache
+    from fusion_science.database.mirror import ScienceCache
+
     cache = ScienceCache()
     stats = cache.stats()
     total = stats.get("total_entries", 0)

@@ -100,7 +100,13 @@ class LiteratureReader:
             logger.warning("No LLMGateway configured, returning stub reading")
             return self._stub_reading(paper, paper_id)
 
-        pid = paper_id or getattr(paper, "pmid", "") or getattr(paper, "doi", "") or getattr(paper, "arxiv_id", "") or paper.title[:40]
+        pid = (
+            paper_id
+            or getattr(paper, "pmid", "")
+            or getattr(paper, "doi", "")
+            or getattr(paper, "arxiv_id", "")
+            or paper.title[:40]
+        )
         reading = PaperReading(paper_id=pid, title=paper.title)
 
         reading.tldr = await self._generate_tldr(paper)
@@ -211,9 +217,7 @@ class LiteratureReader:
         summaries: list[SectionSummary],
         title: str,
     ) -> dict:
-        summaries_text = "\n\n".join(
-            f"[{s.section_name}] {s.summary}" for s in summaries
-        )
+        summaries_text = "\n\n".join(f"[{s.section_name}] {s.summary}" for s in summaries)
         prompt = _OVERALL_PROMPT.format(summaries=summaries_text)
 
         schema = {
@@ -254,9 +258,9 @@ class LiteratureReader:
             title=paper.title,
             tldr=f"[No LLM] {paper.title[:60]}",
             overall_summary=abstract[:300] if abstract else "",
-            section_summaries=[
-                SectionSummary(section_name="abstract", summary=abstract[:200] if abstract else "")
-            ] if abstract else [],
+            section_summaries=[SectionSummary(section_name="abstract", summary=abstract[:200] if abstract else "")]
+            if abstract
+            else [],
             key_findings=[],
             methodology_assessment="LLM unavailable — no assessment",
             reading_quality=0.0,

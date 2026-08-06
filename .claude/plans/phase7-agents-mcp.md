@@ -33,9 +33,9 @@ New REST endpoints:
 ```python
 @dataclass
 class ComplianceResult:
-    category: str       # data_residency | algorithm_registration | ethics_review | sensitive_data
+    category: str  # data_residency | algorithm_registration | ethics_review | sensitive_data
     passed: bool
-    severity: str       # info | warning | critical
+    severity: str  # info | warning | critical
     details: str
     recommendation: str
 ```

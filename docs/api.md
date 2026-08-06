@@ -21,10 +21,12 @@ The main interface for local LLM inference. Supports both HTTP mode (connecting 
 from fusion_science.core.engine import ScienceEngine, ModelConfig
 
 # HTTP mode (default)
-engine = ScienceEngine(ModelConfig(
-    name="qwen3.5-9b",
-    base_url="http://localhost:11434/v1",
-))
+engine = ScienceEngine(
+    ModelConfig(
+        name="qwen3.5-9b",
+        base_url="http://localhost:11434/v1",
+    )
+)
 
 # Direct MLX mode
 await engine.load_model("mlx-community/Qwen3.5-9B")

@@ -46,6 +46,7 @@ class ProteinVisualizer:
     def _check_dependencies(self) -> None:
         try:
             import py3Dmol  # type: ignore[import-untyped]  # noqa: F401
+
             self._py3dmol_available = True
         except ImportError:
             self._py3dmol_available = False
@@ -78,8 +79,8 @@ class ProteinVisualizer:
 
         try:
             if not pdb_content:
-
                 import httpx
+
                 pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
                 if pdb_base.endswith("/rest/v1"):
                     pdb_base = "https://files.rcsb.org"
@@ -113,7 +114,12 @@ class ProteinVisualizer:
             # Generate interactive 3D HTML
             if self._py3dmol_available:
                 self._generate_protein_html(
-                    pdb_content, html_path, pdb_id, style, highlights or [], show_ligands,
+                    pdb_content,
+                    html_path,
+                    pdb_id,
+                    style,
+                    highlights or [],
+                    show_ligands,
                 )
             else:
                 html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"
@@ -156,6 +162,7 @@ class ProteinVisualizer:
             show_ligands: Show ligands.
         """
         import base64
+
         pdb_b64 = base64.b64encode(pdb_content.encode()).decode()
 
         # Style configuration

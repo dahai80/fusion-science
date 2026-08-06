@@ -97,6 +97,7 @@ class TestMiddleware:
     @pytest.mark.asyncio
     async def test_api_key_missing_rejected(self, app):
         import os
+
         os.environ["FUSION_SCIENCE_API_KEY"] = "secret123"
         try:
             transport = ASGITransport(app=app)
@@ -109,6 +110,7 @@ class TestMiddleware:
     @pytest.mark.asyncio
     async def test_api_key_valid_passes(self, app):
         import os
+
         os.environ["FUSION_SCIENCE_API_KEY"] = "secret123"
         try:
             transport = ASGITransport(app=app)
@@ -125,6 +127,7 @@ class TestMiddleware:
     @pytest.mark.asyncio
     async def test_health_exempt_from_auth(self, app):
         import os
+
         os.environ["FUSION_SCIENCE_API_KEY"] = "secret123"
         try:
             transport = ASGITransport(app=app)

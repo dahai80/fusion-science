@@ -7,11 +7,26 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 LATEX_SYMBOLS = {
-    "\\alpha": "α", "\\beta": "β", "\\gamma": "γ", "\\delta": "δ",
-    "\\epsilon": "ε", "\\theta": "θ", "\\lambda": "λ", "\\mu": "μ",
-    "\\sigma": "σ", "\\omega": "ω", "\\phi": "φ", "\\psi": "ψ",
-    "\\pi": "π", "\\rho": "ρ", "\\tau": "τ", "\\chi": "χ",
-    "\\eta": "η", "\\kappa": "κ", "\\nu": "ν", "\\xi": "ξ",
+    "\\alpha": "α",
+    "\\beta": "β",
+    "\\gamma": "γ",
+    "\\delta": "δ",
+    "\\epsilon": "ε",
+    "\\theta": "θ",
+    "\\lambda": "λ",
+    "\\mu": "μ",
+    "\\sigma": "σ",
+    "\\omega": "ω",
+    "\\phi": "φ",
+    "\\psi": "ψ",
+    "\\pi": "π",
+    "\\rho": "ρ",
+    "\\tau": "τ",
+    "\\chi": "χ",
+    "\\eta": "η",
+    "\\kappa": "κ",
+    "\\nu": "ν",
+    "\\xi": "ξ",
 }
 
 FORMULA_PATTERNS = {

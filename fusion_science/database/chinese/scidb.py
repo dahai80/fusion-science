@@ -52,7 +52,9 @@ class ScienceDBConnector(BaseConnector):
                 "size": str(max_results),
             }
             resp = await self._request_with_retry(
-                "GET", "/api/search", params=params,
+                "GET",
+                "/api/search",
+                params=params,
             )
             data = resp.json()
             items = self._parse_search_results(data)
@@ -77,7 +79,8 @@ class ScienceDBConnector(BaseConnector):
 
         try:
             resp = await self._request_with_retry(
-                "GET", f"/api/dataset/{identifier}",
+                "GET",
+                f"/api/dataset/{identifier}",
             )
             data = resp.json()
             item = self._parse_detail(data)

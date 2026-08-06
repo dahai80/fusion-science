@@ -102,7 +102,7 @@ class CitationManager:
         parts.append(paper.title)
         if paper.journal:
             parts.append(f"{paper.journal}.")
-        parts.append(paper.year)
+        parts.append(str(paper.year))
         if paper.doi:
             parts.append(f"doi: {paper.doi}")
         return " ".join(parts)

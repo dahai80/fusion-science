@@ -46,7 +46,10 @@ class IntegrityReport:
 
 
 _REQUIRED_OPERATION_TYPES = {
-    "db_query", "code_execution", "llm_call", "visualization",
+    "db_query",
+    "code_execution",
+    "llm_call",
+    "visualization",
 }
 
 
@@ -58,12 +61,14 @@ class AuditIntegrityChecker:
         report = IntegrityReport(session_id=getattr(session, "session_id", "unknown"))
 
         if session is None:
-            report.issues.append(IntegrityIssue(
-                severity="critical",
-                category="missing_session",
-                description="No active trace session found",
-                suggestion="Start a trace session before operations",
-            ))
+            report.issues.append(
+                IntegrityIssue(
+                    severity="critical",
+                    category="missing_session",
+                    description="No active trace session found",
+                    suggestion="Start a trace session before operations",
+                )
+            )
             report.passed = False
             return report
 
@@ -87,42 +92,50 @@ class AuditIntegrityChecker:
             if not getattr(entry, "success", True):
                 err = getattr(entry, "error", "")
                 if not err:
-                    report.issues.append(IntegrityIssue(
-                        severity="warning",
-                        category="missing_error_detail",
-                        description=f"Entry {eid} marked failed but no error message",
-                        entry_id=eid,
-                        suggestion="Record error details on failure",
-                    ))
+                    report.issues.append(
+                        IntegrityIssue(
+                            severity="warning",
+                            category="missing_error_detail",
+                            description=f"Entry {eid} marked failed but no error message",
+                            entry_id=eid,
+                            suggestion="Record error details on failure",
+                        )
+                    )
 
             params = getattr(entry, "parameters", {})
             if not params and op in ("db_query", "code_execution"):
-                report.issues.append(IntegrityIssue(
-                    severity="warning",
-                    category="missing_parameters",
-                    description=f"Entry {eid} ({op}) has no parameters recorded",
-                    entry_id=eid,
-                    suggestion="Ensure all operations record their parameters",
-                ))
+                report.issues.append(
+                    IntegrityIssue(
+                        severity="warning",
+                        category="missing_parameters",
+                        description=f"Entry {eid} ({op}) has no parameters recorded",
+                        entry_id=eid,
+                        suggestion="Ensure all operations record their parameters",
+                    )
+                )
 
             duration = getattr(entry, "duration_ms", 0.0)
             if duration == 0.0 and op in ("db_query", "code_execution", "llm_call"):
-                report.issues.append(IntegrityIssue(
-                    severity="info",
-                    category="missing_duration",
-                    description=f"Entry {eid} ({op}) has no duration recorded",
-                    entry_id=eid,
-                    suggestion="Record operation duration for reproducibility",
-                ))
+                report.issues.append(
+                    IntegrityIssue(
+                        severity="info",
+                        category="missing_duration",
+                        description=f"Entry {eid} ({op}) has no duration recorded",
+                        entry_id=eid,
+                        suggestion="Record operation duration for reproducibility",
+                    )
+                )
 
         for pid in parent_ids:
             if pid and pid not in entry_ids:
-                report.issues.append(IntegrityIssue(
-                    severity="critical",
-                    category="broken_parent_ref",
-                    description=f"Parent entry {pid} referenced but not found",
-                    suggestion="Ensure parent entries exist before referencing",
-                ))
+                report.issues.append(
+                    IntegrityIssue(
+                        severity="critical",
+                        category="broken_parent_ref",
+                        description=f"Parent entry {pid} referenced but not found",
+                        suggestion="Ensure parent entries exist before referencing",
+                    )
+                )
 
         missing_ops = self._required_ops - found_ops
         report.traced_operations = len(found_ops)
@@ -132,12 +145,14 @@ class AuditIntegrityChecker:
             report.coverage_percent = 100.0
 
         for missing in missing_ops:
-            report.issues.append(IntegrityIssue(
-                severity="warning",
-                category="missing_operation_type",
-                description=f"No '{missing}' operations recorded in this session",
-                suggestion=f"Ensure {missing} operations are captured via EventBus",
-            ))
+            report.issues.append(
+                IntegrityIssue(
+                    severity="warning",
+                    category="missing_operation_type",
+                    description=f"No '{missing}' operations recorded in this session",
+                    suggestion=f"Ensure {missing} operations are captured via EventBus",
+                )
+            )
 
         critical_count = sum(1 for i in report.issues if i.severity == "critical")
         if critical_count > 0 or report.coverage_percent < 50:
@@ -145,8 +160,11 @@ class AuditIntegrityChecker:
 
         logger.info(
             "Audit integrity check: session=%s, entries=%d, coverage=%.0f%%, issues=%d, passed=%s",
-            report.session_id, report.total_entries, report.coverage_percent,
-            len(report.issues), report.passed,
+            report.session_id,
+            report.total_entries,
+            report.coverage_percent,
+            len(report.issues),
+            report.passed,
         )
         return report
 
@@ -154,11 +172,13 @@ class AuditIntegrityChecker:
         report = IntegrityReport(session_id="provenance")
 
         if graph is None:
-            report.issues.append(IntegrityIssue(
-                severity="critical",
-                category="missing_graph",
-                description="No provenance graph available",
-            ))
+            report.issues.append(
+                IntegrityIssue(
+                    severity="critical",
+                    category="missing_graph",
+                    description="No provenance graph available",
+                )
+            )
             report.passed = False
             return report
 
@@ -169,31 +189,37 @@ class AuditIntegrityChecker:
             inputs = getattr(node, "inputs", [])
             for input_id in inputs:
                 if input_id not in nodes:
-                    report.issues.append(IntegrityIssue(
-                        severity="critical",
-                        category="broken_lineage",
-                        description=f"Node {nid} references missing input {input_id}",
-                        entry_id=nid,
-                        suggestion="Ensure all input nodes are recorded before transformation",
-                    ))
+                    report.issues.append(
+                        IntegrityIssue(
+                            severity="critical",
+                            category="broken_lineage",
+                            description=f"Node {nid} references missing input {input_id}",
+                            entry_id=nid,
+                            suggestion="Ensure all input nodes are recorded before transformation",
+                        )
+                    )
 
             node_type = getattr(node, "type", "")
             if node_type == "output" and not inputs:
-                report.issues.append(IntegrityIssue(
-                    severity="warning",
-                    category="orphan_output",
-                    description=f"Output node {nid} has no inputs (orphan)",
-                    entry_id=nid,
-                    suggestion="Link output to its source transformation",
-                ))
+                report.issues.append(
+                    IntegrityIssue(
+                        severity="warning",
+                        category="orphan_output",
+                        description=f"Output node {nid} has no inputs (orphan)",
+                        entry_id=nid,
+                        suggestion="Link output to its source transformation",
+                    )
+                )
 
             if node_type == "transformation" and not inputs:
-                report.issues.append(IntegrityIssue(
-                    severity="info",
-                    category="root_transformation",
-                    description=f"Transformation {nid} has no inputs (acts as source)",
-                    entry_id=nid,
-                ))
+                report.issues.append(
+                    IntegrityIssue(
+                        severity="info",
+                        category="root_transformation",
+                        description=f"Transformation {nid} has no inputs (acts as source)",
+                        entry_id=nid,
+                    )
+                )
 
         critical_count = sum(1 for i in report.issues if i.severity == "critical")
         report.passed = critical_count == 0
@@ -202,6 +228,8 @@ class AuditIntegrityChecker:
 
         logger.info(
             "Provenance integrity check: nodes=%d, issues=%d, passed=%s",
-            report.total_entries, len(report.issues), report.passed,
+            report.total_entries,
+            len(report.issues),
+            report.passed,
         )
         return report

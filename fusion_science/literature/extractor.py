@@ -105,15 +105,20 @@ class LiteratureExtractor:
 
         messages = [
             {"role": "system", "content": _EXTRACT_PROMPT},
-            {"role": "user", "content": (
-                f"Extract structured information from this paper:\n\n"
-                f"Title: {paper.title}\n\n"
-                f"Content:\n{content[:5000]}"
-            )},
+            {
+                "role": "user",
+                "content": (
+                    f"Extract structured information from this paper:\n\n"
+                    f"Title: {paper.title}\n\n"
+                    f"Content:\n{content[:5000]}"
+                ),
+            },
         ]
 
         result = await self._gateway.structured_output(
-            messages, _EXTRACTION_SCHEMA, temperature=0.1,
+            messages,
+            _EXTRACTION_SCHEMA,
+            temperature=0.1,
         )
         if result.error or not result.parsed:
             logger.warning("LLM extraction failed for %s: %s", pid, result.error)

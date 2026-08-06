@@ -38,6 +38,7 @@ class EventBus:
 
     async def emit(self, event_type: str, data: dict[str, Any] | None = None, source: str = "") -> None:
         import time
+
         event = Event(
             type=event_type,
             data=data or {},
@@ -46,7 +47,7 @@ class EventBus:
         )
         self._history.append(event)
         if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+            self._history = self._history[-self._max_history :]
 
         handlers = self._handlers.get(event_type, [])
         if not handlers:

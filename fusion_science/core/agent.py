@@ -12,6 +12,26 @@ from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+MAX_AGENT_CONTEXT_TOKENS = 24000
+MAX_ASSISTANT_CONTENT_CHARS = 4000
+MAX_WORKER_OUTPUT_CHARS = 3000
+
+
+def _truncate_content(content: str, max_chars: int) -> str:
+    if len(content) <= max_chars:
+        return content
+    return content[:max_chars] + "\n[...truncated...]"
+
+
+def _estimate_tokens(messages: list[dict]) -> int:
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += max(1, len(content) // 4)
+        total += 4
+    return total
+
 
 @dataclass
 class AgentStep:
@@ -71,25 +91,47 @@ class ScienceAgent:
         self.steps = []
 
         for i in range(max_iterations):
+            accumulated = _estimate_tokens(self._messages)
+            if accumulated > MAX_AGENT_CONTEXT_TOKENS:
+                self._compact_messages()
+                logger.info(
+                    "Agent %s: context compacted at iter %d (%d -> %d tokens est)",
+                    self.name,
+                    i,
+                    accumulated,
+                    _estimate_tokens(self._messages),
+                )
+
             resp = await self._call_llm()
-            self.steps.append(AgentStep(
-                step=i, action="think",
-                content=resp.content or "",
-            ))
+            self.steps.append(
+                AgentStep(
+                    step=i,
+                    action="think",
+                    content=resp.content or "",
+                )
+            )
 
             if resp.tool_calls:
                 for tc in resp.tool_calls:
                     result = await self._execute_tool(tc)
-                    self._messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", ""),
-                        "content": json.dumps(result, ensure_ascii=False, default=str),
-                    })
-                    self.steps.append(AgentStep(
-                        step=i, action="tool_result",
-                        content=f"Tool {tc.get('function', {}).get('name', 'unknown')}: {json.dumps(result, ensure_ascii=False, default=str)[:500]}",
-                        metadata={"tool_call": tc, "result": result},
-                    ))
+                    tool_content = json.dumps(result, ensure_ascii=False, default=str)
+                    if len(tool_content) > 2000:
+                        tool_content = tool_content[:2000] + "[...truncated...]"
+                    self._messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", ""),
+                            "content": tool_content,
+                        }
+                    )
+                    self.steps.append(
+                        AgentStep(
+                            step=i,
+                            action="tool_result",
+                            content=f"Tool {tc.get('function', {}).get('name', 'unknown')}: {tool_content[:500]}",
+                            metadata={"tool_call": tc, "result": result},
+                        )
+                    )
             else:
                 duration = time.time() - start
                 return AgentResult(
@@ -110,6 +152,24 @@ class ScienceAgent:
             error="Max iterations reached without final answer.",
         )
 
+    def _compact_messages(self) -> None:
+        if len(self._messages) <= 4:
+            return
+        system_msgs = [m for m in self._messages if m.get("role") == "system"]
+        non_system = [m for m in self._messages if m.get("role") != "system"]
+        if len(non_system) <= 2:
+            return
+        keep_recent = min(6, len(non_system))
+        recent = non_system[-keep_recent:]
+        older = non_system[:-keep_recent]
+        summary_parts = []
+        for msg in older:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:500]
+            summary_parts.append(f"[{role}] {content}")
+        summary = "[Compacted earlier steps]: " + " | ".join(summary_parts)
+        self._messages = system_msgs + [{"role": "system", "content": summary}] + recent
+
     async def _call_llm(self) -> LLMResponse:
         tools_param = self.tools if self.tools else None
         resp = await self.engine.chat(
@@ -117,13 +177,16 @@ class ScienceAgent:
             tools=tools_param,
         )
         if resp.content:
-            self._messages.append({"role": "assistant", "content": resp.content})
+            truncated = _truncate_content(resp.content, MAX_ASSISTANT_CONTENT_CHARS)
+            self._messages.append({"role": "assistant", "content": truncated})
         if resp.tool_calls:
-            self._messages.append({
-                "role": "assistant",
-                "content": "",
-                "tool_calls": resp.tool_calls,
-            })
+            self._messages.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": resp.tool_calls,
+                }
+            )
         return resp
 
     async def _execute_tool(self, tool_call: dict) -> Any:
@@ -168,9 +231,13 @@ class SciencePipeline:
         for name in agent_names:
             agent = self.agents.get(name)
             if not agent:
-                result.agent_results.append(AgentResult(
-                    agent_name=name, output="", error=f"Agent '{name}' not found",
-                ))
+                result.agent_results.append(
+                    AgentResult(
+                        agent_name=name,
+                        output="",
+                        error=f"Agent '{name}' not found",
+                    )
+                )
                 continue
             try:
                 agent_result = await agent.run(current_input)
@@ -178,9 +245,13 @@ class SciencePipeline:
                 current_input = agent_result.output
             except Exception as e:
                 logger.exception("Agent %s failed", name)
-                result.agent_results.append(AgentResult(
-                    agent_name=name, output="", error=str(e),
-                ))
+                result.agent_results.append(
+                    AgentResult(
+                        agent_name=name,
+                        output="",
+                        error=str(e),
+                    )
+                )
 
         result.total_duration = time.time() - start
         result.summary = self._generate_summary(result)
@@ -222,9 +293,13 @@ class SciencePipeline:
         start = time.time()
         master = self.agents.get(master_name)
         if not master:
-            result.agent_results.append(AgentResult(
-                agent_name=master_name, output="", error=f"Agent '{master_name}' not found",
-            ))
+            result.agent_results.append(
+                AgentResult(
+                    agent_name=master_name,
+                    output="",
+                    error=f"Agent '{master_name}' not found",
+                )
+            )
             return result
 
         decompose_prompt = (
@@ -249,8 +324,7 @@ class SciencePipeline:
                     return AgentResult(agent_name=name, output="", error=str(e))
 
         worker_coros = [
-            run_worker(worker_names[i], sub_tasks[i] if i < len(sub_tasks) else task)
-            for i in range(len(worker_names))
+            run_worker(worker_names[i], sub_tasks[i] if i < len(sub_tasks) else task) for i in range(len(worker_names))
         ]
         worker_results = await asyncio.gather(*worker_coros)
         result.agent_results.extend(worker_results)
@@ -259,10 +333,10 @@ class SciencePipeline:
             f"Original task: {task}\n\n"
             f"Worker results:\n"
             + "\n".join(
-                f"--- {r.agent_name} ---\n{r.output}"
+                f"--- {r.agent_name} ---\n{_truncate_content(r.output, MAX_WORKER_OUTPUT_CHARS)}"
                 for r in worker_results
-            ) +
-            "\n\nProvide a comprehensive summary of the research findings."
+            )
+            + "\n\nProvide a comprehensive summary of the research findings."
         )
         summary = await master.run(summary_prompt)
         result.agent_results.append(summary)

@@ -221,9 +221,7 @@ class TestPaperGeneratorEnhanced:
         assert any("empty" in w.lower() for w in warnings)
 
     def test_generate_figure_legend(self):
-        legend = PaperGenerator.generate_figure_legend(
-            "bar chart", "Gene expression levels", "t-test, p < 0.05"
-        )
+        legend = PaperGenerator.generate_figure_legend("bar chart", "Gene expression levels", "t-test, p < 0.05")
         assert "Gene expression" in legend
         assert "p < 0.05" in legend
 
@@ -250,6 +248,7 @@ class TestPaperGeneratorEnhanced:
 class TestConfigModelRoles:
     def test_config_has_model_role_fields(self):
         from fusion_science.config import ScienceConfig
+
         config = ScienceConfig()
         assert hasattr(config, "model_reasoning")
         assert hasattr(config, "model_summarization")
@@ -260,6 +259,7 @@ class TestConfigModelRoles:
 
     def test_config_model_role_from_dict(self):
         from fusion_science.config import ScienceConfig
+
         config = ScienceConfig(model_reasoning="big-model", model_code="code-model")
         assert config.model_reasoning == "big-model"
         assert config.model_code == "code-model"

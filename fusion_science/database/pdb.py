@@ -51,6 +51,7 @@ class PDBConnector(BaseConnector):
     @property
     def search_client(self) -> httpx.AsyncClient:
         import httpx
+
         if self._search_client is None:
             self._search_client = httpx.AsyncClient(
                 base_url=self.SEARCH_URL,
@@ -100,7 +101,9 @@ class PDBConnector(BaseConnector):
 
         try:
             resp = await self._request_with_retry(
-                "POST", "", json=search_payload,
+                "POST",
+                "",
+                json=search_payload,
                 client_override=self.search_client,
             )
             data = resp.json()
@@ -147,15 +150,11 @@ class PDBConnector(BaseConnector):
 
         try:
             # Fetch core entry data
-            resp = await self._request_with_retry(
-                "GET", f"/core/entry/{pdb_id}"
-            )
+            resp = await self._request_with_retry("GET", f"/core/entry/{pdb_id}")
             data = resp.json()
 
             # Fetch assembly data (for molecular weight, etc.)
-            assembly_resp = await self._request_with_retry(
-                "GET", f"/core/assembly/{pdb_id}/1"
-            )
+            assembly_resp = await self._request_with_retry("GET", f"/core/assembly/{pdb_id}/1")
             assembly_data = assembly_resp.json()
 
             entry = self._parse_entry(data, assembly_data)
@@ -221,12 +220,16 @@ class PDBConnector(BaseConnector):
         try:
             polymer_entities = data.get("polymer_entities", [])
             for ent in polymer_entities:
-                polymers.append({
-                    "entity_id": ent.get("entity_id", 0),
-                    "type": ent.get("polymer_entity_type", ""),
-                    "sequence": ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can", ""),
-                    "length": ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can", "").count("") - 1 if ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can") else 0,
-                })
+                polymers.append(
+                    {
+                        "entity_id": ent.get("entity_id", 0),
+                        "type": ent.get("polymer_entity_type", ""),
+                        "sequence": ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can", ""),
+                        "length": ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can", "").count("") - 1
+                        if ent.get("entity_poly", {}).get("pdbx_seq_one_letter_code_can")
+                        else 0,
+                    }
+                )
         except Exception:
             pass
 
@@ -235,11 +238,13 @@ class PDBConnector(BaseConnector):
         try:
             nonpolymer_entities = data.get("nonpolymer_entities", [])
             for ent in nonpolymer_entities:
-                ligands.append({
-                    "entity_id": ent.get("entity_id", 0),
-                    "name": ent.get("pdbx_entity_nonpoly", {}).get("name", ""),
-                    "comp_id": ent.get("pdbx_entity_nonpoly", {}).get("comp_id", ""),
-                })
+                ligands.append(
+                    {
+                        "entity_id": ent.get("entity_id", 0),
+                        "name": ent.get("pdbx_entity_nonpoly", {}).get("name", ""),
+                        "comp_id": ent.get("pdbx_entity_nonpoly", {}).get("comp_id", ""),
+                    }
+                )
         except Exception:
             pass
 
@@ -278,9 +283,7 @@ class PDBConnector(BaseConnector):
             "pdbml_ext": f"https://files.rcsb.org/download/{pdb_id}-ext.xml",
         }
 
-    async def search_by_sequence(
-        self, sequence: str, max_results: int = 10
-    ) -> DatabaseResult:
+    async def search_by_sequence(self, sequence: str, max_results: int = 10) -> DatabaseResult:
         """Search PDB by protein sequence.
 
         Args:
@@ -309,16 +312,15 @@ class PDBConnector(BaseConnector):
 
         try:
             resp = await self._request_with_retry(
-                "POST", "", json=search_payload,
+                "POST",
+                "",
+                json=search_payload,
                 client_override=self.search_client,
             )
             data = resp.json()
             result_set = data.get("result_set", [])
             # Extract unique PDB IDs
-            pdb_ids = list(set(
-                r.get("identifier", "").split("_")[0]
-                for r in result_set if r.get("identifier")
-            ))
+            pdb_ids = list(set(r.get("identifier", "").split("_")[0] for r in result_set if r.get("identifier")))
 
             items = []
             for pdb_id in pdb_ids[:max_results]:

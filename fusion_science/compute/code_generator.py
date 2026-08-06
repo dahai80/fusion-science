@@ -20,7 +20,16 @@ class CodeSuggestion:
 
 _BIOINFORMATICS_TEMPLATES: dict[str, dict] = {
     "deseq2": {
-        "keywords": ["deseq2", "differential expression", "diff expression", "differential gene", "deg", "rna-seq", "rnaseq", "deseq"],
+        "keywords": [
+            "deseq2",
+            "differential expression",
+            "diff expression",
+            "differential gene",
+            "deg",
+            "rna-seq",
+            "rnaseq",
+            "deseq",
+        ],
         "language": "R",
         "description": "Differential expression analysis using DESeq2",
         "packages": ["DESeq2", "apeglm"],
@@ -59,7 +68,14 @@ write.csv(as.data.frame(sig), "deseq2_results.csv")
 """,
     },
     "go_enrichment": {
-        "keywords": ["go enrichment", "gene ontology", "go analysis", "enrichment analysis", "functional enrichment", "pathway enrichment"],
+        "keywords": [
+            "go enrichment",
+            "gene ontology",
+            "go analysis",
+            "enrichment analysis",
+            "functional enrichment",
+            "pathway enrichment",
+        ],
         "language": "R",
         "description": "GO enrichment analysis using clusterProfiler",
         "packages": ["clusterProfiler", "org.Hs.eg.db", "enrichplot"],
@@ -134,7 +150,17 @@ plt.show()
 """,
     },
     "ttest": {
-        "keywords": ["t-test", "ttest", "t test", "student", "welch", "two-sample", "two sample", "hypothesis test", "means comparison"],
+        "keywords": [
+            "t-test",
+            "ttest",
+            "t test",
+            "student",
+            "welch",
+            "two-sample",
+            "two sample",
+            "hypothesis test",
+            "means comparison",
+        ],
         "language": "python",
         "description": "Two-sample t-test with effect size",
         "packages": ["scipy", "numpy", "pandas"],
@@ -302,7 +328,6 @@ def _match_template(query: str, language: str) -> dict | None:
 
 
 class CodeGenerator:
-
     def __init__(self, gateway: LLMGateway | None = None):
         self._gateway = gateway
         logger.info("CodeGenerator initialized, gateway=%s", "provided" if gateway else "none (rule-based only)")

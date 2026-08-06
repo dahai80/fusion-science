@@ -27,12 +27,17 @@ def store_key(key_name: str, value: str) -> bool:
     with contextlib.suppress(KeyError, RuntimeError):
         _security_cmd(["delete-generic-password", "-s", _SERVICE_NAME, "-a", key_name])
     try:
-        _security_cmd([
-            "add-generic-password",
-            "-s", _SERVICE_NAME,
-            "-a", key_name,
-            "-w", value,
-        ])
+        _security_cmd(
+            [
+                "add-generic-password",
+                "-s",
+                _SERVICE_NAME,
+                "-a",
+                key_name,
+                "-w",
+                value,
+            ]
+        )
         logger.info("Stored key '%s' in Keychain", key_name)
         return True
     except Exception as e:
@@ -42,12 +47,16 @@ def store_key(key_name: str, value: str) -> bool:
 
 def retrieve_key(key_name: str) -> str | None:
     try:
-        result = _security_cmd([
-            "find-generic-password",
-            "-s", _SERVICE_NAME,
-            "-a", key_name,
-            "-w",
-        ])
+        result = _security_cmd(
+            [
+                "find-generic-password",
+                "-s",
+                _SERVICE_NAME,
+                "-a",
+                key_name,
+                "-w",
+            ]
+        )
         return result
     except KeyError:
         logger.debug("Key '%s' not found in Keychain", key_name)

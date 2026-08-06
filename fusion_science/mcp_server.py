@@ -38,11 +38,14 @@ async def handle_mcp(request: Request):
     logger.info("MCP request: method=%s id=%s", method, req_id)
 
     if method == "initialize":
-        return _success_response(req_id, {
-            "protocolVersion": _PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "fusion-science-mcp", "version": "0.5.0"},
-        })
+        return _success_response(
+            req_id,
+            {
+                "protocolVersion": _PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "fusion-science-mcp", "version": "0.5.0"},
+            },
+        )
 
     if method == "tools/list":
         tool_registry = getattr(request.app.state, "tool_registry", None)
@@ -60,7 +63,9 @@ async def handle_mcp(request: Request):
             return _error_response(req_id, -32603, "Internal error: tool registry not available")
         try:
             result = await tool_registry.execute(tool_name, arguments)
-            return _success_response(req_id, {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]})
+            return _success_response(
+                req_id, {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
+            )
         except Exception as e:
             logger.error("MCP tools/call failed: %s", e)
             return _error_response(req_id, -32603, f"Internal error: {e}")
@@ -79,11 +84,13 @@ def _error_response(req_id, code, message):
 @router.get("/sse")
 async def mcp_sse(request: Request):
     async def event_stream():
-        endpoint_msg = json.dumps({
-            "jsonrpc": "2.0",
-            "method": "notifications/endpoint",
-            "params": {"endpoint": "http://localhost:8200/mcp/"},
-        })
+        endpoint_msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/endpoint",
+                "params": {"endpoint": "http://localhost:8200/mcp/"},
+            }
+        )
         yield f"event: endpoint\ndata: {endpoint_msg}\n\n"
         try:
             while True:

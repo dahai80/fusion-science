@@ -52,7 +52,10 @@ class EnsemblConnector(BaseConnector):
             "Accept": "application/json",
         }
         resp = await self._request_with_retry(
-            "GET", path, params=params, headers=headers,
+            "GET",
+            path,
+            params=params,
+            headers=headers,
         )
         return resp.json()
 
@@ -74,27 +77,32 @@ class EnsemblConnector(BaseConnector):
 
         try:
             species = kwargs.get("species", "human")
-            data = await self._get_json("/search", params={
-                "q": query,
-                "species": species,
-                "limit": str(max_results),
-            })
+            data = await self._get_json(
+                "/search",
+                params={
+                    "q": query,
+                    "species": species,
+                    "limit": str(max_results),
+                },
+            )
 
             # The search endpoint returns a list
             results = data if isinstance(data, list) else data.get("results", [])
             items = []
             for r in results:
-                items.append({
-                    "id": r.get("id", ""),
-                    "type": r.get("type", ""),
-                    "description": r.get("description", ""),
-                    "species": r.get("species", ""),
-                    "region": r.get("region", ""),
-                    "start": r.get("start", 0),
-                    "end": r.get("end", 0),
-                    "strand": r.get("strand", 0),
-                    "source": "Ensembl",
-                })
+                items.append(
+                    {
+                        "id": r.get("id", ""),
+                        "type": r.get("type", ""),
+                        "description": r.get("description", ""),
+                        "species": r.get("species", ""),
+                        "region": r.get("region", ""),
+                        "start": r.get("start", 0),
+                        "end": r.get("end", 0),
+                        "strand": r.get("strand", 0),
+                        "source": "Ensembl",
+                    }
+                )
 
             result = DatabaseResult(
                 source="ensembl",
@@ -174,10 +182,13 @@ class EnsemblConnector(BaseConnector):
             Dict with gene details including transcripts and homologues.
         """
         try:
-            data = await self._get_json(f"/lookup/id/{gene_id}", params={
-                "expand": "1",
-                "format": "json",
-            })
+            data = await self._get_json(
+                f"/lookup/id/{gene_id}",
+                params={
+                    "expand": "1",
+                    "format": "json",
+                },
+            )
             return {
                 "gene_id": data.get("id", ""),
                 "display_name": data.get("display_name", ""),
@@ -194,9 +205,7 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch gene %s: %s", gene_id, e)
             return {"error": str(e), "gene_id": gene_id}
 
-    async def fetch_sequence_region(
-        self, species: str, region: str, start: int, end: int
-    ) -> str:
+    async def fetch_sequence_region(self, species: str, region: str, start: int, end: int) -> str:
         """Fetch genomic sequence for a specific region.
 
         Args:
@@ -219,9 +228,7 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch sequence region: %s", e)
             return ""
 
-    async def fetch_variants(
-        self, gene_id: str, species: str = "human"
-    ) -> list[dict[str, Any]]:
+    async def fetch_variants(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
         """Fetch variants for a gene.
 
         Args:
@@ -239,23 +246,23 @@ class EnsemblConnector(BaseConnector):
             results = data if isinstance(data, list) else []
             variants = []
             for r in results[:100]:  # Limit to 100 variants
-                variants.append({
-                    "id": r.get("id", ""),
-                    "allele_string": r.get("allele_string", ""),
-                    "start": r.get("start", 0),
-                    "end": r.get("end", 0),
-                    "strand": r.get("strand", 0),
-                    "consequence": r.get("consequence_type", ""),
-                    "clinical_significance": r.get("clinical_significance", ""),
-                })
+                variants.append(
+                    {
+                        "id": r.get("id", ""),
+                        "allele_string": r.get("allele_string", ""),
+                        "start": r.get("start", 0),
+                        "end": r.get("end", 0),
+                        "strand": r.get("strand", 0),
+                        "consequence": r.get("consequence_type", ""),
+                        "clinical_significance": r.get("clinical_significance", ""),
+                    }
+                )
             return variants
         except Exception as e:
             logger.error("Failed to fetch variants for %s: %s", gene_id, e)
             return []
 
-    async def fetch_homologues(
-        self, gene_id: str, species: str = "human"
-    ) -> list[dict[str, Any]]:
+    async def fetch_homologues(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
         """Fetch homologous genes across species.
 
         Args:
@@ -266,22 +273,27 @@ class EnsemblConnector(BaseConnector):
             List of homologue dicts.
         """
         try:
-            data = await self._get_json(f"/homology/id/{gene_id}", params={
-                "format": "json",
-                "type": "orthologues",
-            })
+            data = await self._get_json(
+                f"/homology/id/{gene_id}",
+                params={
+                    "format": "json",
+                    "type": "orthologues",
+                },
+            )
             homologies = data.get("data", [])
             results = []
             for h in homologies:
                 for hom in h.get("homologies", []):
                     target = hom.get("target", {})
-                    results.append({
-                        "gene_id": target.get("id", ""),
-                        "species": target.get("species", {}).get("name", ""),
-                        "type": hom.get("type", ""),
-                        "identity": hom.get("identity", 0),
-                        "cigar": hom.get("cigar_line", ""),
-                    })
+                    results.append(
+                        {
+                            "gene_id": target.get("id", ""),
+                            "species": target.get("species", {}).get("name", ""),
+                            "type": hom.get("type", ""),
+                            "identity": hom.get("identity", 0),
+                            "cigar": hom.get("cigar_line", ""),
+                        }
+                    )
             return results
         except Exception as e:
             logger.error("Failed to fetch homologues for %s: %s", gene_id, e)

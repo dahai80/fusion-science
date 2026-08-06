@@ -57,7 +57,9 @@ class SessionManager:
         session.messages.append({"role": role, "content": content})
         session.updated_at = time.time()
         self._store.save(session)
-        await self._bus.emit(EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "add_message"}, source="session")
+        await self._bus.emit(
+            EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "add_message"}, source="session"
+        )
         return session
 
     async def add_artifact(self, session_id: str, artifact: Artifact) -> ResearchSession | None:
@@ -68,7 +70,9 @@ class SessionManager:
         session.artifacts.append(artifact)
         session.updated_at = time.time()
         self._store.save(session)
-        await self._bus.emit(EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "add_artifact"}, source="session")
+        await self._bus.emit(
+            EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "add_artifact"}, source="session"
+        )
         return session
 
     def get_messages(self, session_id: str) -> list[dict]:
@@ -76,6 +80,20 @@ class SessionManager:
         if not session:
             return []
         return list(session.messages)
+
+    async def replace_messages(self, session_id: str, messages: list[dict]) -> ResearchSession | None:
+        session = self._store.load(session_id)
+        if not session:
+            logger.warning("Session not found: %s", session_id)
+            return None
+        session.messages = list(messages)
+        session.updated_at = time.time()
+        self._store.save(session)
+        await self._bus.emit(
+            EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "replace_messages"}, source="session"
+        )
+        logger.info("Replaced messages for session %s: %d messages", session_id, len(messages))
+        return session
 
     async def update_title(self, session_id: str, title: str) -> ResearchSession | None:
         session = self._store.load(session_id)
@@ -85,5 +103,7 @@ class SessionManager:
         session.title = title
         session.updated_at = time.time()
         self._store.save(session)
-        await self._bus.emit(EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "update_title"}, source="session")
+        await self._bus.emit(
+            EVENT_SESSION_UPDATED, {"session_id": session_id, "action": "update_title"}, source="session"
+        )
         return session

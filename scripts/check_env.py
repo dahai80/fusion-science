@@ -139,7 +139,7 @@ def main():
         print("✅ 环境验证通过，可离线使用 fusion-science")
     else:
         print(f"⚠️  发现 {errors} 个依赖缺失，请运行:")
-        print(f"   pip install -e \"{Path(__file__).resolve().parent.parent}\"")
+        print(f'   pip install -e "{Path(__file__).resolve().parent.parent}"')
     print("=" * 60)
     return errors
 

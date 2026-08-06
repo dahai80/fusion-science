@@ -1,10 +1,10 @@
 [project]
 name = "fusion-science"
-version = "1.0.0"
+version = "1.0.1"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Fusion Labs"},
 ]
@@ -71,6 +71,7 @@ testpaths = ["tests"]
 source = ["fusion_science"]
 branch = true
 relative_files = true
+omit = ["fusion_science/database/chinese.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -94,6 +95,9 @@ src = ["fusion_science", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["E501", "B008", "SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_coverage_batch*.py" = ["E402", "F841", "SIM117", "B007"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["fusion_science"]

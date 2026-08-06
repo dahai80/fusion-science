@@ -52,7 +52,9 @@ class NGDCConnector(BaseConnector):
                 "size": str(max_results),
             }
             resp = await self._request_with_retry(
-                "GET", f"/{sub_db}/api/search", params=params,
+                "GET",
+                f"/{sub_db}/api/search",
+                params=params,
             )
             data = resp.json()
             items = self._parse_search_results(data, sub_db)
@@ -78,7 +80,8 @@ class NGDCConnector(BaseConnector):
         sub_db = kwargs.get("sub_db", "gsa")
         try:
             resp = await self._request_with_retry(
-                "GET", f"/{sub_db}/api/detail/{identifier}",
+                "GET",
+                f"/{sub_db}/api/detail/{identifier}",
             )
             data = resp.json()
             item = self._parse_detail(data, sub_db)

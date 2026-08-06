@@ -216,8 +216,10 @@ class TestSessionManager:
     @pytest.mark.asyncio
     async def test_event_emitted_on_create(self, bus):
         events = []
+
         async def capture(e):
             events.append(e)
+
         bus.on(EVENT_SESSION_CREATED, capture)
         mgr = SessionManager(store=MemorySessionStore(), event_bus=bus)
         await mgr.create_session()
@@ -227,8 +229,10 @@ class TestSessionManager:
     @pytest.mark.asyncio
     async def test_event_emitted_on_update(self, bus):
         events = []
+
         async def capture(e):
             events.append(e)
+
         bus.on(EVENT_SESSION_UPDATED, capture)
         mgr = SessionManager(store=MemorySessionStore(), event_bus=bus)
         session = await mgr.create_session()

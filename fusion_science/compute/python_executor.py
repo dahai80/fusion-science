@@ -108,7 +108,8 @@ class PythonExecutor:
                     pass  # Some limits may not be supported on all platforms
 
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, script_path,
+                sys.executable,
+                script_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.work_dir,
@@ -117,9 +118,7 @@ class PythonExecutor:
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=self.timeout
-                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
             except TimeoutError:
                 proc.kill()
                 await proc.wait()
@@ -142,6 +141,7 @@ class PythonExecutor:
             if os.path.exists(output_path):
                 try:
                     import json
+
                     with open(output_path, encoding="utf-8") as f:
                         result_data = json.load(f)
                     parsed_output = result_data.get("output", "")
@@ -277,6 +277,7 @@ if _output_path:
 
             # Capture R output
             import io
+
             io.StringIO()
             io.StringIO()
 
@@ -313,9 +314,20 @@ if _output_path:
             List of available packages with version info.
         """
         packages = [
-            "numpy", "scipy", "pandas", "matplotlib", "seaborn",
-            "sklearn", "biopython", "rdkit", "pymol", "py3Dmol",
-            "statsmodels", "scikit-image", "plotly", "bokeh",
+            "numpy",
+            "scipy",
+            "pandas",
+            "matplotlib",
+            "seaborn",
+            "sklearn",
+            "biopython",
+            "rdkit",
+            "pymol",
+            "py3Dmol",
+            "statsmodels",
+            "scikit-image",
+            "plotly",
+            "bokeh",
         ]
         available = []
         for pkg in packages:

@@ -46,6 +46,7 @@ class RExecutor:
         """Check if R and rpy2 are available."""
         try:
             import rpy2.robjects as robjects  # type: ignore[import-untyped]
+
             robjects.r("version")
             self._r_available = True
         except ImportError:
@@ -129,6 +130,7 @@ class RExecutor:
             List of temporary file paths for plots.
         """
         import tempfile
+
         tempfile.mkdtemp(prefix="fusion_r_plots_")
         plot_paths = []
         return plot_paths
@@ -188,6 +190,7 @@ options(device = function() png(tempfile(fileext = ".png"), width = 800, height 
 
         try:
             import rpy2.robjects as robjects  # type: ignore[import-untyped]
+
             result = {}
             for pkg in packages:
                 try:

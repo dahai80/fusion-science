@@ -20,8 +20,11 @@ _LITERATURE_SYSTEM_PROMPT = (
 )
 
 _LITERATURE_TOOLS = [
-    "search_literature", "fetch_paper", "extract_findings",
-    "analyze_consensus", "search_database",
+    "search_literature",
+    "fetch_paper",
+    "extract_findings",
+    "analyze_consensus",
+    "search_database",
 ]
 
 

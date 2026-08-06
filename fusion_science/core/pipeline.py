@@ -153,7 +153,10 @@ _FALLBACK_TOOL_DEFS = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "chart_type": {"type": "string", "description": "Chart type (bar, line, scatter, box, violin, etc.)"},
+                    "chart_type": {
+                        "type": "string",
+                        "description": "Chart type (bar, line, scatter, box, violin, etc.)",
+                    },
                     "data_description": {"type": "string", "description": "Description of data to visualize"},
                 },
                 "required": ["chart_type", "data_description"],
@@ -191,9 +194,7 @@ class PipelineFactory:
     def create_pipeline(self, template_name: str) -> SciencePipeline:
         template = self.TEMPLATES.get(template_name)
         if not template:
-            raise ValueError(
-                f"Unknown template '{template_name}'. Available: {list(self.TEMPLATES.keys())}"
-            )
+            raise ValueError(f"Unknown template '{template_name}'. Available: {list(self.TEMPLATES.keys())}")
 
         pipeline = SciencePipeline(self.engine, tool_registry=self.tool_registry)
 

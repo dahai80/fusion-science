@@ -26,13 +26,15 @@ async def list_tools(request: Request):
     for name in names:
         td = tool_registry.get_tool(name)
         if td:
-            tools.append({
-                "name": td.name,
-                "description": td.description,
-                "parameters": td.parameters,
-                "mcp_exposed": td.mcp_exposed,
-                "has_handler": td.handler is not None,
-            })
+            tools.append(
+                {
+                    "name": td.name,
+                    "description": td.description,
+                    "parameters": td.parameters,
+                    "mcp_exposed": td.mcp_exposed,
+                    "has_handler": td.handler is not None,
+                }
+            )
     return {"tools": tools, "total": len(tools)}
 
 
@@ -41,6 +43,7 @@ async def register_tool(body: RegisterToolRequest, request: Request):
     tool_registry = getattr(request.app.state, "tool_registry", None)
     if tool_registry is None:
         from ...core.tools import ToolRegistry
+
         tool_registry = ToolRegistry()
         request.app.state.tool_registry = tool_registry
     if tool_registry.has_tool(body.name):

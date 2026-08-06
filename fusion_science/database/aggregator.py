@@ -32,9 +32,7 @@ class AggregatedResult:
             "total_count": self.total_count,
             "merged_items": self.merged_items[:100],
             "errors": self.errors,
-            "per_db_counts": {
-                db: r.total_count for db, r in self.results_by_db.items()
-            },
+            "per_db_counts": {db: r.total_count for db, r in self.results_by_db.items()},
         }
 
 
@@ -101,7 +99,10 @@ class DatabaseAggregator:
 
         logger.info(
             "Aggregated search: query='%s', dbs=%s, total=%d, errors=%d",
-            query[:30], result.databases_used, result.total_count, len(result.errors),
+            query[:30],
+            result.databases_used,
+            result.total_count,
+            len(result.errors),
         )
         return result
 
@@ -140,6 +141,7 @@ class DatabaseAggregator:
         module_path, class_name = entry
         try:
             import importlib
+
             module = importlib.import_module(module_path)
             connector_cls = getattr(module, class_name)
 

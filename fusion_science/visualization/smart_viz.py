@@ -117,15 +117,17 @@ class SmartVisualizer:
             raw_list = llm_result.parsed.get("recommendations", [])
             recs: list[VizRecommendation] = []
             for item in raw_list:
-                recs.append(VizRecommendation(
-                    chart_type=item.get("chart_type", "unknown"),
-                    title=item.get("title", ""),
-                    description=item.get("description", ""),
-                    data_requirements=item.get("data_requirements", ""),
-                    suggested_config=item.get("suggested_config", {}),
-                    reasoning=item.get("reasoning", ""),
-                    confidence=float(item.get("confidence", 0.5)),
-                ))
+                recs.append(
+                    VizRecommendation(
+                        chart_type=item.get("chart_type", "unknown"),
+                        title=item.get("title", ""),
+                        description=item.get("description", ""),
+                        data_requirements=item.get("data_requirements", ""),
+                        suggested_config=item.get("suggested_config", {}),
+                        reasoning=item.get("reasoning", ""),
+                        confidence=float(item.get("confidence", 0.5)),
+                    )
+                )
             logger.info("LLM returned %d recommendations", len(recs))
             return recs
         except Exception as e:
@@ -159,15 +161,17 @@ class SmartVisualizer:
         for chart_type, score in sorted_charts:
             confidence = round(min(score / max_score, 1.0) * 0.9 + 0.1, 2) if max_score > 0 else 0.3
             desc = self._chart_description(chart_type)
-            recs.append(VizRecommendation(
-                chart_type=chart_type,
-                title=desc["title"],
-                description=desc["description"],
-                data_requirements=desc["data_requirements"],
-                suggested_config=desc.get("suggested_config", {}),
-                reasoning=f"Keyword match for '{chart_type}' with score {score:.1f}",
-                confidence=confidence,
-            ))
+            recs.append(
+                VizRecommendation(
+                    chart_type=chart_type,
+                    title=desc["title"],
+                    description=desc["description"],
+                    data_requirements=desc["data_requirements"],
+                    suggested_config=desc.get("suggested_config", {}),
+                    reasoning=f"Keyword match for '{chart_type}' with score {score:.1f}",
+                    confidence=confidence,
+                )
+            )
 
         logger.info("Rule-based recommendations: %s", [r.chart_type for r in recs])
         return recs
@@ -218,9 +222,12 @@ class SmartVisualizer:
                 "suggested_config": {"show_percentage": True},
             },
         }
-        return _descriptions.get(chart_type, {
-            "title": chart_type.replace("_", " ").title(),
-            "description": f"Visualization type: {chart_type}",
-            "data_requirements": "Numeric or categorical data",
-            "suggested_config": {},
-        })
+        return _descriptions.get(
+            chart_type,
+            {
+                "title": chart_type.replace("_", " ").title(),
+                "description": f"Visualization type: {chart_type}",
+                "data_requirements": "Numeric or categorical data",
+                "suggested_config": {},
+            },
+        )

@@ -55,7 +55,6 @@ class ComplianceCheck:
 
 
 class ReproducibilityPackBuilder:
-
     def __init__(
         self,
         trace_recorder: TraceRecorder | None = None,
@@ -68,6 +67,7 @@ class ReproducibilityPackBuilder:
         logger.info("Building reproducibility pack")
 
         from fusion_science import __version__
+
         pack = ReproducibilityPack(
             pack_id=f"repro_{int(time.time())}",
             created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -93,6 +93,7 @@ class ReproducibilityPackBuilder:
             }
 
         import hashlib
+
         raw = json.dumps(pack.to_dict(), sort_keys=True, default=str)
         pack.checksum = hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -134,9 +135,18 @@ class ReproducibilityPackBuilder:
     @staticmethod
     def _collect_dependencies() -> dict[str, str]:
         deps_to_check = [
-            "numpy", "pandas", "scipy", "matplotlib", "seaborn",
-            "sklearn", "bio", "rdkit", "httpx", "pydantic",
-            "fastapi", "sqlite3",
+            "numpy",
+            "pandas",
+            "scipy",
+            "matplotlib",
+            "seaborn",
+            "sklearn",
+            "bio",
+            "rdkit",
+            "httpx",
+            "pydantic",
+            "fastapi",
+            "sqlite3",
         ]
         result = {}
         for dep in deps_to_check:
@@ -201,7 +211,6 @@ _COMPLIANCE_RULES: list[dict[str, Any]] = [
 
 
 class ComplianceChecker:
-
     def __init__(self, custom_rules: list[dict[str, Any]] | None = None):
         self.rules = list(_COMPLIANCE_RULES)
         if custom_rules:
@@ -218,14 +227,16 @@ class ComplianceChecker:
                 logger.error("Compliance rule %s failed: %s", rule["id"], e)
                 passed = False
 
-            results.append(ComplianceCheck(
-                check_id=rule["id"],
-                category=rule["category"],
-                name=rule["name"],
-                description=rule["description"],
-                passed=passed,
-                severity=rule.get("severity", "info"),
-            ))
+            results.append(
+                ComplianceCheck(
+                    check_id=rule["id"],
+                    category=rule["category"],
+                    name=rule["name"],
+                    description=rule["description"],
+                    passed=passed,
+                    severity=rule.get("severity", "info"),
+                )
+            )
 
         logger.info(
             "Compliance check complete: %d/%d passed",
@@ -238,11 +249,13 @@ class ComplianceChecker:
         checks = self.check(pack)
         by_severity: dict[str, list[dict]] = {}
         for c in checks:
-            by_severity.setdefault(c.severity, []).append({
-                "id": c.check_id,
-                "name": c.name,
-                "passed": c.passed,
-            })
+            by_severity.setdefault(c.severity, []).append(
+                {
+                    "id": c.check_id,
+                    "name": c.name,
+                    "passed": c.passed,
+                }
+            )
 
         return {
             "pack_id": pack.pack_id,

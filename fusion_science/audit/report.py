@@ -339,17 +339,19 @@ class ReportGenerator:
         for pkg, ver in ri.get("dependencies", {}).items():
             lines.append(f"- {pkg}: {ver}")
 
-        lines.extend([
-            "",
-            "### Workflow Audit",
-            f"- Total research operations: {report.session_info.get('total_entries', 0)}",
-            f"- Database queries: {len(report.database_queries)}",
-            f"- Code executions: {len(report.code_executions)}",
-            f"- Visualizations generated: {len(report.visualizations)}",
-            "",
-            "### Provenance",
-            "All data sources, transformations, and outputs are tracked with full lineage.",
-            "The complete audit trail and reproducibility package are available upon request.",
-        ])
+        lines.extend(
+            [
+                "",
+                "### Workflow Audit",
+                f"- Total research operations: {report.session_info.get('total_entries', 0)}",
+                f"- Database queries: {len(report.database_queries)}",
+                f"- Code executions: {len(report.code_executions)}",
+                f"- Visualizations generated: {len(report.visualizations)}",
+                "",
+                "### Provenance",
+                "All data sources, transformations, and outputs are tracked with full lineage.",
+                "The complete audit trail and reproducibility package are available upon request.",
+            ]
+        )
 
         return "\n".join(lines)

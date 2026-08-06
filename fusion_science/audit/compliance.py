@@ -31,10 +31,19 @@ class ComplianceResult:
 
 
 _SENSITIVE_KEYWORDS = [
-    "genome", "genomic", "dna sequencing", "gene expression",
-    "clinical trial", "patient record", "health record",
-    "pharmacogenomics", "biobank", "genetic data",
-    "ehr ", "electronic health", "personal health",
+    "genome",
+    "genomic",
+    "dna sequencing",
+    "gene expression",
+    "clinical trial",
+    "patient record",
+    "health record",
+    "pharmacogenomics",
+    "biobank",
+    "genetic data",
+    "ehr ",
+    "electronic health",
+    "personal health",
 ]
 
 _REMOTE_PATTERNS = [

@@ -49,6 +49,7 @@ async def database_status(name: str):
         if not module_path:
             return {"name": name, "available": True, "status": "registered", "note": "connector not yet implemented"}
         import importlib
+
         module = importlib.import_module(module_path)
         connector_cls = getattr(module, class_name)
         connector = connector_cls()
@@ -57,7 +58,12 @@ async def database_status(name: str):
         finally:
             if hasattr(connector, "close"):
                 await connector.close()
-        return {"name": name, "available": True, "status": "healthy" if healthy else "degraded", "display_name": db_info["display_name"]}
+        return {
+            "name": name,
+            "available": True,
+            "status": "healthy" if healthy else "degraded",
+            "display_name": db_info["display_name"],
+        }
     except Exception as e:
         logger.warning("Database status check failed for %s: %s", name, e)
         return {"name": name, "available": False, "status": "error", "error": str(e)}

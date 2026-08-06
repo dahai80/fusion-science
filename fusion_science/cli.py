@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # CLI context
 # ---------------------------------------------------------------------------
 
+
 @click.group()
 @click.option("--config", "-c", help="Path to config file")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
@@ -65,6 +66,7 @@ def cli(ctx: click.Context, config: str | None, verbose: bool, version: bool) ->
 # ---------------------------------------------------------------------------
 # run command — natural language task execution
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.argument("task", required=False)
@@ -107,6 +109,7 @@ def _execute_task(cfg: ScienceConfig, task: str, pipeline: str | None, output: s
 # pipeline command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("pipeline_name", required=True)
 @click.argument("query", required=True)
@@ -147,6 +150,7 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
 # search command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("query", required=True)
 @click.option("--db", "-d", default="pubmed", help="Database to search (pubmed, arxiv, uniprot, pdb)")
@@ -179,6 +183,7 @@ def search(ctx: click.Context, query: str, db: str, max: int, output: str | None
 # ---------------------------------------------------------------------------
 # analyze command
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.argument("file", required=False)
@@ -214,6 +219,7 @@ def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, o
 # visualize command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("type", type=click.Choice(["chart", "molecule", "protein"]))
 @click.option("--data", "-d", help="Data file or SMILES/PDB ID")
@@ -236,6 +242,7 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
 # review command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("query", required=True)
 @click.option("--max-papers", "-m", default=20, help="Maximum papers to review")
@@ -254,6 +261,7 @@ def review(ctx: click.Context, query: str, max_papers: int, output: str | None) 
 # audit command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.option("--output", "-o", default="./audit_report.md", help="Output file")
 @click.option("--format", "-f", type=click.Choice(["markdown", "json"]), default="markdown")
@@ -268,6 +276,7 @@ def audit(ctx: click.Context, output: str, format: str) -> None:
 # ---------------------------------------------------------------------------
 # config command
 # ---------------------------------------------------------------------------
+
 
 @cli.group()
 def config() -> None:
@@ -298,6 +307,7 @@ def config_init(path: str | None) -> None:
 # ---------------------------------------------------------------------------
 # info command
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.pass_context
@@ -347,6 +357,7 @@ def info(ctx: click.Context) -> None:
 # Web UI command
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.option("--host", default=None, help="Host to bind to (default: config api_host)")
 @click.option("--port", default=None, type=int, help="Port to listen on (default: config api_port)")
@@ -367,6 +378,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) 
 
     try:
         import uvicorn
+
         uvicorn.run(
             "fusion_science.api.app:app",
             host=host,
@@ -391,6 +403,7 @@ def web(ctx: click.Context, host: str, port: int) -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Main entry point."""

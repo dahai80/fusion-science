@@ -40,7 +40,7 @@ async def run_pipeline(name: str, req: PipelineRunRequest, request: Request):
         available = list(PipelineFactory.TEMPLATES.keys())
         return {"error": f"Pipeline '{name}' not found", "available": available}
     try:
-        pipeline = factory.create(name)
+        pipeline = factory.create_pipeline(name)
         result = await pipeline.sequential(
             [a.name for a in template.agents],
             req.query,

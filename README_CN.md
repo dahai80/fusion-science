@@ -1,555 +1,195 @@
 # Fusion-Science 🔬
 
-> **本地科研 AI 工作台 · 专为 Apple Silicon 打造**  
+> **本地科研 AI 工作台 · 专为 Apple Silicon 打造**
 > *Fusion-MLX 生态衍生项目 — 完全离线、隐私优先的 Claude Science 国内替代方案*
 
 Fusion-Science 是一个开源、本地优先的科研 AI 平台，将文献调研 → 数据计算 → 可视化绘图 → 论文撰写 → 结果溯源的全流程收拢在单一界面中。基于 Apple MLX 实现全本地推理，无需任何云端 API 依赖，完全离线可用。
 
----
-
-## 目录
-
-- [为什么需要 Fusion-Science](#为什么需要-fusion-science)
-- [核心功能](#核心功能)
-- [快速开始](#快速开始)
-- [架构总览](#架构总览)
-- [模块详解](#模块详解)
-  - [Core 引擎](#1-core-引擎)
-  - [数据库连接器](#2-数据库连接器)
-  - [计算层](#3-计算层)
-  - [可视化](#4-可视化)
-  - [文献工作流](#5-文献工作流)
-  - [审计溯源](#6-审计溯源)
-- [国内研究环境适配](#国内研究环境适配)
-- [与 Claude Science 对比](#与-claude-science-对比)
-- [安装指南](#安装指南)
-- [使用示例](#使用示例)
-- [开发指南](#开发指南)
-- [许可证](#许可证)
-
----
-
-## 为什么需要 Fusion-Science
-
-### 痛点
-
-科研人员日常需要在 PubMed、Jupyter、R 语言、各类生物数据库、集群终端之间反复切换，文献检索、数据处理、绘图、论文撰写高度碎片化。传统 AI 工具（如普通 Claude、ChatGPT）仅支持文本问答，无法调用计算工具、数据库、集群算力，且结果不可追溯。
-
-### Claude Science 的局限
-
-Anthropic 于 2026 年 6 月发布的 Claude Science 是当前最先进的科研 AI 工作台，但存在以下问题：
-- **云端服务**：国内无法直接访问
-- **企业付费**：仅面向企业 Beta 版，门槛高
-- **数据合规**：敏感科研数据需上传海外服务器
-- **不可定制**：无法适配本地算力和特定数据库
-
-### Fusion-Science 的解决方案
-
-| 维度 | Claude Science | Fusion-Science |
-|------|---------------|----------------|
-| 推理方式 | 云端（Claude Opus 4.8） | 本地（MLX on Apple Silicon） |
-| 网络要求 | 必须联网 | 完全离线可用 |
-| 国内访问 | ❌ 不可用 | ✅ 完全可用 |
-| 数据隐私 | 数据上传云端 | 数据全程本地 |
-| 开源 | ❌ 闭源 | ✅ 开源 (MIT) |
-| 算力 | 仅云端 | 本地 Mac + HPC 集群 |
-| 定制化 | 固定功能 | 模块化可扩展 |
-| 国内数据库 | 不支持 | CNKI/NGDC/CNGB 镜像 |
-
----
-
 ## 核心功能
 
-### 1️⃣ 内置 60+ 专业科学数据库连接器
-
-开箱对接生命科学、化学主流数据库，AI 自动跨库整合数据：
-
-| 数据库 | 类型 | 国内镜像 |
-|--------|------|---------|
-| PubMed | 生物医学文献 | CNKI 替代 |
-| UniProt | 蛋白质序列/功能 | 本地缓存 |
-| PDB (RCSB) | 蛋白质 3D 结构 | PDBe 镜像 |
-| Ensembl | 基因组数据 | 亚洲镜像 |
-| ChEMBL | 药物分子/生物活性 | 学术网络 |
-| 中国科学院数据库 | 基因组/科学数据 | ✅ 原生支持 |
-| 国家基因组科学数据中心 | 基因组数据 | ✅ 原生支持 |
-
-### 2️⃣ AI 智能体自动执行计算实验
-
-基于 MCP 模型上下文协议搭建多智能体架构：
-- 自动调用 Python/R/Jupyter 做统计、组学数据分析
-- 调度 HPC 集群、Slurm 算力运行分子模拟、蛋白折叠计算
-- 自动生成可复现代码、图表、3D 分子/蛋白结构图
-- 内置事实校验，大幅降低文献、数据幻觉问题
-
-### 3️⃣ 全链路可审计、可复现
-
-每一份图表、数据、论文片段都会完整留存操作溯源记录：
-- 查询来源（哪个数据库、什么参数）
-- 执行代码（Python/R 脚本原文）
-- 计算日志（完整输出、错误信息）
-- 参数配置（模型参数、分析参数）
-
-满足期刊、药企合规与实验重复验证要求。
-
-### 4️⃣ 一站式文献综述 + 论文撰写
-
-- 批量精读、对比数百篇学术文献
-- 自动梳理研究脉络、实验方案、结论矛盾点
-- 迭代生成论文正文、图表图例、参考文献、方法部分
-- 辅助修改学术图表、标准化科研绘图格式
-
-### 5️⃣ 本地优先，数据隐私可控
-
-- 计算任务可本地执行，敏感测序、药物研发数据无需上传云端
-- 支持私有集群算力对接
-- 适配药企、高校数据合规需求
-
----
+- **🔬 60+ 专业科学数据库连接器** — 内置 PubMed、UniProt、PDB、Ensembl、ChEMBL 等，AI 自动跨库整合数据，支持国内镜像。
+- **🤖 AI 智能体自动执行计算实验** — MCP 多智能体架构，自动调用 Python/R/Jupyter 进行统计分析、组学数据处理、分子模拟。
+- **📊 全栈可视化** — 2D 统计图表、3D 分子/蛋白质结构可视化、出版级图表。
+- **📝 文献综述 + 论文撰写** — 批量精读、对比、综合数百篇论文；迭代生成论文正文，自动管理引用。
+- **🔗 全链路可审计、可复现** — 每份图表、数据、论文片段保留完整溯源：查询来源、执行代码、参数配置、计算日志。
+- **🏠 本地优先，数据隐私可控** — 所有计算本地执行，敏感测序、药物研发数据不离开本机，支持私有集群算力。
 
 ## 快速开始
 
-### 安装
-
 ```bash
-# 基础安装
+# 安装
 pip install fusion-science
 
 # 完整科学计算支持
 pip install "fusion-science[all]"
 
-# 按需安装
-pip install "fusion-science[mlx]"      # MLX 本地推理
-pip install "fusion-science[jupyter]"  # Jupyter 内核
-pip install "fusion-science[r]"        # R 语言支持
-pip install "fusion-science[molecule]" # 分子可视化
-```
-
-### 启动
-
-```bash
 # 命令行界面
 fusion-science
 
-# 查看帮助
-fusion-science --help
-
-# 查看系统信息
-fusion-science info
-
-# 初始化配置
-fusion-science config init
-
-# 启动 Web UI（开发中）
+# Web UI
 fusion-science-web
 ```
 
-### 基本使用
-
-```bash
-# 搜索文献
-fusion-science search "CRISPR-Cas9 gene therapy" --db pubmed --max 20
-
-# 运行学术分析流程
-fusion-science pipeline literature_review "单细胞测序在肿瘤研究中的应用"
-
-# 生成可视化
-fusion-science visualize molecule --data "CC(=O)OC1=CC=CC=C1C(=O)O"
-
-# 生成审计报告
-fusion-science audit --output ./reproducibility_report.md
-```
-
----
-
-## 架构总览
+## 架构
 
 ```
 fusion-science/
-├── pyproject.toml                    # 项目配置
-├── README.md / README_CN.md          # 文档
-├── fusion_science/
-│   ├── __init__.py                   # 包入口
-│   ├── cli.py                        # 命令行界面
-│   ├── config.py                     # 配置管理
-│   ├── core/                         # 核心引擎
-│   │   ├── engine.py                 #   MLX 推理引擎
-│   │   ├── agent.py                  #   AI 智能体
-│   │   └── pipeline.py              #   流水线编排
-│   ├── database/                     # 数据库连接器
-│   │   ├── base.py                   #   抽象基类
-│   │   ├── pubmed.py                 #   PubMed
-│   │   ├── uniprot.py                #   UniProt
-│   │   ├── pdb.py                    #   PDB
-│   │   ├── ensembl.py                #   Ensembl
-│   │   ├── chembl.py                 #   ChEMBL
-│   │   └── mirror.py                 #   镜像/缓存
-│   ├── compute/                      # 计算层
-│   │   ├── python_executor.py        #   Python 沙箱
-│   │   ├── jupyter_kernel.py         #   Jupyter 内核
-│   │   ├── r_executor.py             #   R 语言执行
-│   │   └── hpc_scheduler.py          #   HPC/Slurm
-│   ├── visualization/                # 可视化
-│   │   ├── chart.py                  #   统计图表
-│   │   ├── molecule.py               #   分子结构
-│   │   └── protein.py                #   蛋白质结构
-│   ├── literature/                   # 文献工作流
-│   │   ├── search.py                 #   文献检索
-│   │   ├── review.py                 #   文献综述
-│   │   └── paper.py                  #   论文撰写
-│   ├── audit/                        # 审计溯源
-│   │   ├── tracker.py                #   操作追踪
-│   │   ├── provenance.py             #   数据溯源
-│   │   └── report.py                 #   审计报告
-│   └── utils/                        # 工具
-│       └── mirrors.py                #   国内镜像配置
-├── tests/                            # 测试
-│   ├── test_core.py
-│   ├── test_database.py
-│   ├── test_compute.py
-│   └── test_literature_audit.py
-└── docs/                             # 文档
-    ├── api.md
-    └── architecture.md
+├── core/
+│   ├── gateway.py      # LLMGateway — httpx 直连 fusion-mlx HTTP API（流式、结构化输出）
+│   ├── engine.py       # 向后兼容，重新导出 LLMGateway 为 ScienceEngine
+│   ├── tools.py        # ToolRegistry — MCP 兼容工具注册，OpenAI function calling
+│   ├── agent.py        # ScienceAgent（工具调用循环）+ SciencePipeline（顺序/并行/主从）
+│   └── pipeline.py     # PipelineFactory + 内置模板（文献、生信、分子）
+├── session/            # 研究会话管理
+│   ├── models.py       # ResearchSession, Artifact, ResearchContext 数据类
+│   ├── store.py        # MemorySessionStore (LRU) + SQLiteSessionStore (持久化)
+│   └── manager.py      # SessionManager，集成 EventBus
+├── api/                # FastAPI HTTP 服务
+│   ├── app.py          # create_app() 工厂，lifespan，审计自动集成
+│   ├── sse.py          # SSE 流式输出（逐 token + done/error）
+│   ├── middleware.py   # APIKeyMiddleware（hmac，豁免路径）
+│   └── routes/         # /api/v1/health, /sessions, /chat
+├── database/           # 科学数据库连接器 + 国内镜像
+│   ├── aggregator.py   # DatabaseAggregator — 多库并行检索，自动去重
+│   ├── chinese/        # 国产数据库连接器（NGDC, CNKI, ScienceDB）
+├── compute/            # 代码执行（Python/R/Jupyter）& HPC 调度
+├── visualization/      # 图表、3D 分子、蛋白质结构
+├── literature/         # 检索、阅读、提取、综合、综述、引用
+│   ├── search.py       # LiteratureSearch + SearchPreset（快速/专业/深度）+ PRISMA 流程
+│   ├── reader.py       # LiteratureReader — LLM 深度阅读，分段摘要 & TLDR
+│   ├── extractor.py    # LiteratureExtractor — PICO，结构化数据，研究类型分类
+│   ├── synthesizer.py  # LiteratureSynthesizer — 共识分析，矛盾检测
+│   ├── review.py       # LiteratureReviewer — 异步综述，LLM 章节生成 + PRISMA
+│   ├── citation.py     # CitationManager — APA/Vancouver/BibTeX，去重，图谱，验证
+│   └── paper.py        # PaperGenerator — IMRaD 论文起草
+├── audit/              # 溯源追踪 & 可复现报告
+└── utils/
+    └── events.py       # EventBus — 异步发布/订阅，跨模块解耦 & 审计自动集成
 ```
 
----
+### Phase 1 基础重构 (v0.2.0)
 
-## 模块详解
+- **LLMGateway** (`core/gateway.py`): httpx.AsyncClient 直连 fusion-mlx。支持 `chat()`, `chat_stream()` (SSE), `structured_output()`，懒加载客户端。
+- **ToolRegistry** (`core/tools.py`): MCP 兼容工具中心。5 个内置工具（search_literature, search_database, execute_python, generate_chart, fetch_paper）。导出 OpenAI function calling 和 MCP 工具格式。
+- **EventBus** (`utils/events.py`): 异步事件总线，模块间解耦。自动集成审计追踪。
+- **ScienceAgent 重构**: `_execute_tool()` 现通过 ToolRegistry 分发，不再返回 "not_implemented" 存根。
+- **ScienceConfig**: 新增 `api_host`, `api_port`, `api_cors_origins` 配置。
 
-### 1. Core 引擎
+### Phase 2 会话 + API (v0.2.0)
 
-**ScienceEngine** — 本地 LLM 推理的统一接口，支持两种模式：
+- **会话管理** (`session/`): ResearchSession 包含消息、产出物、上下文。MemorySessionStore (LRU 1000) + SQLiteSessionStore 持久化。SessionManager 集成 EventBus 自动事件发射。
+- **FastAPI 服务** (`api/`): `create_app()` 工厂函数，lifespan + CORS + APIKeyMiddleware。路由：`/api/v1/health`, `/api/v1/sessions` (CRUD), `/api/v1/chat` (同步 + SSE 流式)。
+- **SSE 流式输出** (`api/sse.py`): 逐 token 流式输出，含 done/error 事件。防缓冲头。
+- **审计自动集成**: app lifespan 中的 EventBus 处理器自动记录所有事件（db_query, code_execution, llm_call, tool_executed 等）到 TraceRecorder。
+- **CLI serve 命令**: `fusion-science serve [--host] [--port] [--reload]` 启动 uvicorn API 服务。
 
-```python
-from fusion_science.core.engine import ScienceEngine, ModelConfig
+### Phase 3 文献系统 (v0.3.0)
 
-# HTTP 模式（连接 fusion-mlx 服务器）
-engine = ScienceEngine(ModelConfig(
-    name="qwen3.5-9b",
-    base_url="http://localhost:11434/v1",
-))
+五层文献架构，LLM 驱动深度分析 + 规则降级：
 
-# 直接 MLX 模式（需要 mlx-lm）
-await engine.load_model("mlx-community/Qwen3.5-9B")
-```
+- **LiteratureSearch** (`literature/search.py`): SearchPreset 级别 — QUICK (10 篇, <5s), PROFESSIONAL (30 篇, <15s), DEEP (100 篇, <60s 含 PRISMA 流程)。去重 + 相关性排序。
+- **LiteratureReader** (`literature/reader.py`): LLM 驱动论文深度阅读。分段摘要、TLDR 生成、方法学评估、优劣势分析。无 LLM 时降级为基础阅读。
+- **LiteratureExtractor** (`literature/extractor.py`): 结构化数据提取 — PICO（人群/干预/对照/结局）、研究类型分类（RCT/队列/荟萃分析等）、样本量、p 值、效应量、局限性。无 LLM 时规则降级。
+- **LiteratureSynthesizer** (`literature/synthesizer.py`): 多论文共识分析。共识度评分 (-1.0~1.0)，矛盾检测，研究缺口识别，趋势分析。关键词频率降级路径。
+- **LiteratureReviewer** (`literature/review.py`): **Breaking**: `analyze_papers()` 改为 `async`。通过 LLM 基于共识数据生成 IMRaD 章节，或基于规则的主题聚类。PRISMA 流程图支持。
+- **CitationManager** (`literature/citation.py`): APA/Vancouver/BibTeX 格式化，自动 key 生成，去重，引用图谱（基于关键词关联），引用验证。
+- **DatabaseAggregator** (`database/aggregator.py`): 多数据库并行检索（PubMed/UniProt/PDB/Ensembl/ChEMBL）。异步信号量控制并发，结果合并去重，统一排序。
 
-**ScienceAgent** — 单个科研智能体，支持工具调用和链式推理：
+### Phase 7 专业智能体 + MCP + 合规 (v0.4.0)
 
-```python
-from fusion_science.core.agent import ScienceAgent
+- **专业智能体系统** (`core/agents/`): 5 个专业智能体 + QueryRouterAgent 关键词路由。LiteratureAgent, DataAgent, VizAgent, WriterAgent, ErrorAnalysisAgent。失败时错误升级。
+- **7 个新工具** (`core/tools.py`): ToolRegistry 共 12 个工具。
+- **MCP 服务器** (`mcp_server.py`): JSON-RPC 2.0 + SSE 传输，支持 Claude Desktop / Cursor 集成。
+- **增强 API 路由**: `/search`, `/analyze`, `/visualize`, `/review`, `/sessions/{id}/audit`。
+- **ComplianceChecker** (`audit/compliance.py`): 4 维合规检查 — 数据出境、算法备案、伦理审查、敏感数据。
 
-agent = ScienceAgent(
-    name="文献检索",
-    engine=engine,
-    system_prompt="你是文献检索专家。",
-    tools=[...],
-)
-result = await agent.run("搜索CRISPR相关文献")
-```
+### Phase 8 API 覆盖 (v0.5.0)
 
-**SciencePipeline** — 多步骤科研流水线编排器，支持三种模式：
+- **数据库路由**: GET `/api/v1/databases` + GET `/api/v1/databases/{name}/status`。
+- **流水线路由**: GET `/api/v1/pipelines` + POST `/api/v1/pipelines/{name}/run`。
+- **模型路由**: GET `/api/v1/models`。会话历史端点。
+- **MCP SSE 传输**: GET `/mcp/sse`，带 ping 保活。
+- **232 测试通过**，ruff clean。
 
-| 模式 | 说明 | 适用场景 |
-|------|------|---------|
-| sequential | 顺序执行，前一个输出作为后一个输入 | 文献检索→分析→综述 |
-| parallel | 并行执行，相同输入分发给多个智能体 | 同时查询多个数据库 |
-| master_worker | 主智能体分解任务，工作智能体并行执行 | 复杂研究问题分解 |
+### Phase 9 P2 增强 (v0.6.0)
 
-### 2. 数据库连接器
+- **多模型切换** (F-31): `LLMGateway.set_model()`, `set_model_for_role()`, `get_model_for_role()`。配置字段：`model_reasoning`, `model_summarization`, `model_code`。API: PUT `/api/v1/models/current`, GET/PUT `/api/v1/models/roles`。
+- **论文写作增强** (F-32): `PaperGenerator` IMRaD 章节生成，LLM 驱动写作，图例生成，代码生成方法，章节平衡检查。
+- **引用图谱 API** (F-34): GET `/api/v1/citations/graph`, POST `/api/v1/citations/add`, GET `/api/v1/citations/bibliography`。
+- **数学解释器** (F-35): `MathExplainer`，12 个统计公式模式，LaTeX 符号转换，LLM 增强解释。API: POST `/api/v1/math/explain`, POST `/api/v1/math/explain-text`。
+- **269 测试通过**，ruff clean。
 
-所有连接器继承自 `BaseConnector`，统一接口：
+### Phase 10 剩余 P2 功能 (v0.7.0)
 
-```python
-from fusion_science.database.pubmed import PubMedConnector
-from fusion_science.database.uniprot import UniProtConnector
+- **分子可视化 API** (F-24): POST `/api/v1/viz/molecule/smiles`, POST `/api/v1/viz/molecule/pdb`。rdkit/py3Dmol 不可用时 2D 降级。
+- **蛋白质可视化 API** (F-25): POST `/api/v1/viz/protein`, POST `/api/v1/viz/protein/compare`。py3Dmol 3D 渲染，支持样式/颜色控制。
+- **Jupyter 集成 API** (F-26): POST `/api/v1/compute/jupyter/execute`, GET `/api/v1/compute/jupyter/kernels`。内核生命周期管理。
+- **代码生成 API** (F-30): POST `/api/v1/compute/code-gen`, POST `/api/v1/compute/code-gen/batch`。规则 + LLM 驱动分析代码。
+- **合规 API** (F-29): POST `/api/v1/compute/compliance`。4 维完整合规检查，集成审计追踪。
+- **离线模式增强** (F-33): 网络探测自动检测离线 + `FUSION_OFFLINE_MODE` 环境变量。GET `/api/v1/system/status`, GET `/api/v1/system/connectivity`。
+- **283 测试通过**，ruff clean。
 
-# 搜索
-result = await connector.search("CRISPR", max_results=20)
+### Phase 11 非功能需求 (v0.8.0)
 
-# 通过 ID 获取
-result = await connector.fetch("P04637")  # UniProt 登录号
+- **连接监控与自动重连** (NF-04): `ConnectionMonitor` (`core/retry.py`) — 定期健康检查，连续失败跟踪，连接状态（connected/disconnected）。`retry_with_backoff()` 指数退避 + 抖动，用于 LLM 网关调用。
+- **LLMGateway 重试** (NF-01/04): `chat()` 在 ConnectError/ReadTimeout/PoolTimeout 时用 `retry_with_backoff()` 包装 HTTP 调用。响应时间跟踪（`get_avg_response_time()`），连接统计（`get_connection_stats()`）。
+- **安全密钥存储** (NF-03): `utils/keychain.py` — macOS Keychain 集成（通过 `security` CLI）。`SecureConfig` 高级封装 + 内存降级。
+- **自定义工具注册** (NF-05): `api/routes/tools.py` — POST/GET/DELETE `/api/v1/tools` 运行时 MCP 自定义工具注册。
+- **审计完整性验证** (NF-08): `audit/integrity.py` — `AuditIntegrityChecker` 验证会话覆盖率、父引用、溯源链完整性、缺失参数、失败条目诊断。API: GET `/api/v1/sessions/{id}/audit/integrity`, GET `/api/v1/sessions/{id}/audit/provenance-integrity`。
+- **安全 API** (NF-03): `api/routes/security.py` — POST/GET/DELETE `/api/v1/security/keys` API key 生命周期管理（值不暴露在响应中）。
+- **增强系统状态** (NF-01): `/api/v1/system/status` 新增连接状态和性能指标。
+- **324 测试通过**，ruff clean。
 
-# 国内镜像模式
-connector = PubMedConnector(use_mirror=True)
-```
+### Phase 12 国产数据库 + 镜像智能路由 (v0.9.0)
 
-### 3. 计算层
+- **NGDC 连接器** (F-18/T5.4): `NGDCConnector` — 国家基因组科学数据中心，通过 `sub_db` 参数支持 GSA/GWH/OMIX 子数据库。环境变量覆盖：`FUSION_SCI_NGDC_URL`。
+- **CNKI 连接器** (F-18/T5.5): `CNKIConnector` — 中国知网，搜索支持 `search_type` 过滤，获取含机构/基金详情。环境变量覆盖：`FUSION_SCI_CNKI_URL`。
+- **ScienceDB 连接器** (F-18/T5.6): `ScienceDBConnector` — 科学数据银行，数据集搜索/获取含 DOI 和许可信息。环境变量覆盖：`FUSION_SCI_SCIENCEDB_URL`。
+- **CHINESE_CONNECTORS 注册表**: `database/chinese/__init__.py` — 字典映射 `"ngdc"/"cnki"/"scidb"` 到连接器类。
+- **MirrorRouter 智能路由** (F-20/T5.3): 延迟测试（`test_latency`, `test_all_latency`），自动切换模式（`enable_auto_switch`），智能 URL 选择（`smart_get_url` — 选取更快端点）。API: `GET /system/mirrors/latency`, `GET /system/mirrors/status`, `POST /system/mirrors/auto-switch`。
+- **363 测试通过**，ruff clean。
 
-**PythonExecutor** — 沙箱化 Python 代码执行：
+### Phase 13 v1.0.0 正式发布 (v1.0.0)
 
-```python
-from fusion_science.compute.python_executor import PythonExecutor
+全部计划功能和非功能需求已完成。首个生产就绪版本。
 
-executor = PythonExecutor(timeout=120)
-result = await executor.execute("""
-import pandas as pd
-import numpy as np
-# 数据分析代码
-result = "分析完成"
-""")
-```
+**功能总览 (F-01 ~ F-35)：**
 
-**HPCScheduler** — Slurm 集群作业调度：
+| 分类 | 功能 |
+|---|---|
+| 核心引擎 | LLMGateway（流式、结构化输出、重试），ScienceAgent + SciencePipeline，ToolRegistry（12+ 工具） |
+| 会话 & API | FastAPI 服务 + SSE 流式，会话 CRUD，API key 中间件，CORS |
+| 文献 | 五层系统：Search → Reader → Extractor → Synthesizer → Reviewer，CitationManager（APA/Vancouver/BibTeX），PaperGenerator |
+| 数据库 | 8 个海外连接器（PubMed, UniProt, PDB, Ensembl, ChEMBL 等）+ 3 个国产连接器（NGDC, CNKI, ScienceDB），DatabaseAggregator，MirrorRouter 智能路由 |
+| 计算 | PythonExecutor, RExecutor, JupyterKernel, HPCScheduler, CodeGenerator |
+| 可视化 | 2D 图表，3D 分子（SMILES/PDB），蛋白质结构 |
+| 智能体 | 5 个专业智能体 + QueryRouterAgent，MCP 服务器（JSON-RPC 2.0 + SSE） |
+| 数学 | MathExplainer，12 个统计公式模式 + LaTeX |
+| 审计 | TraceRecorder，溯源链，ComplianceChecker（4 维），AuditIntegrityChecker |
+| 安全 | macOS Keychain 集成，SecureConfig，API key 生命周期管理 |
 
-```python
-from fusion_science.compute.hpc_scheduler import HPCScheduler
+**非功能需求 (NF-01 ~ NF-08)：**
 
-scheduler = HPCScheduler(slurm_partition="gpu")
-job = await scheduler.submit_job(
-    script_content=python_code,
-    job_name="分子动力学模拟",
-    gpus=4,
-    time_limit="48:00:00",
-)
-```
+| ID | 需求 | 实现 |
+|---|---|---|
+| NF-01 | 缓存 <1s 响应，非缓存 <5s | 响应时间跟踪，离线缓存，连接统计 |
+| NF-02 | 冷启动 <2s | 懒加载客户端，延迟导入 |
+| NF-03 | 安全密钥存储 | macOS Keychain + SecureConfig + 内存降级 |
+| NF-04 | 自动重连 | ConnectionMonitor + retry_with_backoff（含抖动） |
+| NF-05 | 自定义工具注册 | 运行时 MCP 工具 CRUD via API |
+| NF-06 | 完整审计追踪 | EventBus 自动集成，TraceRecorder，溯源链 |
+| NF-07 | 离线优先 | 镜像降级，SQLite 缓存，FUSION_OFFLINE_MODE |
+| NF-08 | 审计完整性 | IntegrityChecker 验证覆盖率、链、参数 |
 
-### 4. 可视化
-
-**ChartGenerator** — 学术图表生成：
-
-```python
-from fusion_science.visualization.chart import ChartGenerator
-
-chart = ChartGenerator()
-await chart.volcano_plot(log2fc, pvalues)  # 差异表达火山图
-await chart.heatmap(expression_matrix)       # 基因表达热图
-```
-
-**MoleculeVisualizer** — 3D 分子结构可视化：
-
-```python
-from fusion_science.visualization.molecule import MoleculeVisualizer
-
-viz = MoleculeVisualizer()
-await viz.from_smiles("CC(=O)OC1=CC=CC=C1C(=O)O")  # 阿司匹林
-await viz.from_pdb("6M0J")  # SARS-CoV-2 刺突蛋白
-```
-
-### 5. 文献工作流
-
-**LiteratureSearch** — 跨库文献检索：
-
-```python
-from fusion_science.literature.search import LiteratureSearch
-
-searcher = LiteratureSearch()
-result = await searcher.search("单细胞测序 肿瘤", max_results=20)
-# 自动从 PubMed 和 arXiv 搜索，合并去重
-```
-
-**PaperGenerator** — AI 辅助论文撰写：
-
-```python
-from fusion_science.literature.paper import PaperGenerator
-
-gen = PaperGenerator()
-paper = await gen.create_paper("单细胞测序在肿瘤免疫治疗中的应用")
-# 自动生成 IMRaD 结构
-```
-
-### 6. 审计溯源
-
-**TraceRecorder** — 完整操作追踪：
-
-```python
-from fusion_science.audit.tracker import TraceRecorder
-
-recorder = TraceRecorder()
-recorder.start_session()
-recorder.record_db_query("search", "pubmed", "cancer", 10)
-recorder.record_code_execution("analysis", "python", "差异表达分析")
-session = recorder.end_session()
-```
-
-**ReportGenerator** — 实验复现报告：
-
-```python
-from fusion_science.audit.report import ReportGenerator
-
-gen = ReportGenerator(trace_recorder, provenance_tracker)
-report = gen.generate_audit_report("论文复现报告")
-package = gen.export_package("./output")
-```
-
----
+- **374 测试通过**，ruff clean，全部阶段完成。
 
 ## 国内研究环境适配
 
 Fusion-Science 专门针对国内科研环境进行了优化：
-
-### 🇨🇳 国内数据库镜像
-
-| 数据库 | 国内替代方案 | 说明 |
-|--------|-------------|------|
-| PubMed | CNKI / 万方 / 中国生物医学文献数据库 | 中文文献全覆盖 |
-| UniProt | 本地缓存 + 定期更新 | 预下载参考蛋白质组 |
-| PDB | PDBe 镜像 / 年度发布包 | 离线结构分析 |
-| Ensembl | 亚洲镜像 / GTF/GFF 文件 | 基因组注释离线 |
-| NCBI | 国家基因组科学数据中心 (NGDC) | 国内基因组数据 |
-
-### 🏠 离线缓存
-
-SQLite 数据库缓存，支持断网完整运行：
-
-```python
-from fusion_science.database.mirror import ScienceCache
-
-cache = ScienceCache()
-cache.set("query_key", response_data, source="pubmed")
-data = cache.get("query_key")  # 离线可用
-```
-
-### 🔒 数据合规
-
-- 个人/实验室本地使用：无需大模型算法备案
-- 科研数据全程本地留存，不跨境传输
-- 符合《生成式人工智能服务管理暂行办法》
-
----
-
-## 与 Claude Science 对比
-
-| 特性 | Claude Science | Fusion-Science |
-|------|---------------|----------------|
-| **底层模型** | Claude Opus 4.8（云端） | 本地 MLX 模型（可更换） |
-| **运行环境** | 仅云端 | macOS (Apple Silicon) |
-| **国内可用** | ❌ | ✅ |
-| **离线运行** | ❌ | ✅ |
-| **数据隐私** | 数据上传 | 完全本地 |
-| **开源** | ❌ | ✅ (MIT) |
-| **自定义模型** | ❌ | ✅ 任意 MLX 模型 |
-| **HPC 集成** | ❌ | ✅ Slurm 集群 |
-| **国内数据库** | ❌ | ✅ CNKI/NGDC/CNGB |
-| **价格** | 企业付费 | 免费开源 |
-| **PubMed 连接** | ✅ 内置 | ✅ 内置 + 缓存 |
-| **代码执行** | ✅ Python/R | ✅ Python/R/Jupyter |
-| **3D 分子可视化** | ✅ | ✅ py3Dmol + RDKit |
-| **审计溯源** | ✅ | ✅ 完整开源实现 |
-| **论文撰写** | ✅ | ✅ IMRaD 结构 |
-
----
-
-## 安装指南
-
-### 系统要求
-
-- macOS (Apple Silicon M1/M2/M3/M4)
-- Python ≥ 3.11
-- 建议 16GB+ 内存
-
-### 完整安装
-
-```bash
-# 克隆项目
-git clone https://github.com/your-org/fusion-science.git
-cd fusion-science
-
-# 创建虚拟环境
-python -m venv .venv
-source .venv/bin/activate
-
-# 安装全部依赖
-pip install -e ".[all]"
-
-# 或分步安装
-pip install -e .                    # 基础
-pip install -e ".[mlx]"             # MLX 推理
-pip install -e ".[jupyter]"         # Jupyter 内核
-pip install -e ".[molecule]"        # 分子可视化
-```
-
-### 可选依赖安装
-
-```bash
-# MLX 本地推理（Apple Silicon）
-pip install mlx mlx-lm
-
-# RDKit 分子可视化
-pip install rdkit py3Dmol
-
-# R 语言支持
-pip install rpy2
-
-# 初始化配置
-fusion-science config init
-```
-
----
-
-## 开发指南
-
-### 运行测试
-
-```bash
-pip install -e ".[test]"
-pytest tests/ -v
-pytest tests/ --cov=fusion_science  # 覆盖率报告
-```
-
-### 添加新数据库连接器
-
-1. 在 `fusion_science/database/` 下创建新文件
-2. 继承 `BaseConnector`
-3. 实现 `search()` 和 `fetch()` 方法
-4. 在 `mirror.py` 的 `DOMESTIC_MIRRORS` 中注册镜像
-
-### 添加新流水线模板
-
-1. 在 `pipeline.py` 中添加 `PipelineTemplate`
-2. 定义智能体配置和系统提示词
-3. 在 `PipelineFactory.TEMPLATES` 中注册
-
-### 代码规范
-
-- 类型注解：所有公共 API 必须包含类型注解
-- 异步优先：所有 I/O 操作使用 async/await
-- 错误处理：网络请求使用重试机制，数据库操作提供降级
-
----
-
-## 项目路线图
-
-### v0.1.0 (当前)
-- [x] 核心引擎（MLX 推理）
-- [x] 数据库连接器（PubMed, UniProt, PDB, Ensembl, ChEMBL）
-- [x] 计算层（Python, R, Jupyter, HPC）
-- [x] 可视化（图表, 分子, 蛋白质）
-- [x] 文献工作流（检索, 综述, 论文）
-- [x] 审计溯源（追踪, 溯源, 报告）
-- [x] CLI 命令行界面
-- [x] 国内镜像和离线缓存
-
-### v0.2.0 (计划)
-- [ ] Web UI 界面
-- [ ] 更多数据库连接器（GEO, SRA, TCGA）
-- [ ] 多模态输出（PDF, HTML 报告）
-- [ ] 智能体工具注册系统
-- [ ] 批量论文导入（PDF/BibTeX）
-
-### v0.3.0 (计划)
-- [ ] RAG 增强检索（本地论文库）
-- [ ] 实验记录本（Lab Notebook）
-- [ ] 协作功能（共享工作流）
-- [ ] 插件系统
-
----
-
-## 许可证
-
-MIT License — 完全开源，可自由使用和修改。
-
----
-
-## 相关项目
-
-- [Fusion-MLX](https://github.com/your-org/fusion-mlx) — Apple Silicon 本地 LLM 推理引擎
-- [Fusion-Agent-Studio](https://github.com/your-org/fusion-agent-studio) — 多智能体开发平台
-- [Fusion-Bench](https://github.com/your-org/fusion-bench) — MLX 模型性能基准测试
-
----
-
----
+- **全本地推理** — 基于 MLX，不依赖海外 API 服务
+- **国内数据库镜像** — 中科院镜像，国家基因组科学数据中心
+- **离线缓存** — 文献和分子数据集可预缓存，完全离线运行
+- **合规** — 个人/实验室内部使用无需 AI 算法备案
 
 ## 数据隐私声明
 
@@ -558,6 +198,8 @@ Fusion-Science 是一款**本地优先**的科研工具：
 - **数据不离机**：所有计算、推理、存储均在本地 Mac 完成，数据不上传至任何外部服务器
 - **无遥测**：不收集用户行为、使用统计或任何形式的遥测数据
 - **日志脱敏**：审计追踪模块自动过滤敏感字段（患者信息、身份证号、联系方式等），确保日志不泄露隐私
-- **开源透明**：MIT 许可证，代码完全可见，可自行审计
+- **开源透明**：Apache 2.0 许可证，代码完全可见，可自行审计
 
-*Fusion-Science 是为国内科研环境打造的 Claude Science 替代方案。完全本地运行，数据隐私可控，无需海外 API 访问。*
+## 许可证
+
+Apache License 2.0

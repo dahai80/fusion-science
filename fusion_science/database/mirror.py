@@ -105,27 +105,24 @@ DOMESTIC_MIRRORS: dict[str, MirrorEndpoint] = {
 
 CHINESE_DATABASES: dict[str, str] = {
     # ---- 基因组/生物信息 ----
-    "NGDC": "https://ngdc.cncb.ac.cn",              # 国家基因组科学数据中心 (CNCB-NGDC)
-    "CNGB": "https://www.cngb.org",                  # 国家基因库 (China National GeneBank)
-    "BIGD": "https://bigd.big.ac.cn",                # 北京基因组研究所数据库
-    "GSA": "https://ngdc.cncb.ac.cn/gsa",           # 基因组序列归档 (Genome Sequence Archive)
-    "GWH": "https://ngdc.cncb.ac.cn/gwh",           # 基因组组装仓库 (Genome Warehouse)
-    "OMIX": "https://ngdc.cncb.ac.cn/omix",         # 组学数据归档 (OMIX)
-    "BioCode": "https://ngdc.cncb.ac.cn/biocode",   # 生物信息代码库
-
+    "NGDC": "https://ngdc.cncb.ac.cn",  # 国家基因组科学数据中心 (CNCB-NGDC)
+    "CNGB": "https://www.cngb.org",  # 国家基因库 (China National GeneBank)
+    "BIGD": "https://bigd.big.ac.cn",  # 北京基因组研究所数据库
+    "GSA": "https://ngdc.cncb.ac.cn/gsa",  # 基因组序列归档 (Genome Sequence Archive)
+    "GWH": "https://ngdc.cncb.ac.cn/gwh",  # 基因组组装仓库 (Genome Warehouse)
+    "OMIX": "https://ngdc.cncb.ac.cn/omix",  # 组学数据归档 (OMIX)
+    "BioCode": "https://ngdc.cncb.ac.cn/biocode",  # 生物信息代码库
     # ---- 文献/知识 ----
-    "CNKI": "https://www.cnki.net",                  # 中国知网 (中文文献)
-    "CBM": "https://www.sinomed.ac.cn",              # 中国生物医学文献数据库 (SinoMed)
-    "CSTR": "https://cstr.cn",                       # 中国科技论文在线
-
+    "CNKI": "https://www.cnki.net",  # 中国知网 (中文文献)
+    "CBM": "https://www.sinomed.ac.cn",  # 中国生物医学文献数据库 (SinoMed)
+    "CSTR": "https://cstr.cn",  # 中国科技论文在线
     # ---- 科学数据 ----
-    "ScienceDB": "https://www.scidb.cn",             # 科学数据银行 (CAS)
-    "CASData": "https://data.cas.cn",                # 中国科学院数据云
-    "PNDC": "https://pndc.cas.cn",                   # 中国植物科学数据中心
-
+    "ScienceDB": "https://www.scidb.cn",  # 科学数据银行 (CAS)
+    "CASData": "https://data.cas.cn",  # 中国科学院数据云
+    "PNDC": "https://pndc.cas.cn",  # 中国植物科学数据中心
     # ---- 化学/药物 ----
-    "CNPIC": "https://www.nmpa.gov.cn",              # 国家药品监督管理局
-    "RCSB_CN": "https://pdb.cn",                     # PDB中国镜像
+    "CNPIC": "https://www.nmpa.gov.cn",  # 国家药品监督管理局
+    "RCSB_CN": "https://pdb.cn",  # PDB中国镜像
 }
 
 # ---------------------------------------------------------------------------
@@ -141,18 +138,33 @@ DOMESTIC_ALTERNATIVES: dict[str, list[dict[str, str]]] = {
     ],
     "pdb": [
         {"name": "PDB 中国镜像", "url": "https://pdb.cn", "type": "镜像", "lang": "zh"},
-        {"name": "PDB 年度发布包", "url": "ftp://ftp.wwpdb.org/pub/pdb/data/structures/divided/pdb/", "type": "离线", "lang": "en"},
+        {
+            "name": "PDB 年度发布包",
+            "url": "ftp://ftp.wwpdb.org/pub/pdb/data/structures/divided/pdb/",
+            "type": "离线",
+            "lang": "en",
+        },
     ],
     "uniprot": [
         {"name": "UniProt 中国镜像", "url": "https://www.uniprot.org", "type": "镜像", "lang": "en"},
-        {"name": "参考蛋白质组离线包", "url": "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/", "type": "离线", "lang": "en"},
+        {
+            "name": "参考蛋白质组离线包",
+            "url": "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/",
+            "type": "离线",
+            "lang": "en",
+        },
     ],
     "ensembl": [
         {"name": "Ensembl 基因组注释", "url": "ftp://ftp.ensembl.org/pub/", "type": "离线", "lang": "en"},
         {"name": "Ensembl 亚洲镜像", "url": "https://useast.ensembl.org", "type": "镜像", "lang": "en"},
     ],
     "chembl": [
-        {"name": "ChEMBL 离线数据库", "url": "ftp://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/", "type": "离线", "lang": "en"},
+        {
+            "name": "ChEMBL 离线数据库",
+            "url": "ftp://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/",
+            "type": "离线",
+            "lang": "en",
+        },
     ],
 }
 
@@ -160,6 +172,7 @@ DOMESTIC_ALTERNATIVES: dict[str, list[dict[str, str]]] = {
 # 从环境变量加载镜像配置
 # 用户可通过 FUSION_SCI_* 环境变量覆盖默认镜像地址
 # ---------------------------------------------------------------------------
+
 
 def _load_mirrors_from_env() -> dict[str, MirrorEndpoint]:
     """从环境变量加载镜像配置，覆盖默认值。
@@ -196,6 +209,7 @@ def _load_mirrors_from_env() -> dict[str, MirrorEndpoint]:
             )
     return overrides
 
+
 # 应用环境变量覆盖
 _env_overrides = _load_mirrors_from_env()
 if _env_overrides:
@@ -217,6 +231,7 @@ for env_var, db_key in _env_db_map.items():
 # ---------------------------------------------------------------------------
 # Cache manager
 # ---------------------------------------------------------------------------
+
 
 class ScienceCache:
     """SQLite-backed offline cache for scientific database queries.
@@ -270,7 +285,8 @@ class ScienceCache:
             return None
         try:
             cur = self._conn.execute(
-                "SELECT data, expires_at FROM science_cache WHERE key = ?", (key,),
+                "SELECT data, expires_at FROM science_cache WHERE key = ?",
+                (key,),
             )
             row = cur.fetchone()
             if row is None:
@@ -340,7 +356,9 @@ class ScienceCache:
             row = cur.fetchone()
             count = row[0] or 0
             total_bytes = row[1] or 0
-            cur = self._conn.execute("SELECT source, COUNT(*) as cnt FROM science_cache GROUP BY source ORDER BY cnt DESC")
+            cur = self._conn.execute(
+                "SELECT source, COUNT(*) as cnt FROM science_cache GROUP BY source ORDER BY cnt DESC"
+            )
             by_source = {row[0]: row[1] for row in cur.fetchall()}
             return {
                 "enabled": True,
@@ -360,7 +378,8 @@ class ScienceCache:
                 to_delete = max(100, self.config.max_entries // 10)
                 self._conn.execute(
                     "DELETE FROM science_cache WHERE rowid IN ("
-                    "SELECT rowid FROM science_cache ORDER BY last_accessed ASC LIMIT ?)", (to_delete,)
+                    "SELECT rowid FROM science_cache ORDER BY last_accessed ASC LIMIT ?)",
+                    (to_delete,),
                 )
                 self._conn.commit()
                 self._approx_count = max(0, self._approx_count - to_delete)
@@ -376,6 +395,7 @@ class ScienceCache:
 # ---------------------------------------------------------------------------
 # Mirror router
 # ---------------------------------------------------------------------------
+
 
 class MirrorRouter:
     """Routes database requests to the best available endpoint.
@@ -439,9 +459,14 @@ class MirrorRouter:
         Returns:
             MirrorEndpoint with the appropriate URL (mirror if enabled).
         """
-        mirror = self.mirrors.get(db_name, MirrorEndpoint(
-            name=db_name, primary_url="", mirror_url="",
-        ))
+        mirror = self.mirrors.get(
+            db_name,
+            MirrorEndpoint(
+                name=db_name,
+                primary_url="",
+                mirror_url="",
+            ),
+        )
         return mirror
 
     def get_url(self, db_name: str) -> str:
@@ -547,8 +572,7 @@ class MirrorRouter:
             "mirror_count": len(self.mirrors),
             "chinese_db_count": len(CHINESE_DATABASES),
             "active_mirrors": sum(
-                1 for m in self.mirrors.values()
-                if m.enabled and (self._use_mirrors or self._offline_mode)
+                1 for m in self.mirrors.values() if m.enabled and (self._use_mirrors or self._offline_mode)
             ),
             "auto_switch": self._auto_switch,
             "cache_status": self.cache.stats() if self.cache else {"enabled": False},
@@ -592,7 +616,9 @@ class MirrorRouter:
         self._last_latency_test = time.time()
         logger.info(
             "Latency test [%s]: primary=%.3fs, mirror=%.3fs",
-            db_name, results.get("primary", -1.0), results.get("mirror", -1.0),
+            db_name,
+            results.get("primary", -1.0),
+            results.get("mirror", -1.0),
         )
         return results
 

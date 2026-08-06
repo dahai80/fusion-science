@@ -220,17 +220,18 @@ class LiteratureSearch:
     ) -> SearchResult:
         return await self.search(query, preset=preset)
 
-    async def _search_via_registry(
-        self, database: str, query: str, max_results: int
-    ) -> SearchResult:
+    async def _search_via_registry(self, database: str, query: str, max_results: int) -> SearchResult:
         if not self._registry or not self._registry.has_tool("search_database"):
             return SearchResult(query=query, error="registry_unavailable")
 
-        raw = await self._registry.execute("search_database", {
-            "database": database,
-            "query": query,
-            "max_results": max_results,
-        })
+        raw = await self._registry.execute(
+            "search_database",
+            {
+                "database": database,
+                "query": query,
+                "max_results": max_results,
+            },
+        )
         if isinstance(raw, dict) and "error" in raw:
             logger.warning("Registry search_database(%s) error: %s", database, raw["error"])
             return SearchResult(query=query, error=raw["error"])

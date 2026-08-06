@@ -68,9 +68,7 @@ class UniProtConnector(BaseConnector):
         }
 
         try:
-            resp = await self._request_with_retry(
-                "GET", "/uniprotkb/search", params=params
-            )
+            resp = await self._request_with_retry("GET", "/uniprotkb/search", params=params)
             data = resp.json()
 
             results = data.get("results", [])
@@ -110,9 +108,7 @@ class UniProtConnector(BaseConnector):
             return cached
 
         try:
-            resp = await self._request_with_retry(
-                "GET", f"/uniprotkb/{identifier}", params={"format": "json"}
-            )
+            resp = await self._request_with_retry("GET", f"/uniprotkb/{identifier}", params={"format": "json"})
             data = resp.json()
             entry = self._parse_entry(data)
 
@@ -143,9 +139,7 @@ class UniProtConnector(BaseConnector):
             Protein sequence as a string.
         """
         try:
-            resp = await self._request_with_retry(
-                "GET", f"/uniprotkb/{accession}.fasta"
-            )
+            resp = await self._request_with_retry("GET", f"/uniprotkb/{accession}.fasta")
             lines = resp.text.split("\n")
             # Skip header line (starts with >)
             seq = "".join(line.strip() for line in lines if line and not line.startswith(">"))
@@ -212,14 +206,16 @@ class UniProtConnector(BaseConnector):
         # Features
         features = []
         for feat in entry.get("features", []):
-            features.append({
-                "type": feat.get("type", ""),
-                "description": feat.get("description", ""),
-                "location": {
-                    "start": feat.get("location", {}).get("start", {}).get("value"),
-                    "end": feat.get("location", {}).get("end", {}).get("value"),
-                },
-            })
+            features.append(
+                {
+                    "type": feat.get("type", ""),
+                    "description": feat.get("description", ""),
+                    "location": {
+                        "start": feat.get("location", {}).get("start", {}).get("value"),
+                        "end": feat.get("location", {}).get("end", {}).get("value"),
+                    },
+                }
+            )
 
         # Keywords
         keywords = [kw.get("name", "") for kw in entry.get("keywords", [])]

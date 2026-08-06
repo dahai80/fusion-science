@@ -144,9 +144,7 @@ class PaperGenerator:
             return paper
 
         # Build the prompt for the LLM
-        prompt = self._build_section_prompt(
-            paper.title, section.heading, context, paper.references
-        )
+        prompt = self._build_section_prompt(paper.title, section.heading, context, paper.references)
 
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -338,6 +336,8 @@ Write only the section content, not the heading."""
             if wc == 0:
                 warnings.append(f"Section '{section.heading}' is empty.")
             elif wc < avg_words * 0.3:
-                warnings.append(f"Section '{section.heading}' is significantly shorter than average ({wc} vs {avg_words:.0f} words).")
+                warnings.append(
+                    f"Section '{section.heading}' is significantly shorter than average ({wc} vs {avg_words:.0f} words)."
+                )
 
         return warnings

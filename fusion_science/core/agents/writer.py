@@ -48,12 +48,14 @@ class WriterAgent(ScienceAgent):
         for name in tool_names:
             td = tool_registry.get_tool(name)
             if td:
-                result.append({
-                    "type": "function",
-                    "function": {
-                        "name": td.name,
-                        "description": td.description,
-                        "parameters": td.parameters,
-                    },
-                })
+                result.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": td.name,
+                            "description": td.description,
+                            "parameters": td.parameters,
+                        },
+                    }
+                )
         return result

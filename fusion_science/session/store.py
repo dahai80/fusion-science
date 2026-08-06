@@ -81,20 +81,23 @@ class SQLiteSessionStore(SessionStore):
     def save(self, session: ResearchSession) -> None:
         data = session.to_dict()
         with sqlite3.connect(self._db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO sessions
                     (session_id, title, created_at, updated_at, messages, context, artifacts, trace_ids)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data["id"],
-                data["title"],
-                data["created_at"],
-                data["updated_at"],
-                json.dumps(data["messages"], ensure_ascii=False),
-                json.dumps(data["context"], ensure_ascii=False),
-                json.dumps(data["artifacts"], ensure_ascii=False),
-                json.dumps(data["trace_ids"], ensure_ascii=False),
-            ))
+            """,
+                (
+                    data["id"],
+                    data["title"],
+                    data["created_at"],
+                    data["updated_at"],
+                    json.dumps(data["messages"], ensure_ascii=False),
+                    json.dumps(data["context"], ensure_ascii=False),
+                    json.dumps(data["artifacts"], ensure_ascii=False),
+                    json.dumps(data["trace_ids"], ensure_ascii=False),
+                ),
+            )
 
     def load(self, session_id: str) -> ResearchSession | None:
         with sqlite3.connect(self._db_path) as conn:
@@ -104,16 +107,18 @@ class SQLiteSessionStore(SessionStore):
             ).fetchone()
         if not row:
             return None
-        return ResearchSession.from_dict({
-            "id": row[0],
-            "title": row[1],
-            "created_at": row[2],
-            "updated_at": row[3],
-            "messages": json.loads(row[4]),
-            "context": json.loads(row[5]),
-            "artifacts": json.loads(row[6]),
-            "trace_ids": json.loads(row[7]),
-        })
+        return ResearchSession.from_dict(
+            {
+                "id": row[0],
+                "title": row[1],
+                "created_at": row[2],
+                "updated_at": row[3],
+                "messages": json.loads(row[4]),
+                "context": json.loads(row[5]),
+                "artifacts": json.loads(row[6]),
+                "trace_ids": json.loads(row[7]),
+            }
+        )
 
     def delete(self, session_id: str) -> bool:
         with sqlite3.connect(self._db_path) as conn:
@@ -126,15 +131,17 @@ class SQLiteSessionStore(SessionStore):
                 "SELECT session_id, title, created_at, updated_at, messages, context, artifacts, trace_ids FROM sessions ORDER BY updated_at DESC"
             ).fetchall()
         return [
-            ResearchSession.from_dict({
-                "id": r[0],
-                "title": r[1],
-                "created_at": r[2],
-                "updated_at": r[3],
-                "messages": json.loads(r[4]),
-                "context": json.loads(r[5]),
-                "artifacts": json.loads(r[6]),
-                "trace_ids": json.loads(r[7]),
-            })
+            ResearchSession.from_dict(
+                {
+                    "id": r[0],
+                    "title": r[1],
+                    "created_at": r[2],
+                    "updated_at": r[3],
+                    "messages": json.loads(r[4]),
+                    "context": json.loads(r[5]),
+                    "artifacts": json.loads(r[6]),
+                    "trace_ids": json.loads(r[7]),
+                }
+            )
             for r in rows
         ]

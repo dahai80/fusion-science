@@ -19,6 +19,7 @@ from fusion_science.literature.synthesizer import ConsensusAnalysis, Contradicti
 # Literature Tests
 # =========================================================================
 
+
 class TestPaper:
     """Test the Paper dataclass."""
 
@@ -130,9 +131,7 @@ class TestPaperGenerator:
         assert paper.sections[0].heading == "Introduction"
 
     def test_generate_figure_legend(self):
-        legend = PaperGenerator.generate_figure_legend(
-            "bar chart", "Comparison of expression levels", "t-test, p<0.05"
-        )
+        legend = PaperGenerator.generate_figure_legend("bar chart", "Comparison of expression levels", "t-test, p<0.05")
         assert "Figure X" in legend
         assert "bar chart" in legend or "Comparison" in legend
         assert "t-test" in legend
@@ -154,6 +153,7 @@ result = stats.ttest_ind(group1, group2)
 # =========================================================================
 # Audit Tests
 # =========================================================================
+
 
 class TestTraceRecorder:
     """Test the TraceRecorder."""
@@ -185,8 +185,10 @@ class TestTraceRecorder:
         recorder = TraceRecorder(storage_dir=str(tmp_path))
         recorder.start_session()
         entry_id = recorder.record_db_query(
-            source="test", database="pubmed",
-            query="cancer", result_count=10,
+            source="test",
+            database="pubmed",
+            query="cancer",
+            result_count=10,
         )
         assert entry_id is not None
         entries = recorder.get_entries(operation="db_query")
@@ -288,8 +290,12 @@ class TestProvenanceNode:
 
     def test_transformation_node(self):
         node = ProvenanceNode(
-            id="tx_1", type="transformation", label="Analysis",
-            timestamp=1000.0, inputs=["src_1"], outputs=["out_1"],
+            id="tx_1",
+            type="transformation",
+            label="Analysis",
+            timestamp=1000.0,
+            inputs=["src_1"],
+            outputs=["out_1"],
         )
         assert node.inputs == ["src_1"]
         assert node.outputs == ["out_1"]

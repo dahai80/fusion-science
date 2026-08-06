@@ -68,7 +68,9 @@ async def visualize_molecule_pdb(request: Request, body: MoleculeFromPdbRequest)
 async def visualize_protein(request: Request, body: ProteinVisualizeRequest):
     viz = ProteinVisualizer()
     try:
-        result = await viz.visualize(body.pdb_id, style=body.style, color=body.color, width=body.width, height=body.height)
+        result = await viz.visualize(
+            body.pdb_id, style=body.style, color=body.color, width=body.width, height=body.height
+        )
         return result if isinstance(result, dict) else {"html": str(result), "pdb_id": body.pdb_id}
     except Exception as e:
         logger.error("Protein viz failed: %s", e)
