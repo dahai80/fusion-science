@@ -25,16 +25,19 @@ logger = logging.getLogger(__name__)
 _SENTINEL_MODEL_NAME = "qwen3.5-9b"
 _SENTINEL_ENGINE_API_KEY = "local"
 _MLX_SETTINGS_PATH = Path.home() / ".fusion-mlx" / "settings.json"
-_MLX_STATUS_URL = "http://localhost:11434/api/status"
+# MLX service-discovery endpoint (probes the MLX engine directly, not the gateway).
+# Gateway (:11432) does not expose /api/status; override via FUSION_SCI_MLX_STATUS_URL.
+_MLX_STATUS_URL = os.getenv("FUSION_SCI_MLX_STATUS_URL", "http://localhost:11434/api/status")
 
 
 @dataclass
 class ScienceConfig:
     """Complete configuration for fusion-science."""
 
-    # Inference engine
+    # Inference engine — routed through fusion-gateway (:11432) per netlayer plan.
+    # Override via FUSION_SCIENCE_ENGINE_BASE_URL to bypass the gateway.
     model_name: str = _SENTINEL_MODEL_NAME
-    engine_base_url: str = "http://localhost:11434/v1"
+    engine_base_url: str = "http://localhost:11432/v1"
     engine_api_key: str = _SENTINEL_ENGINE_API_KEY
     engine_timeout: float = 300.0
     engine_temperature: float = 0.3

@@ -69,7 +69,7 @@ class TestScienceConfig:
     def test_default_config(self):
         config = ScienceConfig()
         assert config.model_name == "qwen3.5-9b"
-        assert config.engine_base_url == "http://localhost:11434/v1"
+        assert config.engine_base_url == "http://localhost:11432/v1"
         assert config.api_host == "0.0.0.0"
         assert config.api_port == 8200
         assert config.api_cors_origins == ["*"]

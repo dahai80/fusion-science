@@ -46,7 +46,7 @@ class LLMGateway:
     def __init__(
         self,
         model: str = "qwen3.5-9b",
-        base_url: str = "http://localhost:11434/v1",
+        base_url: str = "http://localhost:11432/v1",
         api_key: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 8192,
@@ -59,7 +59,7 @@ class LLMGateway:
         self.max_tokens = max_tokens
         self.enable_thinking = enable_thinking
         self._base_url = base_url.rstrip("/")
-        self._engine_base_url = self._base_url.replace("/v1", "") or "http://localhost:11434"
+        self._engine_base_url = self._base_url.replace("/v1", "") or "http://localhost:11432"
         self._timeout = timeout
         self._api_key = api_key
         self._client: httpx.AsyncClient | None = None

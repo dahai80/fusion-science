@@ -1249,7 +1249,7 @@ class TestConfig:
         config = ScienceConfig()
         assert config.model_name == "qwen3.5-9b"
         assert config.api_port == 8200
-        assert config.engine_base_url == "http://localhost:11434/v1"
+        assert config.engine_base_url == "http://localhost:11432/v1"
 
     def test_load_config_defaults(self):
         with patch.dict(os.environ, {}, clear=True), patch("fusion_science.config._resolve_from_mlx"):
