@@ -84,11 +84,13 @@ def _error_response(req_id, code, message):
 @router.get("/sse")
 async def mcp_sse(request: Request):
     async def event_stream():
+        cfg = getattr(request.app.state, "config", None)
+        sse_port = getattr(cfg, "api_port", None) or 11462
         endpoint_msg = json.dumps(
             {
                 "jsonrpc": "2.0",
                 "method": "notifications/endpoint",
-                "params": {"endpoint": "http://localhost:8200/mcp/"},
+                "params": {"endpoint": f"http://localhost:{sse_port}/mcp/"},
             }
         )
         yield f"event: endpoint\ndata: {endpoint_msg}\n\n"
