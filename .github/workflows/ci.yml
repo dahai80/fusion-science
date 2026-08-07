@@ -30,3 +30,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[test,api]"
       - run: pytest tests/ -v --tb=short -q
+        env:
+          OPENBLAS_NUM_THREADS: 1
+          OMP_NUM_THREADS: 1
+          MKL_NUM_THREADS: 1
