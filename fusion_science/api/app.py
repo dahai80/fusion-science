@@ -136,7 +136,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="1.0.2",
+        version="1.0.3",
         lifespan=lifespan,
     )
 
