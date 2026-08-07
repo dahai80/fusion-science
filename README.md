@@ -7,7 +7,7 @@ Fusion-Science is an open-source, local-first scientific research AI platform th
 
 ## Key Features
 
-- **🔬 60+ Scientific Database Connectors** — Built-in connectors for PubMed, UniProt, PDB, Ensembl, ChEMBL, and more. AI automatically cross-references data across databases with domestic mirror support.
+- **🔬 8 Scientific Database Connectors** — Built-in connectors for PubMed, UniProt, PDB, Ensembl, ChEMBL (overseas) + NGDC, CNKI, ScienceDB (Chinese). AI automatically cross-references data across databases with domestic mirror support.
 - **🤖 AI Agent for Computational Experiments** — Multi-agent architecture (MCP-based) that automatically runs Python/R/Jupyter for statistical analysis, omics data processing, and molecular simulations.
 - **📊 Full-Stack Visualization** — 2D statistical charts, 3D molecular/protein structure visualization, publication-ready figures.
 - **📝 Literature Review & Paper Writing** — Batch reading, comparison, and synthesis of hundreds of papers; iterative paper generation with proper citations.
@@ -160,7 +160,7 @@ All planned features and non-functional requirements are complete. This is the f
 | Core Engine | LLMGateway (streaming, structured output, retry), ScienceAgent + SciencePipeline, ToolRegistry (12+ tools) |
 | Session & API | FastAPI server with SSE streaming, session CRUD, API key middleware, CORS |
 | Literature | 5-layer system: Search → Reader → Extractor → Synthesizer → Reviewer, CitationManager (APA/Vancouver/BibTeX), PaperGenerator |
-| Database | 8 overseas connectors (PubMed, UniProt, PDB, Ensembl, ChEMBL, etc.) + 3 Chinese connectors (NGDC, CNKI, ScienceDB), DatabaseAggregator, MirrorRouter smart routing |
+| Database | 5 overseas connectors (PubMed, UniProt, PDB, Ensembl, ChEMBL) + 3 Chinese connectors (NGDC, CNKI, ScienceDB), DatabaseAggregator, MirrorRouter smart routing |
 | Compute | PythonExecutor, RExecutor, JupyterKernel, HPCScheduler, CodeGenerator |
 | Visualization | 2D charts, 3D molecule (SMILES/PDB), protein structures |
 | Agents | 5 professional agents + QueryRouterAgent, MCP server (JSON-RPC 2.0 + SSE) |
@@ -181,7 +181,7 @@ All planned features and non-functional requirements are complete. This is the f
 | NF-07 | Offline-first | Mirror fallback, SQLite cache, FUSION_OFFLINE_MODE |
 | NF-08 | Audit integrity | IntegrityChecker validates coverage, chain, parameters |
 
-- **374 tests passing**, ruff clean, all phases complete.
+- **1522+ tests passing**, ruff clean, all phases complete.
 
 ### Patch Releases (v1.0.1 ~ v1.0.3)
 
@@ -190,6 +190,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.1 | License → Apache-2.0 (#6, #7); codebase ruff-format cleaned; CI enforces `ruff check` + `ruff format --check`. |
 | v1.0.2 | Engine routed through `fusion-gateway` (:11432) instead of direct MLX (:11434); `_MLX_STATUS_URL` stays on :11434 for service discovery (#5). |
 | v1.0.3 | Unified service port 8200→11462 (#9, PR #10); CI test job installs `.[test,api]` so FastAPI-backed tests run; `GET /system/mirrors/latency` now probes mirrors in parallel with a 3s per-endpoint cap and degrades per-mirror failure instead of timing out (#8). |
+| v1.0.4 | Acceptance pass: ToolRegistry expanded 8→12 MCP-compatible tools (added `visualize_molecule`, `visualize_protein`, `explain_math`, `generate_citation`) with OpenAI function-calling + MCP export; corrected connector/docs counts (5 overseas + 3 Chinese); fixed live MLX auto-detect test for the no-model-loaded case. |
 
 ## Domestic Research Environment
 

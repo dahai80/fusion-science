@@ -197,7 +197,8 @@ class TestRegisterBuiltinTools:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         mcp = reg.get_mcp_tools()
-        assert len(mcp) == 8
+        assert len(mcp) == len(reg.list_tools())
+        assert len(mcp) >= 12
 
     @pytest.mark.asyncio
     async def test_search_literature_handler_success(self):

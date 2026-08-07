@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from fusion_science.config import load_config
+from fusion_science.config import _SENTINEL_MODEL_NAME, load_config
 from fusion_science.core.context_manager import (
     MAX_MESSAGES_BEFORE_COMPRESS,
     ContextManager,
@@ -221,7 +221,10 @@ class TestLoadConfigMlxAutoDetect:
             config = load_config(path="/nonexistent/path.yml")
 
         assert config.engine_api_key == key
-        assert config.model_name == expected_model
+        if expected_model:
+            assert config.model_name == expected_model
+        else:
+            assert config.model_name == _SENTINEL_MODEL_NAME
 
     def test_mlx_down_keeps_defaults_nonfatal(self):
         with (

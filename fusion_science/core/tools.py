@@ -245,6 +245,83 @@ def register_builtin_tools(registry: ToolRegistry, config: Any = None) -> None:
         mcp_exposed=True,
     )
 
+    registry.register(
+        name="visualize_molecule",
+        description="Render a 2D/3D molecular structure from a SMILES string (RDKit/py3Dmol, 2D fallback)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "smiles": {"type": "string", "description": "SMILES notation of the molecule"},
+                "name": {"type": "string", "description": "Display name for the molecule", "default": "molecule"},
+            },
+            "required": ["smiles"],
+        },
+        handler=_visualize_molecule_handler,
+        mcp_exposed=True,
+    )
+
+    registry.register(
+        name="visualize_protein",
+        description="Render a 3D protein structure from a PDB ID or PDB content (py3Dmol, cartoon/surface/ribbon)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "pdb_id": {"type": "string", "description": "PDB ID (e.g., 6M0J)"},
+                "style": {
+                    "type": "string",
+                    "description": "Visualization style (cartoon, surface, ribbon)",
+                    "default": "cartoon",
+                },
+                "show_ligands": {"type": "boolean", "description": "Show bound ligands", "default": True},
+            },
+            "required": ["pdb_id"],
+        },
+        handler=_visualize_protein_handler,
+        mcp_exposed=True,
+    )
+
+    registry.register(
+        name="explain_math",
+        description="Explain a mathematical/statistical formula: identify type, render LaTeX, describe variables",
+        parameters={
+            "type": "object",
+            "properties": {
+                "formula": {"type": "string", "description": "Formula or statistical expression to explain"},
+            },
+            "required": ["formula"],
+        },
+        handler=_explain_math_handler,
+        mcp_exposed=True,
+    )
+
+    registry.register(
+        name="generate_citation",
+        description="Format a citation for a paper in APA, Vancouver, or BibTeX style",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Paper title"},
+                "authors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Author names",
+                    "default": [],
+                },
+                "year": {"type": "string", "description": "Publication year", "default": ""},
+                "journal": {"type": "string", "description": "Journal name", "default": ""},
+                "doi": {"type": "string", "description": "Digital Object Identifier", "default": ""},
+                "style": {
+                    "type": "string",
+                    "description": "Citation style (apa, vancouver, bibtex)",
+                    "default": "apa",
+                },
+            },
+            "required": ["title"],
+        },
+        handler=_generate_citation_handler,
+        mcp_exposed=True,
+    )
+
     logger.info("Registered %d builtin tools", len(registry.list_tools()))
 
 
@@ -498,3 +575,89 @@ async def _execute_r_handler(code: str, capture_plots: bool = True) -> dict:
     except Exception as e:
         logger.error("execute_r failed: %s", e)
         return {"success": False, "error": str(e)}
+
+
+async def _visualize_molecule_handler(smiles: str, name: str = "molecule") -> dict:
+    from ..visualization.molecule import MoleculeVisualizer
+
+    visualizer = MoleculeVisualizer()
+    try:
+        result = await visualizer.from_smiles(smiles, name=name)
+        logger.info("visualize_molecule: smiles=%s, error=%s", smiles[:40], bool(result.error))
+        return {
+            "success": result.success,
+            "name": name,
+            "smiles": result.smiles,
+            "html_path": result.html_path,
+            "image_path": result.image_path,
+            "pdb_path": result.pdb_path,
+            "error": result.error,
+        }
+    except Exception as e:
+        logger.error("visualize_molecule failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _visualize_protein_handler(pdb_id: str, style: str = "cartoon", show_ligands: bool = True) -> dict:
+    from ..visualization.protein import ProteinVisualizer
+
+    visualizer = ProteinVisualizer()
+    try:
+        result = await visualizer.visualize(pdb_id=pdb_id, style=style, show_ligands=show_ligands)
+        logger.info("visualize_protein: pdb_id=%s, style=%s, error=%s", pdb_id, style, bool(result.error))
+        return {
+            "pdb_id": result.pdb_id,
+            "html_path": getattr(result, "html_path", ""),
+            "error": getattr(result, "error", ""),
+        }
+    except Exception as e:
+        logger.error("visualize_protein failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _explain_math_handler(formula: str) -> dict:
+    from ..literature.math_explainer import MathExplainer
+
+    explainer = MathExplainer()
+    try:
+        explanation = explainer.explain(formula)
+        logger.info("explain_math: formula=%s, name=%s", formula[:40], explanation.name)
+        return explanation.to_dict()
+    except Exception as e:
+        logger.error("explain_math failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _generate_citation_handler(
+    title: str,
+    authors: list[str] | None = None,
+    year: str = "",
+    journal: str = "",
+    doi: str = "",
+    style: str = "apa",
+) -> dict:
+    from ..literature.citation import CitationManager
+    from ..literature.search import Paper
+
+    manager = CitationManager()
+    paper = Paper(
+        title=title,
+        authors=authors or [],
+        year=year,
+        journal=journal,
+        doi=doi,
+    )
+    manager.add_paper(paper)
+    try:
+        style_lower = style.lower()
+        if style_lower == "vancouver":
+            citation = manager.format_vancouver(paper)
+        elif style_lower == "bibtex":
+            citation = manager.format_bibtex(paper)
+        else:
+            citation = manager.format_apa(paper)
+        logger.info("generate_citation: style=%s, title=%s", style_lower, title[:40])
+        return {"style": style_lower, "citation": citation}
+    except Exception as e:
+        logger.error("generate_citation failed: %s", e)
+        return {"error": str(e)}

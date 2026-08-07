@@ -121,7 +121,7 @@ class TestBuiltinTools:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         tools = reg.list_tools()
-        assert len(tools) == 8
+        assert len(tools) >= 12
         assert reg.has_tool("search_literature")
         assert reg.has_tool("search_database")
         assert reg.has_tool("execute_python")
@@ -130,13 +130,26 @@ class TestBuiltinTools:
         assert reg.has_tool("extract_findings")
         assert reg.has_tool("analyze_consensus")
         assert reg.has_tool("execute_r")
+        assert reg.has_tool("visualize_molecule")
+        assert reg.has_tool("visualize_protein")
+        assert reg.has_tool("explain_math")
+        assert reg.has_tool("generate_citation")
 
     def test_builtin_openai_format(self):
         reg = ToolRegistry()
         register_builtin_tools(reg)
         openai_tools = reg.get_openai_tools()
-        assert len(openai_tools) == 8
+        assert len(openai_tools) == len(reg.list_tools())
         for t in openai_tools:
             assert t["type"] == "function"
             assert "name" in t["function"]
             assert "parameters" in t["function"]
+
+    def test_builtin_mcp_format(self):
+        reg = ToolRegistry()
+        register_builtin_tools(reg)
+        mcp_tools = reg.get_mcp_tools()
+        assert len(mcp_tools) == len(reg.list_tools())
+        for t in mcp_tools:
+            assert "name" in t
+            assert "inputSchema" in t
