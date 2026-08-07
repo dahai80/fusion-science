@@ -183,6 +183,14 @@ All planned features and non-functional requirements are complete. This is the f
 
 - **374 tests passing**, ruff clean, all phases complete.
 
+### Patch Releases (v1.0.1 ~ v1.0.3)
+
+| Version | Changes |
+|---|---|
+| v1.0.1 | License → Apache-2.0 (#6, #7); codebase ruff-format cleaned; CI enforces `ruff check` + `ruff format --check`. |
+| v1.0.2 | Engine routed through `fusion-gateway` (:11432) instead of direct MLX (:11434); `_MLX_STATUS_URL` stays on :11434 for service discovery (#5). |
+| v1.0.3 | Unified service port 8200→11462 (#9, PR #10); CI test job installs `.[test,api]` so FastAPI-backed tests run; `GET /system/mirrors/latency` now probes mirrors in parallel with a 3s per-endpoint cap and degrades per-mirror failure instead of timing out (#8). |
+
 ## Domestic Research Environment
 
 Fusion-Science is designed for the Chinese domestic research environment:

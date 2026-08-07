@@ -45,7 +45,11 @@ async def connectivity_check():
 @router.get("/mirrors/latency")
 async def mirror_latency_test():
     router_inst = MirrorRouter()
-    results = await router_inst.test_all_latency()
+    try:
+        results = await router_inst.test_all_latency()
+    except Exception as e:
+        logger.warning("mirrors/latency batch failed: %s", e)
+        results = {}
     return {"latency": results, "auto_switch": router_inst._auto_switch}
 
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # fusion-science lifecycle manager (start|stop|restart|status)
-# HTTP REST API on port 8200 (health endpoint: /api/v1/health).
+# HTTP REST API on port 11462 (health endpoint: /api/v1/health).
 # Callers: fusion-studio UpstreamServiceManager (auto-start on launch + manual start).
 # Affected API: start.sh start|stop|restart|status; status exits 0 if running, 1 if not.
 # Data schemas: PID file .fusion-science.pid; logs/stdout.log + logs/stderr.log.
@@ -15,7 +15,7 @@ PID_FILE="${SCRIPT_DIR}/.fusion-science.pid"
 LOG_DIR="${SCRIPT_DIR}/logs"
 STDOUT_LOG="${LOG_DIR}/stdout.log"
 STDERR_LOG="${LOG_DIR}/stderr.log"
-PORT="${FUSION_SCIENCE_PORT:-8200}"
+PORT="${FUSION_SCIENCE_PORT:-11462}"
 HOST="${FUSION_SCIENCE_HOST:-127.0.0.1}"
 HEALTH_URL="http://${HOST}:${PORT}/api/v1/health"
 HEALTH_WAIT=60

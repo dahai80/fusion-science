@@ -622,18 +622,40 @@ class MirrorRouter:
         )
         return results
 
-    async def test_all_latency(self, timeout: float = 5.0) -> dict[str, dict[str, float]]:
-        """Test latency for all configured mirrors.
+    async def test_all_latency(self, timeout: float = 3.0) -> dict[str, dict[str, float]]:
+        """Test latency for all configured mirrors in parallel.
+
+        Probes all databases concurrently with a per-endpoint timeout cap so a
+        single unreachable mirror cannot block the whole response. Per-database
+        failures are degraded to {"primary": -1.0, "mirror": -1.0} rather than
+        aborting the batch.
 
         Args:
-            timeout: HTTP request timeout in seconds.
+            timeout: HTTP request timeout in seconds (per endpoint).
 
         Returns:
             Dict mapping db_name to {"primary": float, "mirror": float}.
         """
-        results = {}
-        for db_name in self.mirrors:
-            results[db_name] = await self.test_latency(db_name, timeout)
+        import asyncio
+
+        db_names = list(self.mirrors)
+        if not db_names:
+            return {}
+
+        probe_results = await asyncio.gather(
+            *(self.test_latency(name, timeout) for name in db_names),
+            return_exceptions=True,
+        )
+
+        results: dict[str, dict[str, float]] = {}
+        for name, probe in zip(db_names, probe_results, strict=True):
+            if isinstance(probe, Exception):
+                logger.warning("Latency batch probe for %s failed: %s", name, probe)
+                results[name] = {"primary": -1.0, "mirror": -1.0}
+            else:
+                results[name] = probe
+        ok_count = sum(1 for v in results.values() if v.get("primary", -1.0) >= 0 or v.get("mirror", -1.0) >= 0)
+        logger.info("Latency batch done: %d/%d dbs probed ok", ok_count, len(db_names))
         return results
 
     def enable_auto_switch(self, enabled: bool = True) -> None:
