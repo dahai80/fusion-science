@@ -158,7 +158,7 @@ class TestLLMGatewayRetry:
         mock_client = MagicMock()
         mock_client.is_closed = False
 
-        async def mock_post(url, json=None):
+        async def mock_post(url, json=None, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -201,6 +201,80 @@ class TestLLMGatewayRetry:
         await gw.chat([{"role": "user", "content": "hi"}])
         assert len(gw._request_times) == 1
         assert gw._request_times[0] >= 0
+
+    @pytest.mark.asyncio
+    async def test_chat_empty_content_guard_dh3(self):
+        gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
+                    "usage": {},
+                    "model": "test-model",
+                }
+
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.post = AsyncMock(return_value=MockResponse())
+        gw._client = mock_client
+        resp = await gw.chat([{"role": "user", "content": "hi"}])
+        assert resp.content == ""
+        assert resp.error == "empty_content"
+
+    @pytest.mark.asyncio
+    async def test_chat_whitespace_content_guard_dh3(self):
+        gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "   \n  "}, "finish_reason": "stop"}],
+                    "usage": {},
+                    "model": "test-model",
+                }
+
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.post = AsyncMock(return_value=MockResponse())
+        gw._client = mock_client
+        resp = await gw.chat([{"role": "user", "content": "hi"}])
+        assert resp.error == "empty_content"
+
+    @pytest.mark.asyncio
+    async def test_chat_real_content_passes_dh3(self):
+        gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "valid summary"}, "finish_reason": "stop"}],
+                    "usage": {},
+                    "model": "test-model",
+                }
+
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.post = AsyncMock(return_value=MockResponse())
+        gw._client = mock_client
+        resp = await gw.chat([{"role": "user", "content": "hi"}])
+        assert resp.content == "valid summary"
+        assert resp.error == ""
 
 
 class TestAuditIntegrityChecker:

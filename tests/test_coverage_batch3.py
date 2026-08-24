@@ -907,8 +907,11 @@ class TestLLMGateway:
         gateway._client.aclose = AsyncMock()
         gateway._connection_monitor = MagicMock()
         gateway._connection_monitor.stop_monitor = AsyncMock()
+        mock_aclose = gateway._client.aclose
         await gateway.close()
-        gateway._client.aclose.assert_called_once()
+        gateway._connection_monitor.stop_monitor.assert_awaited_once()
+        mock_aclose.assert_not_called()
+        assert gateway._client is None
 
     @pytest.mark.asyncio
     async def test_context_manager(self, gateway):

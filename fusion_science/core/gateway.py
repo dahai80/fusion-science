@@ -9,7 +9,9 @@ from typing import Any
 
 import httpx
 
-from .retry import ConnectionMonitor, RetryStats, retry_with_backoff
+from fusion_core.http_client import get_async_client, with_retry
+
+from .retry import ConnectionMonitor, RetryStats
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +108,7 @@ class LLMGateway:
     async def refresh_available_models(self) -> list[dict]:
         try:
             client = await self._get_client()
-            resp = await client.get("/models")
+            resp = await client.get("/models", headers=self._route_headers())
             resp.raise_for_status()
             data = resp.json()
             self._available_models = data.get("data", [])
@@ -155,27 +157,26 @@ class LLMGateway:
         except RuntimeError:
             pass
 
+    def _route_headers(self) -> dict[str, str]:
+        headers = {"X-Fusion-Route": "fusion-science"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            headers = {"X-Fusion-Route": "fusion-science"}
-            if self._api_key:
-                headers["Authorization"] = f"Bearer {self._api_key}"
-            self._client = httpx.AsyncClient(
-                base_url=self._base_url,
-                headers=headers,
+            self._client = get_async_client(
+                self._base_url,
                 timeout=self._timeout,
             )
-            logger.debug("Created httpx.AsyncClient, base_url=%s", self._base_url)
+            logger.debug("Pooled httpx.AsyncClient via fusion_core, base=%s", self._base_url)
         return self._client
 
     async def check_mlx_memory(self) -> dict[str, Any]:
         try:
-            headers = {"X-Fusion-Route": "fusion-science"}
-            if self._api_key:
-                headers["Authorization"] = f"Bearer {self._api_key}"
             async with httpx.AsyncClient(
                 base_url=self._engine_base_url,
-                headers=headers,
+                headers=self._route_headers(),
                 timeout=10.0,
             ) as status_client:
                 resp = await status_client.get("/api/status")
@@ -207,12 +208,9 @@ class LLMGateway:
             logger.debug("Skip unloading default model: %s", model_id)
             return False
         try:
-            headers = {"X-Fusion-Route": "fusion-science"}
-            if self._api_key:
-                headers["Authorization"] = f"Bearer {self._api_key}"
             async with httpx.AsyncClient(
                 base_url=self._engine_base_url,
-                headers=headers,
+                headers=self._route_headers(),
                 timeout=30.0,
             ) as unload_client:
                 resp = await unload_client.post(f"/v1/models/{model_id}/unload")
@@ -275,19 +273,15 @@ class LLMGateway:
             logger.debug("Pre-call memory check: %s", reason)
 
         client = await self._get_client()
+        headers = self._route_headers()
         t0 = time.time()
         try:
-
-            async def _do_chat():
-                resp = await client.post("/chat/completions", json=payload)
-                resp.raise_for_status()
-                return resp.json()
-
-            data = await retry_with_backoff(
-                _do_chat,
-                max_retries=self._max_retries,
-                retryable_exceptions=(httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout),
+            resp = await with_retry(
+                lambda: client.post("/chat/completions", json=payload, headers=headers),
+                retries=self._max_retries,
             )
+            resp.raise_for_status()
+            data = resp.json()
 
             choice = data.get("choices", [{}])[0]
             msg = choice.get("message", {})
@@ -297,6 +291,15 @@ class LLMGateway:
             if self._connection_monitor:
                 self._connection_monitor.record_success()
             logger.info("LLM response: model=%s, len=%d, %.2fs", use_model, len(content), elapsed)
+            if not content or not content.strip():
+                logger.warning("LLM returned empty content, model=%s", use_model)
+                if use_model != self.default_model:
+                    await self.unload_model(use_model)
+                return LLMResponse(
+                    content="",
+                    error="empty_content",
+                    model=data.get("model", use_model),
+                )
             if use_model != self.default_model:
                 await self.unload_model(use_model)
             return LLMResponse(
@@ -353,8 +356,9 @@ class LLMGateway:
         logger.debug("LLM stream request: model=%s, msgs=%d", use_model, len(messages))
 
         client = await self._get_client()
+        headers = self._route_headers()
         try:
-            async with client.stream("POST", "/chat/completions", json=payload) as resp:
+            async with client.stream("POST", "/chat/completions", json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
@@ -438,7 +442,7 @@ class LLMGateway:
     async def health(self) -> bool:
         try:
             client = await self._get_client()
-            resp = await client.get("/models")
+            resp = await client.get("/models", headers=self._route_headers())
             return resp.status_code == 200
         except Exception:
             logger.warning("fusion-mlx health check failed")
@@ -447,7 +451,7 @@ class LLMGateway:
     async def list_models(self) -> list[dict]:
         try:
             client = await self._get_client()
-            resp = await client.get("/models")
+            resp = await client.get("/models", headers=self._route_headers())
             resp.raise_for_status()
             data = resp.json()
             return data.get("data", [])
@@ -458,9 +462,9 @@ class LLMGateway:
     async def close(self) -> None:
         if self._connection_monitor:
             await self._connection_monitor.stop_monitor()
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            logger.debug("Closed httpx.AsyncClient")
+        if self._client is not None:
+            logger.debug("Releasing reference to pooled httpx.AsyncClient (pool-managed, not closed)")
+        self._client = None
 
     async def __aenter__(self) -> LLMGateway:
         return self
