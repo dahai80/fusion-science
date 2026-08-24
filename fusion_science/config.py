@@ -50,7 +50,7 @@ class ScienceConfig:
 
     # API server
     api_host: str = "0.0.0.0"
-    api_port: int = 11462
+    api_port: int = 11464
     api_cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
     # Database

@@ -392,10 +392,10 @@ def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) 
 
 
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to")
-@click.option("--port", default=8080, help="Port to listen on")
+@click.option("--host", default=None, help="Host to bind to (default: config api_host)")
+@click.option("--port", default=None, type=int, help="Port to listen on (default: config api_port)")
 @click.pass_context
-def web(ctx: click.Context, host: str, port: int) -> None:
+def web(ctx: click.Context, host: str | None, port: int | None) -> None:
     """Launch the Fusion-Science web interface (alias for serve)."""
     ctx.invoke(serve, host=host, port=port)
 
