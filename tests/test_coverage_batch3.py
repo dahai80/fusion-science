@@ -1251,7 +1251,7 @@ class TestConfig:
     def test_default_config(self):
         config = ScienceConfig()
         assert config.model_name == "qwen3.5-9b"
-        assert config.api_port == 11464
+        assert config.api_port == 11462
         assert config.engine_base_url == "http://localhost:11432/v1"
 
     def test_load_config_defaults(self):
