@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-
 from fusion_core.http_client import get_async_client, with_retry
 
 from .retry import ConnectionMonitor, RetryStats

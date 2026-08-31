@@ -85,7 +85,7 @@ def _error_response(req_id, code, message):
 async def mcp_sse(request: Request):
     async def event_stream():
         cfg = getattr(request.app.state, "config", None)
-        sse_port = getattr(cfg, "api_port", None) or 11464
+        sse_port = getattr(cfg, "api_port", None) or 11462
         endpoint_msg = json.dumps(
             {
                 "jsonrpc": "2.0",

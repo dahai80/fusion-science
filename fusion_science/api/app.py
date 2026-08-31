@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .. import __version__
 from ..audit.tracker import TraceRecorder
 from ..config import ScienceConfig, load_config
 from ..core.agents import QueryRouterAgent
@@ -136,7 +137,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="Fusion-Science API",
         description="Local AI scientific research workbench",
-        version="1.0.4",
+        version=__version__,
         lifespan=lifespan,
     )
 
