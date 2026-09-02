@@ -72,7 +72,7 @@ testpaths = ["tests"]
 source = ["fusion_science"]
 branch = true
 relative_files = true
-omit = ["fusion_science/database/chinese.py"]
+omit = []
 
 [tool.coverage.report]
 exclude_lines = [
