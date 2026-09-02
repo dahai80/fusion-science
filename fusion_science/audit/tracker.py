@@ -12,9 +12,12 @@ research session, including:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -64,6 +67,8 @@ class TraceEntry:
     success: bool = True
     error: str = ""
     parent_id: str = ""  # For hierarchical tracing
+    prev_hash: str = ""  # hash chain: sha256 of previous entry's canonical json
+    entry_hash: str = ""  # sha256 of this entry (excluding entry_hash itself)
 
 
 @dataclass
@@ -90,9 +95,31 @@ class TraceRecorder:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self._session: TraceSession | None = None
         self._current_parent: str = ""
+        self._last_entry_hash: str = ""
+        # Concurrency: record() mutates the shared session; guard with a lock.
+        self._lock = threading.Lock()
         # F-7: persist incrementally so a crash mid-session doesn't lose the trail
         self._persist_every: int = 20
         self._records_since_persist: int = 0
+
+    @staticmethod
+    def _entry_hash(entry: TraceEntry) -> str:
+        payload = {
+            "id": entry.id,
+            "timestamp": entry.timestamp,
+            "operation": entry.operation,
+            "source": entry.source,
+            "description": entry.description,
+            "parameters": entry.parameters,
+            "result_summary": entry.result_summary,
+            "duration_ms": entry.duration_ms,
+            "success": entry.success,
+            "error": entry.error,
+            "parent_id": entry.parent_id,
+            "prev_hash": entry.prev_hash,
+        }
+        raw = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def start_session(self, metadata: dict[str, Any] | None = None) -> str:
         """Start a new tracing session.
@@ -109,6 +136,7 @@ class TraceRecorder:
             start_time=time.time(),
             metadata=metadata or {},
         )
+        self._last_entry_hash = ""
         logger.info("Started trace session: %s", session_id)
         return session_id
 
@@ -180,13 +208,18 @@ class TraceRecorder:
             success=success,
             error=error,
             parent_id=self._current_parent,
+            prev_hash=self._last_entry_hash,
         )
-        self._session.entries.append(entry)
-        self._records_since_persist += 1
-        if self._records_since_persist >= self._persist_every:
-            self._records_since_persist = 0
-            with contextlib.suppress(Exception):
-                self._save_session()
+        entry.entry_hash = self._entry_hash(entry)
+        with self._lock:
+            self._session.entries.append(entry)
+            self._last_entry_hash = entry.entry_hash
+            self._records_since_persist += 1
+            should_persist = self._records_since_persist >= self._persist_every
+            if should_persist:
+                self._records_since_persist = 0
+        if should_persist:
+            self._save_session()
         return entry_id
 
     def set_parent(self, parent_id: str) -> None:
@@ -468,19 +501,75 @@ class TraceRecorder:
         if session_path.exists():
             with open(session_path) as f:
                 data = json.load(f)
-            return TraceSession(**data)
+            # Schema-tolerant deserialize: tolerate field additions/omissions
+            try:
+                return TraceSession(**data)
+            except TypeError:
+                entries = [
+                    TraceEntry(
+                        id=e.get("id", ""),
+                        timestamp=e.get("timestamp", 0.0),
+                        operation=e.get("operation", ""),
+                        source=e.get("source", ""),
+                        description=e.get("description", ""),
+                        parameters=e.get("parameters", {}),
+                        result_summary=e.get("result_summary", ""),
+                        duration_ms=e.get("duration_ms", 0.0),
+                        success=e.get("success", True),
+                        error=e.get("error", ""),
+                        parent_id=e.get("parent_id", ""),
+                        prev_hash=e.get("prev_hash", ""),
+                        entry_hash=e.get("entry_hash", ""),
+                    )
+                    for e in data.get("entries", [])
+                ]
+                return TraceSession(
+                    session_id=data.get("session_id", ""),
+                    start_time=data.get("start_time", 0.0),
+                    end_time=data.get("end_time", 0.0),
+                    entries=entries,
+                    metadata=data.get("metadata", {}),
+                    status=data.get("status", "unknown"),
+                )
         return None
 
     def _save_session(self) -> None:
-        """Save the current session to disk."""
+        """Save the current session to disk atomically (temp + rename)."""
         if self._session is None:
             return
 
         export_path = self.storage_dir / f"{self._session.session_id}.json"
-        with open(export_path, "w", encoding="utf-8") as f:
-            f.write(self.export_json())
+        payload = self.export_json()
+        # Atomic write: write to temp file in same dir, then os.replace
+        fd, tmp_path = tempfile.mkstemp(dir=str(self.storage_dir), suffix=".tmp", prefix="trace_")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp_path, export_path)
+        except Exception:
+            # Clean up temp file on failure, then re-raise — audit persistence
+            # failures must be loud, not silently swallowed.
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            logger.error("Failed to persist trace session %s", self._session.session_id)
+            raise
 
         logger.info("Saved trace session to %s", export_path)
+
+    def verify_chain(self, session_id: str | None = None) -> bool:
+        """Verify the hash chain of a trace session is intact (tamper-evident)."""
+        session = self._get_session(session_id)
+        if session is None:
+            return False
+        prev = ""
+        for entry in session.entries:
+            if entry.prev_hash != prev:
+                return False
+            recomputed = self._entry_hash(entry)
+            if entry.entry_hash != recomputed:
+                return False
+            prev = entry.entry_hash
+        return True
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all saved trace sessions.

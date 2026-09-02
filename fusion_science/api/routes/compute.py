@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...audit.compliance import ComplianceChecker
@@ -13,15 +13,21 @@ from ...compute.jupyter_kernel import JupyterKernelManager
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# R-7: bound every user-controlled string/array so a malicious or runaway
+# client cannot force unbounded LLM input or batch fan-out.
+_MAX_QUERY_CHARS = 8000
+_MAX_BATCH_QUERIES = 20
+_MAX_LANGUAGE_LEN = 20
+
 
 class CodeGenRequest(BaseModel):
-    query: str
-    language: str = "python"
+    query: str = Field(..., max_length=_MAX_QUERY_CHARS)
+    language: str = Field(default="python", max_length=_MAX_LANGUAGE_LEN)
 
 
 class CodeGenBatchRequest(BaseModel):
-    queries: list[str]
-    language: str = "python"
+    queries: list[str] = Field(..., max_length=_MAX_BATCH_QUERIES)
+    language: str = Field(default="python", max_length=_MAX_LANGUAGE_LEN)
 
 
 class JupyterExecuteRequest(BaseModel):
@@ -47,8 +53,9 @@ async def generate_code(request: Request, body: CodeGenRequest):
             "packages": result.packages,
         }
     except Exception as e:
+        # R-8: fail with HTTP 502 (upstream gateway/LLM failure), not 200.
         logger.error("Code gen failed: %s", e)
-        return {"error": str(e)}
+        raise HTTPException(status_code=502, detail=f"code_gen_failed: {e}") from e
 
 
 @router.post("/code-gen/batch")
@@ -60,7 +67,7 @@ async def generate_code_batch(request: Request, body: CodeGenBatchRequest):
         return {"results": [{"code": r.code, "language": r.language, "confidence": r.confidence} for r in results]}
     except Exception as e:
         logger.error("Batch code gen failed: %s", e)
-        return {"error": str(e)}
+        raise HTTPException(status_code=502, detail=f"batch_code_gen_failed: {e}") from e
 
 
 @router.post("/jupyter/execute")
@@ -69,7 +76,8 @@ async def jupyter_execute(request: Request, body: JupyterExecuteRequest):
     try:
         started = await mgr.start_kernel()
         if not started:
-            return {"error": "Failed to start Jupyter kernel"}
+            logger.error("Jupyter kernel start failed")
+            raise HTTPException(status_code=503, detail="jupyter_kernel_start_failed")
         result = await mgr.execute(body.code, timeout=body.timeout)
         await mgr.shutdown()
         return {
@@ -79,11 +87,13 @@ async def jupyter_execute(request: Request, body: JupyterExecuteRequest):
             "success": result.success,
             "execution_count": result.execution_count,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Jupyter execute failed: %s", e)
         with contextlib.suppress(Exception):
             await mgr.shutdown()
-        return {"error": str(e)}
+        raise HTTPException(status_code=502, detail=f"jupyter_execute_failed: {e}") from e
 
 
 @router.get("/jupyter/kernels")

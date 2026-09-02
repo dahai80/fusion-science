@@ -24,13 +24,13 @@ def _truncate_content(content: str, max_chars: int) -> str:
 
 
 def _estimate_tokens(messages: list[dict]) -> int:
-    total = 0
-    for msg in messages:
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total += max(1, len(content) // 4)
-        total += 4
-    return total
+    # I-4: route through ContextManager.count_message_tokens so the agent and the
+    # context manager use ONE token estimator. Previously agent used a private
+    # chars//4 heuristic while ContextManager used tiktoken — the two disagreed
+    # on when to compact, causing premature or overdue compaction.
+    from .context_manager import count_message_tokens
+
+    return count_message_tokens(messages)
 
 
 @dataclass
@@ -63,6 +63,13 @@ def _compact_messages(messages: list[dict]) -> None:
         cut += 1
     older = non_system[:cut]
     recent = non_system[cut:]
+    # I-7: floor — never compact away ALL recent context. When the whole
+    # non-system tail is tool-call/result pairs, the boundary walk above can
+    # push cut to len(non_system) and leave recent=[] , collapsing the entire
+    # conversation into a stub and losing the live context the model needs.
+    if not recent and non_system:
+        recent = non_system[-2:]
+        older = non_system[:-2]
     summary_parts = []
     for msg in older:
         role = msg.get("role", "unknown")
@@ -166,8 +173,6 @@ class ScienceAgent:
                     )
             else:
                 duration = time.time() - start
-                self.steps = steps
-                self._messages = messages
                 return AgentResult(
                     agent_name=self.name,
                     output=resp.content,
@@ -177,8 +182,6 @@ class ScienceAgent:
                 )
 
         duration = time.time() - start
-        self.steps = steps
-        self._messages = messages
         # L-1: surface incomplete analysis with a clear non-empty output + error
         return AgentResult(
             agent_name=self.name,

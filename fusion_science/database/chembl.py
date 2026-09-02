@@ -99,13 +99,17 @@ class ChEMBLConnector(BaseConnector):
             return cached
 
         try:
-            # Determine entity type from ID prefix
-            if identifier.upper().startswith("CHEMBL"):
-                data = await self._get_molecule(identifier)
-            elif identifier.upper().startswith("CHEMBL_TARGET"):
+            # R-13: longest-prefix-first. "CHEMBL" is a prefix of "CHEMBL_TARGET"
+            # and "CHEMBL_ASSAY"; checking the generic CHEMBL branch first would
+            # misroute target/assay IDs (e.g. CHEMBL_TARGET1234) to _get_molecule,
+            # hitting the wrong endpoint and returning a confusing 404.
+            up = identifier.upper()
+            if up.startswith("CHEMBL_TARGET"):
                 data = await self._get_target(identifier)
-            elif identifier.upper().startswith("CHEMBL_ASSAY"):
+            elif up.startswith("CHEMBL_ASSAY"):
                 data = await self._get_assay(identifier)
+            elif up.startswith("CHEMBL"):
+                data = await self._get_molecule(identifier)
             else:
                 # Try molecule first
                 data = await self._get_molecule(identifier)

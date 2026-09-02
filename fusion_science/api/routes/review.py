@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from ...session.models import Artifact
+from .._owner import check_owner
 from ._context import build_context_prompt
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,9 @@ class ReviewRequest(BaseModel):
 async def review(session_id: str, request: Request, req: ReviewRequest):
     mgr = request.app.state.session_manager
     session = mgr.get_session(session_id)
-    if not session:
-        return {"error": "session_not_found", "session_id": session_id}
+    denied = check_owner(request, session)
+    if denied:
+        return denied
 
     router_agent = getattr(request.app.state, "router_agent", None)
     if not router_agent:

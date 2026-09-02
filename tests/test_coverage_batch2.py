@@ -176,12 +176,15 @@ class TestPubMedConnector:
         assert result.error != ""
 
     def test_parse_publications_empty(self):
-        result = self.conn._parse_publications("")
-        assert result == []
+        # I-12: malformed/empty XML must surface as error, not silent [].
+        with pytest.raises(ValueError):
+            self.conn._parse_publications("")
 
     def test_parse_publications_invalid_xml(self):
-        result = self.conn._parse_publications("not xml at all")
-        assert result == []
+        # I-12: non-XML 200 response (rate-limit/captcha page) must raise,
+        # not silently return [] which masks a data-loss event as "no results".
+        with pytest.raises(ValueError):
+            self.conn._parse_publications("not xml at all")
 
     def test_parse_publications_valid_xml(self):
         xml = """<?xml version="1.0"?>
@@ -2307,30 +2310,30 @@ class TestAvailableDatabases:
 
 class TestCacheStats:
     def test_get_cache_stats(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"enabled": True, "total_entries": 5}
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             stats = get_cache_stats()
             assert stats["total_entries"] == 5
 
 
 class TestClearCache:
     def test_clear_cache(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"total_entries": 10}
             mock_cache.clear.return_value = None
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             count = clear_cache()
             assert count == 10
 
     def test_clear_cache_with_source(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"total_entries": 3}
             mock_cache.clear.return_value = None
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             count = clear_cache(source="pubmed")
             assert count == 3
             mock_cache.clear.assert_called_with(source="pubmed")

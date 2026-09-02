@@ -5,6 +5,8 @@ import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from .._owner import check_owner
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -20,8 +22,9 @@ class VisualizeRequest(BaseModel):
 async def visualize(session_id: str, request: Request, req: VisualizeRequest):
     mgr = request.app.state.session_manager
     session = mgr.get_session(session_id)
-    if not session:
-        return {"error": "session_not_found", "session_id": session_id}
+    denied = check_owner(request, session)
+    if denied:
+        return denied
 
     router_agent = getattr(request.app.state, "router_agent", None)
     if not router_agent:

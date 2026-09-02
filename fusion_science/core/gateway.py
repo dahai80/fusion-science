@@ -146,7 +146,10 @@ class LLMGateway:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._connection_monitor.start_monitor())
+            # R-9: keep a strong reference to the monitor task. Without it, the
+            # task can be garbage-collected mid-run (no caller holds the
+            # coroutine) and stop_connection_monitor has no handle to cancel.
+            self._monitor_task = loop.create_task(self._connection_monitor.start_monitor())
         except RuntimeError:
             logger.debug("No running loop for connection monitor; will start on first use")
 
@@ -160,6 +163,14 @@ class LLMGateway:
             loop.create_task(self._connection_monitor.stop_monitor())
         except RuntimeError:
             pass
+        # Cancel the monitor task so it does not outlive the gateway; swallow
+        # CancelledError which is the expected outcome of cancelling a task.
+        task = getattr(self, "_monitor_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            logger.debug("Cancelled connection monitor task")
+        self._monitor_task = None
+        self._connection_monitor = None
 
     def _route_headers(self) -> dict[str, str]:
         headers = {"X-Fusion-Route": "fusion-science"}

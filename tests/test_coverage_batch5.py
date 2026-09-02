@@ -213,8 +213,8 @@ class TestAnalysisRoute:
         create = await client.post("/api/v1/sessions", json={"title": "A"})
         sid = create.json()["session_id"]
         resp = await client.post(f"/api/v1/sessions/{sid}/analyze", json={"query": "test"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "router_agent not available"
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_analyze_no_data_agent(self, client):
@@ -224,8 +224,8 @@ class TestAnalysisRoute:
         router_agent.get_agent.return_value = None
         client._transport.app.state.router_agent = router_agent
         resp = await client.post(f"/api/v1/sessions/{sid}/analyze", json={"query": "test"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "data agent not available"
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_analyze_success(self, client):
@@ -261,36 +261,44 @@ class TestAnalysisRoute:
 class TestAuditRoute:
     @pytest.mark.asyncio
     async def test_get_audit_no_recorder(self, client):
+        create = await client.post("/api/v1/sessions", json={"title": "A"})
+        sid = create.json()["session_id"]
         client._transport.app.state.recorder = None
-        resp = await client.get("/api/v1/sessions/s1/audit")
+        resp = await client.get(f"/api/v1/sessions/{sid}/audit")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["session_id"] == "s1"
+        assert data["session_id"] == sid
         assert data["trace_count"] == 0
 
     @pytest.mark.asyncio
     async def test_get_audit_with_recorder(self, client):
+        create = await client.post("/api/v1/sessions", json={"title": "A"})
+        sid = create.json()["session_id"]
         recorder = MagicMock()
         recorder.get_traces.return_value = [{"id": "e1"}]
         client._transport.app.state.recorder = recorder
-        resp = await client.get("/api/v1/sessions/s1/audit")
+        resp = await client.get(f"/api/v1/sessions/{sid}/audit")
         assert resp.status_code == 200
         data = resp.json()
         assert data["trace_count"] == 1
 
     @pytest.mark.asyncio
     async def test_integrity_no_recorder(self, client):
+        create = await client.post("/api/v1/sessions", json={"title": "A"})
+        sid = create.json()["session_id"]
         client._transport.app.state.recorder = None
-        resp = await client.get("/api/v1/sessions/s1/audit/integrity")
+        resp = await client.get(f"/api/v1/sessions/{sid}/audit/integrity")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_integrity_with_recorder(self, client):
+        create = await client.post("/api/v1/sessions", json={"title": "A"})
+        sid = create.json()["session_id"]
         session_mock = MagicMock()
         recorder = MagicMock()
         recorder.get_session.return_value = session_mock
         client._transport.app.state.recorder = recorder
-        resp = await client.get("/api/v1/sessions/s1/audit/integrity")
+        resp = await client.get(f"/api/v1/sessions/{sid}/audit/integrity")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
@@ -318,8 +326,8 @@ class TestChatRoute:
     @pytest.mark.asyncio
     async def test_chat_session_not_found(self, client):
         resp = await client.post("/api/v1/sessions/missing/chat", json={"message": "hi"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_chat_non_stream(self, client):
@@ -448,14 +456,12 @@ class TestComputeRoute:
     async def test_code_gen_no_gateway(self, client):
         client._transport.app.state.gateway = None
         resp = await client.post("/api/v1/compute/code-gen", json={"query": "correlation analysis"})
-        assert resp.status_code == 200
+        assert resp.status_code == 502
 
     @pytest.mark.asyncio
     async def test_code_gen_with_gateway(self, client):
         resp = await client.post("/api/v1/compute/code-gen", json={"query": "correlation analysis"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "code" in data or "error" in data
+        assert resp.status_code in (200, 502)
 
     @pytest.mark.asyncio
     async def test_code_gen_batch(self, client):
@@ -480,8 +486,8 @@ class TestComputeRoute:
                     "timeout": 30,
                 },
             )
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "Failed to start Jupyter kernel"
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_jupyter_execute_success(self, client):
@@ -518,8 +524,8 @@ class TestComputeRoute:
                     "code": "print('hello')",
                 },
             )
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 502
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_list_jupyter_kernels(self, client):
@@ -821,8 +827,8 @@ class TestSearchRoute:
         sid = create.json()["session_id"]
         client._transport.app.state.tool_registry = None
         resp = await client.post(f"/api/v1/sessions/{sid}/search", json={"query": "cancer"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "search_literature tool not available"
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_search_no_search_tool(self, client):
@@ -831,8 +837,8 @@ class TestSearchRoute:
         registry = ToolRegistry()
         client._transport.app.state.tool_registry = registry
         resp = await client.post(f"/api/v1/sessions/{sid}/search", json={"query": "cancer"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "search_literature tool not available"
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_search_success(self, client):
@@ -861,8 +867,8 @@ class TestSearchRoute:
         sid = create.json()["session_id"]
         client._transport.app.state.tool_registry = None
         resp = await client.post(f"/api/v1/sessions/{sid}/search", json={"query": ""})
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 503
+        assert "detail" in resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -970,8 +976,8 @@ class TestSessionsRoute:
     @pytest.mark.asyncio
     async def test_get_missing_session(self, client):
         resp = await client.get("/api/v1/sessions/nope")
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_delete_session(self, client):
@@ -984,8 +990,8 @@ class TestSessionsRoute:
     @pytest.mark.asyncio
     async def test_delete_missing_session(self, client):
         resp = await client.delete("/api/v1/sessions/nope")
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_update_session_title(self, client):
@@ -998,8 +1004,8 @@ class TestSessionsRoute:
     @pytest.mark.asyncio
     async def test_update_missing_session(self, client):
         resp = await client.patch("/api/v1/sessions/nope", json={"title": "New"})
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
 
 # ---------------------------------------------------------------------------

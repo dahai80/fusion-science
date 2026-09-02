@@ -137,10 +137,9 @@ def get_cache_stats() -> dict[str, Any]:
     Returns:
         Cache statistics dict.
     """
-    from fusion_science.database.mirror import ScienceCache
+    from fusion_science.database.mirror import get_shared_cache
 
-    cache = ScienceCache()
-    return cache.stats()
+    return get_shared_cache().stats()
 
 
 def clear_cache(source: str | None = None) -> int:
@@ -152,9 +151,9 @@ def clear_cache(source: str | None = None) -> int:
     Returns:
         Number of entries cleared.
     """
-    from fusion_science.database.mirror import ScienceCache
+    from fusion_science.database.mirror import get_shared_cache
 
-    cache = ScienceCache()
+    cache = get_shared_cache()
     stats = cache.stats()
     total = stats.get("total_entries", 0)
     cache.clear(source=source)

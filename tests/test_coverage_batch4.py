@@ -602,27 +602,27 @@ class TestGetAvailableDatabases:
 
 class TestCacheFunctions:
     def test_get_cache_stats(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as MockCache:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_instance = MagicMock()
             mock_instance.stats.return_value = {"total_entries": 5}
-            MockCache.return_value = mock_instance
+            mock_get.return_value = mock_instance
             stats = get_cache_stats()
             assert stats["total_entries"] == 5
 
     def test_clear_cache(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as MockCache:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_instance = MagicMock()
             mock_instance.stats.return_value = {"total_entries": 3}
-            MockCache.return_value = mock_instance
+            mock_get.return_value = mock_instance
             count = clear_cache()
             assert count == 3
             mock_instance.clear.assert_called_once()
 
     def test_clear_cache_with_source(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as MockCache:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_instance = MagicMock()
             mock_instance.stats.return_value = {"total_entries": 2}
-            MockCache.return_value = mock_instance
+            mock_get.return_value = mock_instance
             count = clear_cache(source="pubmed")
             assert count == 2
             mock_instance.clear.assert_called_once_with(source="pubmed")

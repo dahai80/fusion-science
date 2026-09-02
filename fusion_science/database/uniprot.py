@@ -221,10 +221,15 @@ class UniProtConnector(BaseConnector):
         keywords = [kw.get("name", "") for kw in entry.get("keywords", [])]
 
         # Cross-references
-        db_refs = {}
+        # I-16: append per-database — a UniProt entry can cross-reference the
+        # same DB many times (e.g. multiple PDB IDs). The prior assignment
+        # overwrote on every loop, silently keeping only the last ID.
+        db_refs: dict[str, list[str]] = {}
         for ref in entry.get("uniProtKBCrossReferences", []):
             db = ref.get("database", "")
-            db_refs[db] = [r.get("id") for r in [ref]]
+            if not db:
+                continue
+            db_refs.setdefault(db, []).append(ref.get("id", ""))
 
         return {
             "accession": accession,

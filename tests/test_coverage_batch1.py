@@ -96,7 +96,9 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["run", "analyze gene expression"])
         assert result.exit_code == 0
-        assert "Executing" in result.output
+        # I-10: run is an honest stub now — it reports the task was received,
+        # not that it executed.
+        assert "Task received" in result.output
 
     def test_run_with_pipeline_option(self):
         runner = CliRunner()
@@ -125,7 +127,8 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["search", "test", "--db", "unknowndb"])
         assert result.exit_code == 0
-        assert "Unknown database" in result.output
+        # I-10: search is a stub; it echoes the requested db, no validation.
+        assert "Search requested" in result.output
 
     def test_search_with_max(self):
         runner = CliRunner()
@@ -137,7 +140,8 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["analyze", "--code", "print('hello')"])
         assert result.exit_code == 0
-        assert "Analyzing" in result.output
+        # I-10: analyze is a stub now — reports "Analyze requested".
+        assert "Analyze requested" in result.output
 
     def test_analyze_with_file(self):
         runner = CliRunner()

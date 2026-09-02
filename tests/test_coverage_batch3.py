@@ -318,8 +318,8 @@ class TestComputeRoutes:
             instance = MockGen.return_value
             instance.generate = AsyncMock(side_effect=Exception("gen fail"))
             resp = await client.post("/api/v1/compute/code-gen", json={"query": "hello"})
-            assert resp.status_code == 200
-            assert "error" in resp.json()
+            assert resp.status_code == 502
+            assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_code_gen_batch(self, client):
@@ -348,8 +348,8 @@ class TestComputeRoutes:
             instance = MockMgr.return_value
             instance.start_kernel = AsyncMock(return_value=False)
             resp = await client.post("/api/v1/compute/jupyter/execute", json={"code": "1+1"})
-            assert resp.status_code == 200
-            assert "error" in resp.json()
+            assert resp.status_code == 503
+            assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_jupyter_execute_exception(self, client):
@@ -359,8 +359,8 @@ class TestComputeRoutes:
             instance.execute = AsyncMock(side_effect=Exception("exec error"))
             instance.shutdown = AsyncMock()
             resp = await client.post("/api/v1/compute/jupyter/execute", json={"code": "1+1"})
-            assert resp.status_code == 200
-            assert "error" in resp.json()
+            assert resp.status_code == 502
+            assert "detail" in resp.json()
 
     @pytest.mark.asyncio
     async def test_list_jupyter_kernels(self, client):

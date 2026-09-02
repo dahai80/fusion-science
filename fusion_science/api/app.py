@@ -13,7 +13,7 @@ from ..core.agents import QueryRouterAgent
 from ..core.context_manager import ContextManager
 from ..core.gateway import LLMGateway
 from ..core.tools import ToolRegistry, register_builtin_tools
-from ..session import MemorySessionStore, SessionManager
+from ..session import MemorySessionStore, SessionManager, SQLiteSessionStore
 from ..utils.events import (
     EVENT_CODE_EXECUTION,
     EVENT_DB_QUERY,
@@ -88,11 +88,24 @@ async def lifespan(app: FastAPI):
         app.state.gateway.set_model_for_role("summarization", config.model_summarization)
     if config.model_code:
         app.state.gateway.set_model_for_role("code", config.model_code)
-    app.state.session_manager = SessionManager(store=MemorySessionStore())
+    # Production uses SQLiteSessionStore (crash-safe persistence); "memory" is a
+    # test-only override. Default caps bound per-session memory so a long
+    # conversation cannot OOM the process.
+    if config.session_store.lower() == "sqlite":
+        store = SQLiteSessionStore(db_path=config.session_db_path)
+        logger.info("Session store: sqlite (%s)", config.session_db_path)
+    else:
+        store = MemorySessionStore()
+        logger.warning("Session store: memory — sessions lost on restart (test override)")
+    app.state.session_manager = SessionManager(
+        store=store,
+        max_messages=config.session_max_messages,
+        max_bytes=config.session_max_bytes,
+    )
     app.state.gateway.start_connection_monitor(interval=30.0)
 
     tool_registry = ToolRegistry()
-    register_builtin_tools(tool_registry, config=config)
+    register_builtin_tools(tool_registry, config=config, gateway=app.state.gateway)
     app.state.tool_registry = tool_registry
     logger.info("Tool registry ready: %d tools", len(tool_registry.list_tools()))
 

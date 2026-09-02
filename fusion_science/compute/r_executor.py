@@ -7,6 +7,7 @@ and common R packages for bioinformatics.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -81,35 +82,12 @@ class RExecutor:
                 error="R is not available. Install R and rpy2 (pip install fusion-science[r])",
             )
 
+        # rpy2 is a blocking C call that holds the GIL; running it on the event
+        # loop thread freezes every other async request for the whole R run.
+        # Offload to a worker thread so the API stays responsive.
         try:
-            import rpy2.robjects as robjects  # type: ignore[import-untyped]
-            from rpy2.robjects import pandas2ri  # type: ignore[import-untyped]
-
-            pandas2ri.activate()
-
-            # Capture plots if requested
-            if capture_plots:
-                plot_paths = self._setup_plot_capture()
-                code = self._wrap_with_plot_capture(code, plot_paths)
-
-            # Execute R code
-            output = []
-            error = []
-
-            try:
-                result = robjects.r(code)
-                if result is not None:
-                    output.append(str(result))
-            except Exception as e:
-                error.append(str(e))
-
+            output, error, plots = await asyncio.to_thread(self._execute_sync, code, capture_plots)
             duration = time.time() - start
-
-            # Collect plots
-            plots = []
-            if capture_plots:
-                plots = self._collect_plots()
-
             return RExecutionResult(
                 success=not bool(error),
                 output="\n".join(output),
@@ -117,7 +95,6 @@ class RExecutor:
                 plots=plots,
                 execution_time=duration,
             )
-
         except Exception as e:
             duration = time.time() - start
             return RExecutionResult(
@@ -125,6 +102,31 @@ class RExecutor:
                 error=str(e),
                 execution_time=duration,
             )
+
+    def _execute_sync(self, code: str, capture_plots: bool) -> tuple[list[str], list[str], list[str]]:
+        """Blocking R execution — MUST run off the event loop (via to_thread)."""
+        import rpy2.robjects as robjects  # type: ignore[import-untyped]
+        from rpy2.robjects import pandas2ri  # type: ignore[import-untyped]
+
+        pandas2ri.activate()
+
+        if capture_plots:
+            plot_paths = self._setup_plot_capture()
+            code = self._wrap_with_plot_capture(code, plot_paths)
+
+        output: list[str] = []
+        error: list[str] = []
+        try:
+            result = robjects.r(code)
+            if result is not None:
+                output.append(str(result))
+        except Exception as e:
+            error.append(str(e))
+
+        plots: list[str] = []
+        if capture_plots:
+            plots = self._collect_plots()
+        return output, error, plots
 
     def _setup_plot_capture(self) -> list[str]:
         """Set up R plot capture to temporary files.
@@ -189,23 +191,27 @@ options(device = function() png(file.path(.fusion_plot_dir, paste0("plot_", form
         if not self._r_available:
             return {pkg: False for pkg in packages}
 
+        # rpy2 calls block the event loop — run the package probe off-thread.
         try:
-            import rpy2.robjects as robjects  # type: ignore[import-untyped]
-
-            result = {}
-            for pkg in packages:
-                if not _R_PKG_RE.match(pkg):
-                    logger.warning("Rejecting invalid R package name: %r", pkg)
-                    result[pkg] = False
-                    continue
-                try:
-                    installed = robjects.r(f'requireNamespace("{pkg}", quietly = TRUE)')[0]
-                    result[pkg] = bool(installed)
-                except Exception:
-                    result[pkg] = False
-            return result
+            return await asyncio.to_thread(self._check_packages_sync, packages)
         except Exception:
             return {pkg: False for pkg in packages}
+
+    def _check_packages_sync(self, packages: list[str]) -> dict[str, bool]:
+        import rpy2.robjects as robjects  # type: ignore[import-untyped]
+
+        result = {}
+        for pkg in packages:
+            if not _R_PKG_RE.match(pkg):
+                logger.warning("Rejecting invalid R package name: %r", pkg)
+                result[pkg] = False
+                continue
+            try:
+                installed = robjects.r(f'requireNamespace("{pkg}", quietly = TRUE)')[0]
+                result[pkg] = bool(installed)
+            except Exception:
+                result[pkg] = False
+        return result
 
     @staticmethod
     def get_bioconductor_install_code() -> str:

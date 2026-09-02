@@ -262,7 +262,8 @@ class TestIssue7SequentialContext:
             r2 = await client.post("/api/v1/sessions/nope/analyze", json={"query": "q"})
             r3 = await client.post("/api/v1/sessions/nope/review", json={"query": "q"})
         for r in (r1, r2, r3):
-            assert r.json()["error"] == "session_not_found"
+            assert r.status_code == 404
+            assert r.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_analyze_no_prior_context_uses_raw_query(self, client_factory):
