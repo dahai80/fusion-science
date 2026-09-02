@@ -271,7 +271,7 @@ class TestAuditRoute:
     @pytest.mark.asyncio
     async def test_get_audit_with_recorder(self, client):
         recorder = MagicMock()
-        recorder.get_entries.return_value = [{"id": "e1"}]
+        recorder.get_traces.return_value = [{"id": "e1"}]
         client._transport.app.state.recorder = recorder
         resp = await client.get("/api/v1/sessions/s1/audit")
         assert resp.status_code == 200
@@ -489,9 +489,9 @@ class TestComputeRoute:
             mgr = MockMgr.return_value
             mgr.start_kernel = AsyncMock(return_value=True)
             result = MagicMock()
-            result.stdout = "hello"
-            result.stderr = ""
-            result.outputs = []
+            result.output = "hello"
+            result.error = ""
+            result.mime_data = {}
             result.success = True
             result.execution_count = 1
             mgr.execute = AsyncMock(return_value=result)

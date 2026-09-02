@@ -1022,9 +1022,10 @@ class TestPythonExecutor:
 
     def test_build_wrapper_with_input_data(self):
         executor = PythonExecutor()
-        wrapper = executor._build_wrapper("result = input_data['x']", {"x": 10}, True)
+        wrapper = executor._build_wrapper("result = input_data['x']", True, True)
         assert "input_data" in wrapper
-        assert "json.loads" in wrapper
+        assert "FUSION_SCIENCE_INPUT" in wrapper
+        assert "json.load" in wrapper
 
     def test_build_wrapper_no_input_data(self):
         executor = PythonExecutor()

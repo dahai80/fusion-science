@@ -1,6 +1,6 @@
 [project]
 name = "fusion-science"
-version = "1.0.5"
+version = "1.0.6"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"

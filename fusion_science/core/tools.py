@@ -404,42 +404,53 @@ async def _execute_python_handler(code: str, input_data: dict | None = None) -> 
         return {"success": False, "error": str(e)}
 
 
+_CHART_TYPES = {"bar", "line", "scatter", "box", "violin", "heatmap"}
+
+
 async def _generate_chart_handler(chart_type: str, data_description: str, code: str | None = None) -> dict:
     from ..compute.python_executor import PythonExecutor
 
+    if chart_type not in _CHART_TYPES:
+        logger.warning("Rejected unknown chart_type: %r", chart_type)
+        return {"success": False, "error": f"Unsupported chart_type: {chart_type}"}
+
     if not code:
-        code = f"""
+        # data_description passed as input_data (never inlined into source)
+        code = """
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Chart type: {chart_type}
-# Data: {data_description}
-# Replace the code below with your actual data and visualization
+chart_type = input_data.get('chart_type', 'scatter')
+title = input_data.get('title', '')
 
 fig, ax = plt.subplots(figsize=(8, 6))
 x = np.random.rand(20)
 y = np.random.rand(20)
 
-if "{chart_type}" == "bar":
+if chart_type == "bar":
     ax.bar(range(len(x)), x)
-elif "{chart_type}" == "line":
+elif chart_type == "line":
     ax.plot(x)
-elif "{chart_type}" == "scatter":
+elif chart_type == "scatter":
     ax.scatter(x, y)
-elif "{chart_type}" == "box":
+elif chart_type == "box":
     ax.boxplot([x, y])
-elif "{chart_type}" == "violin":
+elif chart_type == "violin":
     ax.violinplot([x, y])
 else:
     ax.scatter(x, y)
 
-ax.set_title("{data_description}")
+ax.set_title(title)
 plt.tight_layout()
 result = "Chart generated successfully"
 """
     executor = PythonExecutor()
     try:
-        result = await executor.execute(code, capture_figures=True)
+        result = await executor.execute(
+            code,
+            input_data={"chart_type": chart_type, "title": data_description[:200]},
+            capture_figures=True,
+        )
         return {
             "success": result.success,
             "output": result.output[:2000] if result.output else "",

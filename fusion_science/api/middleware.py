@@ -11,17 +11,21 @@ from starlette.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 
+_EXEMPT_PATHS = {"/api/v1/health", "/docs", "/openapi.json", "/redoc", "/redoc.openapi.json", "/favicon.ico"}
+
+
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         api_key = os.getenv("FUSION_SCIENCE_API_KEY", "")
+        path = request.url.path.rstrip("/").lower()
+
+        if path in _EXEMPT_PATHS:
+            return await call_next(request)
+
         if not api_key:
-            return await call_next(request)
-
-        exempt_paths = {"/api/v1/health", "/docs", "/openapi.json", "/redoc"}
-        if request.url.path in exempt_paths:
-            return await call_next(request)
-
-        if not request.url.path.startswith("/api/"):
+            logger.warning(
+                "FUSION_SCIENCE_API_KEY not set — API auth disabled. Bind to 127.0.0.1 in production or set the key."
+            )
             return await call_next(request)
 
         key = request.headers.get("X-API-Key", "")

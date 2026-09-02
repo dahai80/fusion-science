@@ -4,7 +4,7 @@ import contextlib
 import logging
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...audit.compliance import ComplianceChecker
 from ...compute.code_generator import CodeGenerator
@@ -25,8 +25,8 @@ class CodeGenBatchRequest(BaseModel):
 
 
 class JupyterExecuteRequest(BaseModel):
-    code: str
-    timeout: int = 120
+    code: str = Field(..., max_length=200_000)
+    timeout: int = Field(default=120, ge=1, le=300)
 
 
 class ComplianceCheckRequest(BaseModel):
@@ -73,9 +73,9 @@ async def jupyter_execute(request: Request, body: JupyterExecuteRequest):
         result = await mgr.execute(body.code, timeout=body.timeout)
         await mgr.shutdown()
         return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "outputs": result.outputs,
+            "output": result.output,
+            "error": result.error,
+            "mime_data": result.mime_data,
             "success": result.success,
             "execution_count": result.execution_count,
         }
@@ -101,7 +101,7 @@ async def check_compliance(request: Request, body: ComplianceCheckRequest):
         if session:
             recorder = getattr(request.app.state, "recorder", None)
             if recorder:
-                trace_entries = recorder.get_traces()
+                trace_entries = recorder.get_traces(session_id=body.session_id)
 
     report = checker.check_report(
         session_id=body.session_id or "api",

@@ -127,6 +127,8 @@ async def lifespan(app: FastAPI):
     gw = getattr(app.state, "gateway", None)
     if gw:
         gw.stop_connection_monitor()
+        with suppress(Exception):
+            await gw.close()
 
     with suppress(Exception):
         recorder.end_session()
@@ -141,9 +143,10 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    cors_config = config or ScienceConfig()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_config.api_cors_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

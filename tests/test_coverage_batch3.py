@@ -335,7 +335,7 @@ class TestComputeRoutes:
         with patch("fusion_science.api.routes.compute.JupyterKernelManager") as MockMgr:
             instance = MockMgr.return_value
             instance.start_kernel = AsyncMock(return_value=True)
-            result = MagicMock(stdout="out", stderr="", outputs=[], success=True, execution_count=1)
+            result = MagicMock(output="out", error="", mime_data={}, success=True, execution_count=1)
             instance.execute = AsyncMock(return_value=result)
             instance.shutdown = AsyncMock()
             resp = await client.post("/api/v1/compute/jupyter/execute", json={"code": "1+1"})
@@ -732,7 +732,9 @@ class TestApp:
 class TestLLMGateway:
     @pytest.fixture
     def gateway(self):
-        return LLMGateway(model="test-model", base_url="http://localhost:11434/v1")
+        gw = LLMGateway(model="test-model", base_url="http://localhost:11434/v1")
+        gw._memory_check_enabled = False
+        return gw
 
     def test_set_model(self, gateway):
         gateway.set_model("new-model")
@@ -799,6 +801,8 @@ class TestLLMGateway:
 
     @pytest.mark.asyncio
     async def test_chat_stream(self, gateway):
+        gateway._memory_check_enabled = False
+
         class FakeStreamResp:
             async def __aenter__(self):
                 return self
@@ -824,14 +828,14 @@ class TestLLMGateway:
 
     @pytest.mark.asyncio
     async def test_chat_stream_error(self, gateway):
+        gateway._memory_check_enabled = False
         with patch.object(gateway, "_get_client", new_callable=AsyncMock) as mock_client:
             client = AsyncMock()
             client.stream = MagicMock(side_effect=Exception("stream err"))
             mock_client.return_value = client
-            tokens = []
-            async for t in gateway.chat_stream([{"role": "user", "content": "hi"}]):
-                tokens.append(t)
-            assert any("stream error" in t for t in tokens)
+            with pytest.raises(Exception, match="stream err"):
+                async for t in gateway.chat_stream([{"role": "user", "content": "hi"}]):
+                    pass
 
     @pytest.mark.asyncio
     async def test_structured_output_success(self, gateway):
@@ -910,7 +914,7 @@ class TestLLMGateway:
         mock_aclose = gateway._client.aclose
         await gateway.close()
         gateway._connection_monitor.stop_monitor.assert_awaited_once()
-        mock_aclose.assert_not_called()
+        mock_aclose.assert_awaited_once()
         assert gateway._client is None
 
     @pytest.mark.asyncio

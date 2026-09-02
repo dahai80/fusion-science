@@ -11,15 +11,29 @@ HPC clusters with Slurm workload manager, supporting:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Whitelist for user-controlled identifiers that end up in bash / SBATCH lines.
+# Anything outside [A-Za-z0-9_.-] is rejected to prevent shell / path injection.
+_JOB_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
+_TIME_LIMIT_RE = re.compile(r"^\d{1,2}:\d{2}:\d{2}$")
+_ARRAY_RANGE_RE = re.compile(r"^\d+-\d+(:\d+)?$")
+
+
+def _validate_identifier(name: str, value: str, pattern: re.Pattern[str]) -> str:
+    if not pattern.match(value):
+        raise ValueError(f"Invalid {name}: {value!r}")
+    return value
 
 
 @dataclass
@@ -123,6 +137,15 @@ class HPCScheduler:
         Returns:
             HPCJob with job_id and status.
         """
+        # Validate user-controlled identifiers before they reach bash / SBATCH lines.
+        job_name = _validate_identifier("job_name", job_name, _JOB_NAME_RE)
+        if partition:
+            _validate_identifier("partition", partition, _JOB_NAME_RE)
+        if time_limit:
+            _validate_identifier("time_limit", time_limit, _TIME_LIMIT_RE)
+        if array_range:
+            _validate_identifier("array_range", array_range, _ARRAY_RANGE_RE)
+
         # Build the complete Slurm script
         slurm_headers = self._build_slurm_headers(
             job_name=job_name,
@@ -136,10 +159,10 @@ class HPCScheduler:
             array_range=array_range,
         )
 
-        # Add environment variables
+        # Add environment variables — shlex-quote each value to prevent injection.
         env_section = ""
         if env_vars:
-            env_section = "\n".join(f"export {k}={v}" for k, v in env_vars.items())
+            env_section = "\n".join(f"export {shlex.quote(k)}={shlex.quote(v)}" for k, v in env_vars.items())
 
         # If Slurm is not available, run locally
         if not self._check_sbatch() and not self.ssh_host:
@@ -224,12 +247,20 @@ class HPCScheduler:
 
     def _write_script(self, content: str, job_name: str) -> str:
         """Write the job script to a temporary file."""
+        # job_name is validated upstream, but defend in depth: strip path separators.
+        safe_name = os.path.basename(job_name)
         script_dir = os.path.join(tempfile.gettempdir(), "fusion_science_jobs")
         os.makedirs(script_dir, exist_ok=True)
-        script_path = os.path.join(script_dir, f"{job_name}.sh")
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        os.chmod(script_path, 0o755)
+        # O_EXCL: fail if the file exists, blocking symlink-race overwrite by another process.
+        script_path = os.path.join(script_dir, f"{safe_name}.sh")
+        fd = os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(script_path)
+            raise
         return script_path
 
     async def _run_locally(
@@ -252,7 +283,8 @@ class HPCScheduler:
         # Write and execute the script
         script_path = self._write_script(script_content, f"{job_name}_{job_id}")
 
-        # Run in background with async-safe file handles
+        # Run in background with async-safe file handles, own process group,
+        # and a time limit derived wall-clock cap so the job cannot hang forever.
         out_fd = await asyncio.to_thread(lambda: open(out_path, "w"))  # noqa: SIM115
         err_fd = await asyncio.to_thread(lambda: open(err_path, "w"))  # noqa: SIM115
         proc = await asyncio.create_subprocess_exec(
@@ -260,6 +292,7 @@ class HPCScheduler:
             script_path,
             stdout=out_fd,
             stderr=err_fd,
+            start_new_session=True,
         )
 
         logger.info("Local job %s started (PID: %s)", job_id, proc.pid)
@@ -274,7 +307,7 @@ class HPCScheduler:
 
     async def _submit_ssh(self, script_path: str) -> str:
         """Submit a job via SSH to a remote cluster."""
-        cmd = ["ssh", "-i", self.ssh_key, self.ssh_host, f"sbatch {script_path}"]
+        cmd = ["ssh", "-i", self.ssh_key, self.ssh_host, f"sbatch {shlex.quote(script_path)}"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"SSH sbatch failed: {result.stderr}")
@@ -418,15 +451,17 @@ class HPCScheduler:
             Complete Slurm script as a string.
         """
         array_size = len(input_files)
+        quoted_input = shlex.quote(input_files[0]) if input_files else ""
+        quoted_output = shlex.quote(output_dir)
         script = f"""#!/bin/bash
 # Array job for parallel processing
 # {array_size} tasks
 
 # Get the input file for this task
-INPUT_FILE="{input_files[0]}"
+INPUT_FILE={quoted_input}
 INPUT_FILE=${{INPUT_FILE//1/$SLURM_ARRAY_TASK_ID}}
-OUTPUT_DIR="{output_dir}"
-mkdir -p $OUTPUT_DIR
+OUTPUT_DIR={quoted_output}
+mkdir -p "$OUTPUT_DIR"
 
 # Execute the analysis
 {python_code}

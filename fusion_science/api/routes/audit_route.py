@@ -21,12 +21,12 @@ async def get_audit(session_id: str, request: Request):
     recorder = getattr(request.app.state, "recorder", None)
     trace_entries = []
     if recorder:
-        trace_entries = recorder.get_entries()
+        trace_entries = recorder.get_traces(session_id=session_id)
 
     checker = ComplianceChecker()
     report = checker.check_report(
         session_id=session_id,
-        trace_entries=trace_entries,
+        trace_entries=trace_entries or None,
     )
     return {"session_id": session_id, "trace_count": len(trace_entries), "compliance": report}
 

@@ -56,7 +56,17 @@ class EventBus:
 
         for handler in handlers:
             try:
-                await handler(event)
+                # Give each handler its own data copy so one handler mutating
+                # event.data cannot corrupt another handler's view.
+                import copy
+
+                handler_event = Event(
+                    type=event.type,
+                    data=copy.deepcopy(event.data),
+                    source=event.source,
+                    timestamp=event.timestamp,
+                )
+                await handler(handler_event)
             except Exception as e:
                 logger.error("EventBus handler error for '%s': %s", event_type, e)
 

@@ -48,8 +48,9 @@ class ScienceConfig:
     model_summarization: str = ""
     model_code: str = ""
 
-    # API server
-    api_host: str = "0.0.0.0"
+    # API server — default 127.0.0.1 (loopback only). Set FUSION_SCIENCE_API_HOST=0.0.0.0
+    # to expose on LAN, but then MUST set FUSION_SCIENCE_API_KEY for auth.
+    api_host: str = "127.0.0.1"
     api_port: int = 11462
     api_cors_origins: list[str] = field(default_factory=lambda: ["*"])
 
