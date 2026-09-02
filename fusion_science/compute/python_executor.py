@@ -8,6 +8,7 @@ figure generation and numpy/pandas/scipy-based analysis.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -71,23 +72,40 @@ class PythonExecutor:
         start = asyncio.get_event_loop().time()
 
         # Create a wrapper script that captures output and figures
-        script = self._build_wrapper(code, input_data, capture_figures)
+        script = self._build_wrapper(code, input_data is not None, capture_figures)
         script_path = os.path.join(self.work_dir, f"exec_{int(start)}_{id(self)}.py")
         output_path = os.path.join(self.work_dir, f"output_{int(start)}_{id(self)}.json")
+        input_path = os.path.join(self.work_dir, f"input_{int(start)}_{id(self)}.json")
 
         try:
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script)
 
-            # Prepare environment
-            env = os.environ.copy()
-            if env_vars:
-                env.update(env_vars)
-            env["FUSION_SCIENCE_OUTPUT"] = output_path
-            if self.extra_paths:
-                env["PYTHONPATH"] = ":".join(self.extra_paths + [env.get("PYTHONPATH", "")])
+            # input_data written to a temp file (read by wrapper) — never inlined
+            # into source, avoids triple-quote / code injection via data content.
+            if input_data is not None:
+                import json
 
-            # Run the subprocess with resource limits
+                with open(input_path, "w", encoding="utf-8") as f:
+                    json.dump(input_data, f, ensure_ascii=False)
+
+            # Minimal env whitelist — do NOT copy os.environ (leaks secrets/HOME/PATH-tampering).
+            # Only pass what the sandboxed code genuinely needs.
+            env = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+                "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
+                "TMPDIR": os.environ.get("TMPDIR", tempfile.gettempdir()),
+                "PYTHONPATH": ":".join(self.extra_paths),
+                "FUSION_SCIENCE_OUTPUT": output_path,
+            }
+            if input_data is not None:
+                env["FUSION_SCIENCE_INPUT"] = input_path
+            if env_vars:
+                # Caller-supplied env_vars are explicitly intended for the sandbox.
+                env.update(env_vars)
+
+            # Run the subprocess with resource limits + own process group
             try:
                 import resource
             except ImportError:
@@ -115,12 +133,15 @@ class PythonExecutor:
                 cwd=self.work_dir,
                 env=env,
                 preexec_fn=_set_limits,
+                start_new_session=True,
             )
 
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
             except TimeoutError:
-                proc.kill()
+                # Kill the whole process group so orphaned children die too.
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(os.getpgid(proc.pid), 9)
                 await proc.wait()
                 duration = asyncio.get_event_loop().time() - start
                 return ExecutionResult(
@@ -138,6 +159,8 @@ class PythonExecutor:
             # Parse output file
             figures = []
             parsed_output = ""
+            wrapper_success = None
+            wrapper_error = ""
             if os.path.exists(output_path):
                 try:
                     import json
@@ -146,16 +169,29 @@ class PythonExecutor:
                         result_data = json.load(f)
                     parsed_output = result_data.get("output", "")
                     figures = result_data.get("figures", [])
+                    wrapper_success = result_data.get("success")
+                    wrapper_error = result_data.get("error", "")
                 except Exception as e:
                     logger.warning("Failed to parse output file: %s", e)
 
-            success = proc.returncode == 0
+            # A non-zero returncode means the wrapper itself crashed (import/limit).
+            # Otherwise trust the wrapper's per-code success flag so a caught user
+            # exception is reported as failure even though the process exited 0.
+            if proc.returncode != 0:
+                success = False
+                error = stderr_str
+            elif wrapper_success is not None:
+                success = bool(wrapper_success)
+                error = wrapper_error if not success else ""
+            else:
+                success = True
+                error = ""
             return ExecutionResult(
                 success=success,
                 stdout=stdout_str,
                 stderr=stderr_str,
                 output=parsed_output or stdout_str,
-                error=stderr_str if not success else "",
+                error=error,
                 execution_time=duration,
                 figures=figures,
             )
@@ -170,7 +206,7 @@ class PythonExecutor:
 
         finally:
             # Cleanup temp files — each removal is independent
-            for p in [script_path, output_path]:
+            for p in [script_path, output_path, input_path]:
                 try:
                     if p and os.path.exists(p):
                         os.remove(p)
@@ -180,21 +216,19 @@ class PythonExecutor:
     def _build_wrapper(
         self,
         code: str,
-        input_data: dict[str, Any] | None,
+        has_input_data: bool,
         capture_figures: bool,
     ) -> str:
         """Build a wrapper script that captures output and figures.
 
         Args:
             code: User code to execute.
-            input_data: Optional input data.
+            has_input_data: Whether an input_data file was written.
             capture_figures: Whether to capture matplotlib figures.
 
         Returns:
             Complete wrapper script as a string.
         """
-        import json
-
         # Indent the user code
         indented_code = textwrap.indent(code, "    ")
 
@@ -218,18 +252,22 @@ plt.savefig = _captured_savefig
 """
 
         input_loading = ""
-        if input_data:
-            input_json = json.dumps(input_data, ensure_ascii=False)
-            input_loading = f"""
+        if has_input_data:
+            input_loading = """
 import json
-_input_data = json.loads('''{input_json}''')
-locals().update({{'input_data': _input_data}})
+_input_path = os.environ.get('FUSION_SCIENCE_INPUT', '')
+_input_data = {}
+if _input_path and os.path.exists(_input_path):
+    with open(_input_path, encoding='utf-8') as _f:
+        _input_data = json.load(_f)
+locals().update({'input_data': _input_data})
 """
 
         wrapper = f"""
 import sys
 import json
 import os
+import traceback
 
 {figure_capture}
 {input_loading}
@@ -241,7 +279,6 @@ try:
 except Exception as _e:
     _success = False
     _error = "".join(traceback.format_exception(type(_e), _e, _e.__traceback__))
-    import traceback
 
 # Collect output
 _output_data = {{

@@ -14,6 +14,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_MAX_OUTPUT_CHARS = 1_000_000
+
 
 @dataclass
 class KernelResult:
@@ -70,10 +72,8 @@ class JupyterKernelManager:
             self._kernel_client = self._kernel_manager.client()
             self._kernel_client.start_channels()
 
-            # Wait for kernel info
-            import time
-
-            time.sleep(1)
+            # Wait for kernel to be ready — non-blocking sleep
+            await asyncio.sleep(1)
 
             self._running = True
             logger.info("Jupyter kernel '%s' started successfully", name)
@@ -158,6 +158,13 @@ class JupyterKernelManager:
 
             output = "\n".join(output_parts).strip()
             error = "\n".join(error_parts).strip()
+
+            # Cap output/error size to bound memory
+            if len(output) > _MAX_OUTPUT_CHARS:
+                output = output[:_MAX_OUTPUT_CHARS] + "\n[output truncated]"
+                logger.warning("Kernel output truncated at %d chars", _MAX_OUTPUT_CHARS)
+            if len(error) > _MAX_OUTPUT_CHARS:
+                error = error[:_MAX_OUTPUT_CHARS] + "\n[error truncated]"
 
             return KernelResult(
                 success=not bool(error),

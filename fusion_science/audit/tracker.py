@@ -11,6 +11,7 @@ research session, including:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -89,6 +90,9 @@ class TraceRecorder:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self._session: TraceSession | None = None
         self._current_parent: str = ""
+        # F-7: persist incrementally so a crash mid-session doesn't lose the trail
+        self._persist_every: int = 20
+        self._records_since_persist: int = 0
 
     def start_session(self, metadata: dict[str, Any] | None = None) -> str:
         """Start a new tracing session.
@@ -178,6 +182,11 @@ class TraceRecorder:
             parent_id=self._current_parent,
         )
         self._session.entries.append(entry)
+        self._records_since_persist += 1
+        if self._records_since_persist >= self._persist_every:
+            self._records_since_persist = 0
+            with contextlib.suppress(Exception):
+                self._save_session()
         return entry_id
 
     def set_parent(self, parent_id: str) -> None:
@@ -354,6 +363,44 @@ class TraceRecorder:
         if operation:
             return [e for e in self._session.entries if e.operation == operation]
         return self._session.entries
+
+    def get_traces(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        """Get trace entries as plain dicts, scoped to a request session_id.
+
+        Filters entries whose parameters carry the given session_id, so one
+        API session cannot read another session's audit trail (IDOR guard).
+        Returns dicts (not TraceEntry) so compliance checkers can call .get().
+
+        Args:
+            session_id: Request session ID to scope entries to. If None, all
+                entries of the current trace session are returned.
+
+        Returns:
+            List of trace entry dicts.
+        """
+        if self._session is None:
+            return []
+        entries: list[TraceEntry] = []
+        if session_id:
+            entries = [e for e in self._session.entries if str(e.parameters.get("session_id", "")) == session_id]
+        else:
+            entries = list(self._session.entries)
+        return [
+            {
+                "id": e.id,
+                "timestamp": e.timestamp,
+                "operation": e.operation,
+                "source": e.source,
+                "description": e.description,
+                "parameters": e.parameters,
+                "result_summary": e.result_summary,
+                "duration_ms": e.duration_ms,
+                "success": e.success,
+                "error": e.error,
+                "parent_id": e.parent_id,
+            }
+            for e in entries
+        ]
 
     def get_session_summary(self, session_id: str | None = None) -> dict[str, Any]:
         """Get a summary of a trace session.

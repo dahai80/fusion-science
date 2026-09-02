@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import time
+from collections import deque
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
@@ -72,9 +75,10 @@ class LLMGateway:
         self._available_models: list[dict] = []
         self._connection_monitor: ConnectionMonitor | None = None
         self._max_retries: int = 3
-        self._request_times: list[float] = []
+        self._request_times: deque[float] = deque(maxlen=100)
         self._memory_check_enabled: bool = True
         self._memory_soft_threshold: float = 0.85
+        self._last_used_model: str = model
 
     def set_model(self, model: str) -> None:
         logger.info("Switching model: %s -> %s", self.model, model)
@@ -128,7 +132,8 @@ class LLMGateway:
     def get_avg_response_time(self) -> float:
         if not self._request_times:
             return 0.0
-        return sum(self._request_times[-20:]) / len(self._request_times[-20:])
+        recent = list(self._request_times)[-20:]
+        return sum(recent) / len(recent)
 
     def start_connection_monitor(self, interval: float = 30.0) -> None:
         if self._connection_monitor:
@@ -189,7 +194,10 @@ class LLMGateway:
 
     def evaluate_memory_pressure(self, status: dict[str, Any]) -> tuple[bool, str]:
         if not status:
-            return True, "status_unavailable_proceed"
+            if os.getenv("FUSION_SCIENCE_MEMORY_FAIL_OPEN", "").lower() in ("1", "true", "yes"):
+                logger.warning("MLX status unavailable; fail-open permitted by env, proceeding")
+                return True, "status_unavailable_fail_open"
+            return False, "status_unavailable_block"
         ceiling = status.get("model_memory_max", 0)
         current = status.get("model_memory_used", 0)
         if ceiling > 0 and current > 0:
@@ -235,7 +243,8 @@ class LLMGateway:
     ) -> LLMResponse:
         use_model = model or self.model
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
-        if effective_max_tokens < 4096:
+        thinking_flag = enable_thinking if enable_thinking is not None else self.enable_thinking
+        if thinking_flag and effective_max_tokens < 4096:
             effective_max_tokens = 4096
             logger.debug("Bumped max_tokens to 4096 minimum for thinking model safety")
         payload: dict[str, Any] = {
@@ -246,7 +255,6 @@ class LLMGateway:
         }
         if tools:
             payload["tools"] = tools
-        thinking_flag = enable_thinking if enable_thinking is not None else self.enable_thinking
         payload["chat_template_kwargs"] = {"enable_thinking": thinking_flag}
         payload.update(kwargs)
 
@@ -271,6 +279,9 @@ class LLMGateway:
                 )
             logger.debug("Pre-call memory check: %s", reason)
 
+        if self._last_used_model and self._last_used_model != use_model and self._last_used_model != self.default_model:
+            await self.unload_model(self._last_used_model)
+
         client = await self._get_client()
         headers = self._route_headers()
         t0 = time.time()
@@ -278,6 +289,7 @@ class LLMGateway:
             resp = await with_retry(
                 lambda: client.post("/chat/completions", json=payload, headers=headers),
                 retries=self._max_retries,
+                total_deadline=self._timeout,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -299,8 +311,7 @@ class LLMGateway:
                     error="empty_content",
                     model=data.get("model", use_model),
                 )
-            if use_model != self.default_model:
-                await self.unload_model(use_model)
+            self._last_used_model = use_model
             return LLMResponse(
                 content=content,
                 tool_calls=msg.get("tool_calls", []),
@@ -314,6 +325,8 @@ class LLMGateway:
             if self._connection_monitor:
                 self._connection_monitor.record_failure(f"HTTP {e.response.status_code}")
             logger.error("LLM HTTP error: %s %s", e.response.status_code, e.response.text[:200])
+            if use_model != self.default_model:
+                await self.unload_model(use_model)
             return LLMResponse(
                 content="",
                 error=f"HTTP {e.response.status_code}",
@@ -325,6 +338,8 @@ class LLMGateway:
             if self._connection_monitor:
                 self._connection_monitor.record_failure(str(e))
             logger.error("LLM error: %s", type(e).__name__, exc_info=True)
+            if use_model != self.default_model:
+                await self.unload_model(use_model)
             return LLMResponse(
                 content="",
                 error=str(e),
@@ -338,6 +353,7 @@ class LLMGateway:
         temperature: float | None = None,
         max_tokens: int | None = None,
         model: str | None = None,
+        check_memory: bool = True,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         use_model = model or self.model
@@ -353,6 +369,17 @@ class LLMGateway:
         payload.update(kwargs)
 
         logger.debug("LLM stream request: model=%s, msgs=%d", use_model, len(messages))
+
+        if check_memory and self._memory_check_enabled:
+            status = await self.check_mlx_memory()
+            ok, reason = self.evaluate_memory_pressure(status)
+            if not ok:
+                logger.warning("Stream pre-call memory check FAILED: %s (model=%s)", reason, use_model)
+                raise RuntimeError(f"memory_pressure: {reason}")
+            logger.debug("Stream pre-call memory check: %s", reason)
+
+        if self._last_used_model and self._last_used_model != use_model and self._last_used_model != self.default_model:
+            await self.unload_model(self._last_used_model)
 
         client = await self._get_client()
         headers = self._route_headers()
@@ -374,9 +401,13 @@ class LLMGateway:
                     except json.JSONDecodeError:
                         logger.warning("Stream chunk parse error: %s", data[:100])
                         continue
+            self._last_used_model = use_model
         except Exception as e:
             logger.error("LLM stream error: %s", type(e).__name__, exc_info=True)
-            yield f"[stream error: {e}]"
+            if use_model != self.default_model:
+                with contextlib.suppress(Exception):
+                    await self.unload_model(use_model)
+            raise
 
     async def structured_output(
         self,
@@ -462,8 +493,14 @@ class LLMGateway:
         if self._connection_monitor:
             await self._connection_monitor.stop_monitor()
         if self._client is not None:
-            logger.debug("Releasing reference to pooled httpx.AsyncClient (pool-managed, not closed)")
-        self._client = None
+            logger.debug("Closing pooled httpx.AsyncClient on gateway shutdown")
+            with contextlib.suppress(Exception):
+                await self._client.aclose()
+            self._client = None
+        with contextlib.suppress(Exception):
+            from fusion_core.http_client import close_all
+
+            await close_all()
 
     async def __aenter__(self) -> LLMGateway:
         return self

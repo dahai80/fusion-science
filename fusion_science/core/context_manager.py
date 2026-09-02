@@ -38,6 +38,12 @@ MAX_MESSAGES_BEFORE_COMPRESS = 40
 def count_tokens(text: str, model: str = "qwen3.5-9b") -> int:
     if not text:
         return 0
+    if not isinstance(text, str):
+        # Defensive: callers may pass list/dict content — coerce to str
+        try:
+            text = str(text)
+        except Exception:
+            return 0
     if _TIKTOKEN_AVAILABLE:
         try:
             enc = _get_encoder(model)
@@ -138,7 +144,7 @@ class ContextManager:
         recent = []
         recent_tokens = 0
         for msg in reversed(non_system):
-            msg_tokens = count_tokens(msg.get("content", ""), self.model) + 4
+            msg_tokens = count_message_tokens([msg], self.model)
             if recent_tokens + msg_tokens > remaining_budget and recent:
                 break
             recent.insert(0, msg)
@@ -246,7 +252,7 @@ class ContextManager:
         recent: list[dict] = []
         recent_tokens = 0
         for msg in reversed(non_system):
-            msg_tokens = count_tokens(msg.get("content", ""), self.model) + 4
+            msg_tokens = count_message_tokens([msg], self.model)
             if recent_tokens + msg_tokens > remaining_budget and recent:
                 break
             recent.insert(0, msg)

@@ -142,6 +142,7 @@ class TestLLMGatewayRetry:
     @pytest.mark.asyncio
     async def test_chat_with_retry_on_connect_error(self):
         gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+        gw._memory_check_enabled = False
         call_count = 0
 
         class MockResponse:
@@ -180,6 +181,7 @@ class TestLLMGatewayRetry:
     @pytest.mark.asyncio
     async def test_chat_records_response_time(self):
         gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+        gw._memory_check_enabled = False
 
         class MockResponse:
             status_code = 200
@@ -205,6 +207,7 @@ class TestLLMGatewayRetry:
     @pytest.mark.asyncio
     async def test_chat_empty_content_guard_dh3(self):
         gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+        gw._memory_check_enabled = False
 
         class MockResponse:
             status_code = 200
@@ -230,6 +233,7 @@ class TestLLMGatewayRetry:
     @pytest.mark.asyncio
     async def test_chat_whitespace_content_guard_dh3(self):
         gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+        gw._memory_check_enabled = False
 
         class MockResponse:
             status_code = 200
@@ -254,6 +258,7 @@ class TestLLMGatewayRetry:
     @pytest.mark.asyncio
     async def test_chat_real_content_passes_dh3(self):
         gw = LLMGateway(model="test-model", base_url="http://localhost:1/v1")
+        gw._memory_check_enabled = False
 
         class MockResponse:
             status_code = 200

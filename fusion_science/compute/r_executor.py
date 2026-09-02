@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+_R_PKG_RE = re.compile(r"^[A-Za-z0-9.]+$")
 
 
 @dataclass
@@ -129,9 +132,7 @@ class RExecutor:
         Returns:
             List of temporary file paths for plots.
         """
-        import tempfile
-
-        tempfile.mkdtemp(prefix="fusion_r_plots_")
+        self._plot_dir = tempfile.mkdtemp(prefix="fusion_r_plots_")
         plot_paths = []
         return plot_paths
 
@@ -145,11 +146,11 @@ class RExecutor:
         Returns:
             Modified R code with plot capture.
         """
-        # Redirect R plots to PNG files
-        tempfile.gettempdir()
+        plot_dir = getattr(self, "_plot_dir", tempfile.gettempdir())
         wrapped = f"""
 # Fusion-Science: plot capture enabled
-options(device = function() png(tempfile(fileext = ".png"), width = 800, height = 600, res = 120))
+.fusion_plot_dir <- "{plot_dir}"
+options(device = function() png(file.path(.fusion_plot_dir, paste0("plot_", format(Sys.time(), "%H%M%S%OS3"), "_", sprintf("%03d", sample(0:999,1)), ".png")), width = 800, height = 600, res = 120))
 {code}
 """
         return wrapped
@@ -161,11 +162,11 @@ options(device = function() png(tempfile(fileext = ".png"), width = 800, height 
             List of plot file paths.
         """
         import glob
-        import tempfile
 
-        plot_dir = tempfile.gettempdir()
-        plots = glob.glob(os.path.join(plot_dir, "fusion_r_plots_*.png"))
-        # Rename to more descriptive names
+        plot_dir = getattr(self, "_plot_dir", None)
+        if not plot_dir or not os.path.isdir(plot_dir):
+            return []
+        plots = sorted(glob.glob(os.path.join(plot_dir, "*.png")))
         named_plots = []
         for i, plot in enumerate(plots):
             new_name = os.path.join(plot_dir, f"fusion_r_plot_{i}.png")
@@ -193,9 +194,13 @@ options(device = function() png(tempfile(fileext = ".png"), width = 800, height 
 
             result = {}
             for pkg in packages:
+                if not _R_PKG_RE.match(pkg):
+                    logger.warning("Rejecting invalid R package name: %r", pkg)
+                    result[pkg] = False
+                    continue
                 try:
-                    robjects.r(f"library({pkg})")
-                    result[pkg] = True
+                    installed = robjects.r(f'requireNamespace("{pkg}", quietly = TRUE)')[0]
+                    result[pkg] = bool(installed)
                 except Exception:
                     result[pkg] = False
             return result

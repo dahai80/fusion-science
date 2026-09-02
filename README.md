@@ -83,6 +83,8 @@ fusion-science/
 - **Audit Auto-Integration**: EventBus handler in app lifespan auto-records all events (db_query, code_execution, llm_call, tool_executed, etc.) to TraceRecorder.
 - **CLI Serve Command**: `fusion-science serve [--host] [--port] [--reload]` starts uvicorn with API server.
 
+> **Security (v1.0.6+):** The API server binds to `127.0.0.1` by default (loopback only). To expose it on a LAN, set `FUSION_SCIENCE_API_HOST=0.0.0.0` **and** set `FUSION_SCIENCE_API_KEY` to a strong secret — every `/api/v1/*` request must then carry `X-API-Key: <key>`. Code-execution endpoints (`/compute/*`) carry input size + timeout bounds and run in a sandboxed subprocess with a minimal environment whitelist.
+
 ### Phase 3 Literature System (v0.3.0)
 
 Five-layer literature architecture with LLM-driven deep analysis and rule-based fallbacks:
@@ -191,6 +193,8 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.2 | Engine routed through `fusion-gateway` (:11432) instead of direct MLX (:11434); `_MLX_STATUS_URL` stays on :11434 for service discovery (#5). |
 | v1.0.3 | Unified service port 8200→11462 (#9, PR #10); CI test job installs `.[test,api]` so FastAPI-backed tests run; `GET /system/mirrors/latency` now probes mirrors in parallel with a 3s per-endpoint cap and degrades per-mirror failure instead of timing out (#8). |
 | v1.0.4 | Acceptance pass: ToolRegistry expanded 8→12 MCP-compatible tools (added `visualize_molecule`, `visualize_protein`, `explain_math`, `generate_citation`) with OpenAI function-calling + MCP export; corrected connector/docs counts (5 overseas + 3 Chinese); fixed live MLX auto-detect test for the no-model-loaded case. |
+| v1.0.5 | Unified API port 11462 (single source of truth across `serve` + `start.sh`); ruff `I001` import sorting enforced; CI matrix pinned to Python 3.12 (fusion-core `requires-python>=3.12`) (#16, PR #17). |
+| v1.0.6 | Security hardening from adversarial audit: RCE sandbox fixes (minimal env whitelist, process-group kill, temp-file data passing — no source inlining); chart-type whitelist + input-data injection closed; Jupyter `code`/`timeout` bounds; deny-by-default API auth with loopback-only default bind; fail-closed MLX memory pressure; per-session lost-update locks + WAL SQLite; IDOR-scoped audit traces; incremental audit persist; cache byte budget + Retry-After jitter; gateway `total_deadline` retry cap; HPC shell-injection guards (identifier whitelist, `shlex.quote`, `O_EXCL` script write). |
 
 ## Domestic Research Environment
 

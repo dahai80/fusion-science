@@ -42,6 +42,36 @@ class AgentStep:
     timestamp: float = field(default_factory=time.time)
 
 
+def _compact_messages(messages: list[dict]) -> None:
+    """Compact older messages in place, never splitting a tool_call/tool result pair.
+
+    Keeps the most recent messages and summarizes older ones. A boundary is
+    only cut between messages that do not leave a dangling tool_calls (assistant)
+    without its following tool (role=tool) result.
+    """
+    if len(messages) <= 4:
+        return
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    non_system = [m for m in messages if m.get("role") != "system"]
+    if len(non_system) <= 2:
+        return
+    keep_recent = min(6, len(non_system))
+    cut = len(non_system) - keep_recent
+    # Walk the cut boundary forward until it does not fall right after an
+    # assistant message that carries tool_calls (which needs its tool results).
+    while cut < len(non_system) and non_system[cut - 1].get("tool_calls") and non_system[cut].get("role") == "tool":
+        cut += 1
+    older = non_system[:cut]
+    recent = non_system[cut:]
+    summary_parts = []
+    for msg in older:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")[:500]
+        summary_parts.append(f"[{role}] {content}")
+    summary = "[Compacted earlier steps]: " + " | ".join(summary_parts)
+    messages[:] = system_msgs + [{"role": "system", "content": summary}] + recent
+
+
 @dataclass
 class AgentResult:
     agent_name: str
@@ -84,26 +114,28 @@ class ScienceAgent:
 
     async def run(self, task: str, max_iterations: int = 10) -> AgentResult:
         start = time.time()
-        self._messages = [
+        # Local state per run — instance-level _messages/steps would corrupt under
+        # concurrent runs (parallel/master_worker call agent.run via gather).
+        messages: list[dict] = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": task},
         ]
-        self.steps = []
+        steps: list[AgentStep] = []
 
         for i in range(max_iterations):
-            accumulated = _estimate_tokens(self._messages)
+            accumulated = _estimate_tokens(messages)
             if accumulated > MAX_AGENT_CONTEXT_TOKENS:
-                self._compact_messages()
+                _compact_messages(messages)
                 logger.info(
                     "Agent %s: context compacted at iter %d (%d -> %d tokens est)",
                     self.name,
                     i,
                     accumulated,
-                    _estimate_tokens(self._messages),
+                    _estimate_tokens(messages),
                 )
 
-            resp = await self._call_llm()
-            self.steps.append(
+            resp = await self._call_llm(messages)
+            steps.append(
                 AgentStep(
                     step=i,
                     action="think",
@@ -117,14 +149,14 @@ class ScienceAgent:
                     tool_content = json.dumps(result, ensure_ascii=False, default=str)
                     if len(tool_content) > 2000:
                         tool_content = tool_content[:2000] + "[...truncated...]"
-                    self._messages.append(
+                    messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tc.get("id", ""),
                             "content": tool_content,
                         }
                     )
-                    self.steps.append(
+                    steps.append(
                         AgentStep(
                             step=i,
                             action="tool_result",
@@ -134,59 +166,54 @@ class ScienceAgent:
                     )
             else:
                 duration = time.time() - start
+                self.steps = steps
+                self._messages = messages
                 return AgentResult(
                     agent_name=self.name,
                     output=resp.content,
-                    steps=self.steps,
+                    steps=steps,
                     usage=resp.usage,
                     duration=duration,
                 )
 
         duration = time.time() - start
+        self.steps = steps
+        self._messages = messages
+        # L-1: surface incomplete analysis with a clear non-empty output + error
         return AgentResult(
             agent_name=self.name,
-            output=self._messages[-1].get("content", ""),
-            steps=self.steps,
+            output="分析未完成：达到最大迭代次数仍未给出最终答案，请细化任务或重试。",
+            steps=steps,
             usage={},
             duration=duration,
             error="Max iterations reached without final answer.",
         )
 
-    def _compact_messages(self) -> None:
-        if len(self._messages) <= 4:
-            return
-        system_msgs = [m for m in self._messages if m.get("role") == "system"]
-        non_system = [m for m in self._messages if m.get("role") != "system"]
-        if len(non_system) <= 2:
-            return
-        keep_recent = min(6, len(non_system))
-        recent = non_system[-keep_recent:]
-        older = non_system[:-keep_recent]
-        summary_parts = []
-        for msg in older:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:500]
-            summary_parts.append(f"[{role}] {content}")
-        summary = "[Compacted earlier steps]: " + " | ".join(summary_parts)
-        self._messages = system_msgs + [{"role": "system", "content": summary}] + recent
-
-    async def _call_llm(self) -> LLMResponse:
+    async def _call_llm(self, messages: list[dict]) -> LLMResponse:
         tools_param = self.tools if self.tools else None
         resp = await self.engine.chat(
-            messages=self._messages,
+            messages=messages,
             tools=tools_param,
         )
         if resp.content:
             truncated = _truncate_content(resp.content, MAX_ASSISTANT_CONTENT_CHARS)
-            self._messages.append({"role": "assistant", "content": truncated})
+            # L-11: merge into a trailing assistant message if the last one is an
+            # empty assistant tool-call stub — avoid two consecutive assistant msgs.
+            if messages and messages[-1].get("role") == "assistant" and not messages[-1].get("content"):
+                messages[-1]["content"] = truncated
+            else:
+                messages.append({"role": "assistant", "content": truncated})
         if resp.tool_calls:
-            self._messages.append(
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": resp.tool_calls,
-                }
-            )
+            if messages and messages[-1].get("role") == "assistant" and "tool_calls" not in messages[-1]:
+                messages[-1]["tool_calls"] = resp.tool_calls
+            else:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": resp.tool_calls,
+                    }
+                )
         return resp
 
     async def _execute_tool(self, tool_call: dict) -> Any:
@@ -194,8 +221,14 @@ class ScienceAgent:
         arguments = tool_call.get("function", {}).get("arguments", "{}")
         try:
             args = json.loads(arguments) if isinstance(arguments, str) else arguments
-        except json.JSONDecodeError:
-            args = {}
+        except json.JSONDecodeError as e:
+            # L-12: malformed tool-call JSON → return error, do NOT call handler with {}
+            logger.warning("Malformed tool-call arguments for '%s': %s", func_name, e)
+            return {
+                "tool": func_name,
+                "status": "invalid_arguments",
+                "error": f"Malformed JSON arguments: {e}",
+            }
 
         if self.tool_registry and self.tool_registry.has_tool(func_name):
             logger.info("Executing tool '%s' via ToolRegistry", func_name)

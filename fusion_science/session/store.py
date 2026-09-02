@@ -64,7 +64,10 @@ class SQLiteSessionStore(SessionStore):
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self._db_path) as conn:
+        with sqlite3.connect(self._db_path, timeout=5.0) as conn:
+            # WAL + busy timeout for concurrent reader/writer resilience
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
@@ -80,7 +83,7 @@ class SQLiteSessionStore(SessionStore):
 
     def save(self, session: ResearchSession) -> None:
         data = session.to_dict()
-        with sqlite3.connect(self._db_path) as conn:
+        with sqlite3.connect(self._db_path, timeout=5.0) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO sessions
@@ -100,7 +103,7 @@ class SQLiteSessionStore(SessionStore):
             )
 
     def load(self, session_id: str) -> ResearchSession | None:
-        with sqlite3.connect(self._db_path) as conn:
+        with sqlite3.connect(self._db_path, timeout=5.0) as conn:
             row = conn.execute(
                 "SELECT session_id, title, created_at, updated_at, messages, context, artifacts, trace_ids FROM sessions WHERE session_id = ?",
                 (session_id,),
@@ -121,12 +124,12 @@ class SQLiteSessionStore(SessionStore):
         )
 
     def delete(self, session_id: str) -> bool:
-        with sqlite3.connect(self._db_path) as conn:
+        with sqlite3.connect(self._db_path, timeout=5.0) as conn:
             cursor = conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             return cursor.rowcount > 0
 
     def list_all(self) -> list[ResearchSession]:
-        with sqlite3.connect(self._db_path) as conn:
+        with sqlite3.connect(self._db_path, timeout=5.0) as conn:
             rows = conn.execute(
                 "SELECT session_id, title, created_at, updated_at, messages, context, artifacts, trace_ids FROM sessions ORDER BY updated_at DESC"
             ).fetchall()
