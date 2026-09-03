@@ -29,6 +29,7 @@ from .middleware import APIKeyMiddleware, MetricsMiddleware, RateLimitMiddleware
 from .routes import (
     analysis,
     audit_route,
+    auth_route,
     chat,
     citations,
     compute,
@@ -75,19 +76,20 @@ async def _audit_handler(event):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # F-A1: multi-worker guard. SessionStore/EventBus/ScienceCache/MirrorRouter
-    # are all process-local — uvicorn --workers>1 silently splits session
-    # continuity and audit events across workers. We cannot hard-fail (uvicorn
-    # forks before loading the app, so the worker count is not visible here),
-    # but we warn loudly on the common worker-count env vars so a multi-worker
-    # deploy is at least not silent.
-    _workers_env = os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS") or ""
+    # F-A1: multi-worker note. With the SQLite session store (default), sessions
+    # persist across workers via the shared DB (WAL mode) so multi-worker is
+    # safe for session continuity. EventBus/ScienceCache/MirrorRouter remain
+    # process-local (per-worker), which is fine for read-mostly state. We warn
+    # (not error) so a multi-worker deploy is informed, not blocked.
+    _workers_env = (
+        os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS") or os.getenv("FUSION_SCIENCE_WORKERS") or ""
+    )
     if _workers_env.isdigit() and int(_workers_env) > 1:
-        logger.error(
-            "FUSION-SCIENCE IS SINGLE-WORKER ONLY: %s workers requested but "
-            "SessionStore/EventBus/ScienceCache are process-local. Sessions, "
-            "audit events, and mirror-latency state WILL be split across workers. "
-            "Run with --workers 1 or use a shared backing store.",
+        logger.warning(
+            "FUSION-SCIENCE multi-worker: %s workers. Sessions are shared via the "
+            "SQLite store (safe). EventBus/ScienceCache/MirrorRouter are per-worker "
+            "(process-local) — acceptable for read-mostly state. Use --workers 1 for "
+            "strictly-single-process semantics.",
             _workers_env,
         )
 
@@ -235,6 +237,7 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
         app.state.config = config
 
     app.include_router(health.router, prefix="/api/v1", tags=["health"])
+    app.include_router(auth_route.router, prefix="/api/v1", tags=["auth"])
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
     app.include_router(chat.router, prefix="/api/v1/sessions/{session_id}", tags=["chat"])
     app.include_router(search.router, prefix="/api/v1/sessions/{session_id}", tags=["search"])

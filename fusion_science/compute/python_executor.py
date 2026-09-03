@@ -161,9 +161,17 @@ class PythonExecutor:
                 except (ValueError, resource.error):
                     pass  # Some limits may not be supported on all platforms
 
+            # F-O11: OS-level isolation (sandbox-exec / bwrap) wrapping the
+            # subprocess. Defense-in-depth on top of the AST gate + rlimits:
+            # even a payload that bypasses the import/call checks cannot reach
+            # the network or write outside work_dir. No tool → rlimit fallback.
+            from .isolation import build_isolation, cleanup_isolation
+
+            isolation = build_isolation(self.work_dir, sys.executable)
+            spawn_argv = [*isolation.command_prefix, sys.executable, script_path]
+
             proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                script_path,
+                *spawn_argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.work_dir,
@@ -248,6 +256,10 @@ class PythonExecutor:
                         os.remove(p)
                 except Exception:
                     pass
+            # F-O11: remove the OS-sandbox profile (sandbox-exec path) so the
+            # SBPL file does not accumulate in tmpdir across executions.
+            with contextlib.suppress(Exception):
+                cleanup_isolation(isolation)
 
     def _build_wrapper(
         self,
