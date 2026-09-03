@@ -123,6 +123,18 @@ class ScienceConfig:
     # G6 MFA: require a TOTP second factor at /auth/token when True. Per-key TOTP
     # secrets provisioned via FUSION_SCIENCE_MFA_SECRETS_FILE (subject:base32secret).
     mfa_required: bool = False
+    # G4 idle session lockout: seconds of inactivity before a JWT is revoked
+    # server-side (HIPAA §164.312(a)(2)(iii) auto-logoff). 0 disables (dev). A
+    # 等保三级 / HIPAA deploy sets 900 (15min). Tracked per-principal in-memory
+    # (single-process, same scope as RateLimitMiddleware).
+    jwt_idle_timeout: int = 0
+    # G5 per-deploy JWT hard TTL: seconds from issue to expiry. Default 3600 (1h);
+    # a high-security deploy shortens it. 0 keeps the hardcoded default.
+    jwt_ttl: int = 0
+    # G12 compliance level (1/2/3). When >=3 (等保三级 multi-tenant) the audit
+    # retention default is raised to 180 days (>=6 months, the 三级 minimum) unless
+    # FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS explicitly overrides. 1/2 keep 90d.
+    compliance_level: int = 1
 
 
 def load_config(path: str | None = None) -> ScienceConfig:

@@ -197,6 +197,7 @@ fusion-science/
 | v1.0.8 | 企业生产加固（PR #23, #25）：用户代码 OS 级沙箱隔离（macOS `sandbox-exec` / Linux `bwrap`，rlimit 降级）；内置 RBAC + JWT（3 角色：admin/science/viewer，HS256，无外部 IdP）；基于共享 SQLite 存储的多 worker 支持；防篡改审计留存（按年龄/数量裁剪）+ NDJSON SIEM 导出；无需重启的运行时 API key 轮换；macOS Keychain 密钥解析。详见下方**企业安全**。 |
 | v1.0.9 | 企业联邦 + HA（关闭 #22、#24、#25）：外部 OAuth2/OIDC IdP（RS256 经 JWKS、claim→角色映射、HS256 回退）；可插拔会话存储 + Postgres 后端（`psycopg` 3、连接池、乐观锁）；就绪 vs 存活探针（`/api/v1/ready` 存储故障时 503）；中央审计汇 fan-out（`FUSION_SCIENCE_AUDIT_SINK_URL`）；合规控制矩阵文档。详见下方**企业联邦与 HA**。 |
 | v1.0.10 | 企业合规加固（合规缺口 G1/G2/G6/G9）：API 服务 TLS 终止（`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`，HTTPS 健康检查）；审计 JSON 静态加密（AES-256-GCM 信封、PBKDF2 派生密钥、`FUSION_SCIENCE_ENCRYPT_AT_REST`）；`/auth/token` 的 TOTP MFA 第二因子（RFC 6238、纯标准库、`FUSION_SCIENCE_MFA_REQUIRED`）；DSAR 删除权 + 访问权端点（`/api/v1/data-subject/{id}`，仅 admin）。详见下方**企业合规加固**。 |
+| v1.0.11 | 合规加固第二批（合规缺口 G4/G5/G7/G10/G12/G13）：空闲会话锁定 / 自动注销（`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`）；可配置 JWT 硬 TTL（`FUSION_SCIENCE_JWT_TTL`）；可扩展审计脱敏模式（`FUSION_SCIENCE_REDACT_PATTERNS`）；篡改检测告警 webhook（`FUSION_SCIENCE_TAMPER_ALERT_URL`）；等保三级 180 天审计留存预设（`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`）；推送式 SIEM 导出确认关闭（v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`）。详见下方**合规加固第二批**。 |
 
 ## 企业安全 (v1.0.8)
 
@@ -394,6 +395,62 @@ curl -X DELETE http://localhost:11462/api/v1/data-subject/alice -H "Authorizatio
 ```
 
 删除幂等（重复调用返回 `count: 0` 而非报错），跨共享存储删除（单节点 SQLite 或 Postgres HA），且 `data-subject` 路由前缀经 RBAC 仅 admin 可用（不在 science/viewer 权限表中）。
+
+## 合规加固第二批 (v1.0.11)
+
+v1.0.11 关闭 `architecture/compliance-matrix.md` 中另外 6 个代码级合规缺口（G4、G5、G7、G10、G12、G13）。全部可选、环境变量驱动；启用前本地优先部署不受影响。
+
+### 空闲会话锁定 / 自动注销 (G4)
+
+JWT 会话在可配置的空闲窗口后由服务端撤销，满足 HIPAA §164.312(a)(2)(iii) 自动注销：
+
+```bash
+export FUSION_SCIENCE_JWT_IDLE_TIMEOUT=900   # 15 分钟；0 禁用（开发默认）
+```
+
+`APIKeyMiddleware` 记录每个已认证 principal 的最后活动时间戳，空闲窗口超时返回 `401 auto-logoff` —— 在 RBAC 检查*之前*执行，空闲但已授权的 principal 仍被拒绝。API key 绕过空闲检查（无会话概念）。按 principal 内存跟踪，单进程（与限流器同作用域）。
+
+### 可配置 JWT 硬 TTL (G5)
+
+JWT 生命周期不再硬编码为 1 小时，高安全部署可无代码改动地缩短：
+
+```bash
+export FUSION_SCIENCE_JWT_TTL=900   # 秒；0 保持 3600s 默认
+```
+
+### 可扩展审计脱敏 (G7)
+
+审计日志脱敏使用的敏感字段列表不再硬编码，部署方可运行时添加数据类特定的 PII 字段：
+
+```bash
+export FUSION_SCIENCE_REDACT_PATTERNS="mrn,ssn,医保号"   # 逗号分隔，与内置列表合并
+```
+
+内置项（`patient`、`身份证`、`姓名`、`phone`、`email`、`password`、`token`、`secret`、`api_key`、`私钥`）始终存在；env 列表合并读入且每次调用现读（无需重启即可热更新）。
+
+### 篡改检测告警 Webhook (G10)
+
+`audit_chain` 检测到哈希链断裂（篡改或损坏证据）时，除记录日志外还会触发告警 —— 等保三级 / HIPAA 要求通知运维人员，而非仅留日志行：
+
+```bash
+export FUSION_SCIENCE_TAMPER_ALERT_URL="https://siem.internal/alerts/audit-tamper"
+# POST body: {"event":"audit_tamper_detected","session_id":"...","mismatches":[...]}
+```
+
+投递在守护线程上 fire-and-forget：绝不阻塞校验，也不向调用方抛异常。Sink 不可用时降级为既有 `ERROR` 日志 + 本地防篡改链。
+
+### 等保三级 180 天审计留存 (G12)
+
+多租户等保三级部署须留存审计日志 ≥6 个月。合规级别设为 3 *且* 运维方未显式设留存时，审计 `max_age_days` 默认值 90 → 180：
+
+```bash
+export FUSION_SCIENCE_COMPLIANCE_LEVEL=3                          # 留存提升至 180 天
+export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=365                      # 显式设值始终优先
+```
+
+### 推送式 SIEM 导出 (G13)
+
+v1.0.9 已关闭：每条审计记录以 NDJSON 转发至 `FUSION_SCIENCE_AUDIT_SINK_URL`（`TraceRecorder` 中守护线程 fire-and-forget），用于跨节点 SIEM 聚合 / 三级集中管控。拉取式 `export_jsonl`（`GET /export`）作为次要路径保留。合规矩阵已标记 ✅。
 
 ## 国内研究环境适配
 

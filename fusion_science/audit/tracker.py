@@ -30,6 +30,17 @@ logger = logging.getLogger(__name__)
 _SENSITIVE_PATTERNS = ["patient", "身份证", "姓名", "phone", "email", "password", "token", "secret", "api_key", "私钥"]
 
 
+def _redaction_patterns() -> list[str]:
+    # G7: extend the hardcoded sensitive-field list from env so a deployer can
+    # add data-class-specific PII patterns (e.g. "mrn", "ssn", "医保号") without
+    # a code change. FUSION_SCIENCE_REDACT_PATTERNS is comma-separated; merged
+    # case-insensitively with the built-ins. Read fresh each call (live-rotate).
+    extra = os.getenv("FUSION_SCIENCE_REDACT_PATTERNS", "")
+    if not extra:
+        return _SENSITIVE_PATTERNS
+    return _SENSITIVE_PATTERNS + [p.strip() for p in extra.split(",") if p.strip()]
+
+
 def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     """Redact sensitive parameter values before logging.
 
@@ -39,9 +50,10 @@ def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Sanitized copy with sensitive values replaced by ***REDACTED***.
     """
+    patterns = _redaction_patterns()
     sanitized = {}
     for k, v in params.items():
-        if any(p in k.lower() for p in _SENSITIVE_PATTERNS):
+        if any(p in k.lower() for p in patterns):
             sanitized[k] = "***REDACTED***"
         elif isinstance(v, dict):
             sanitized[k] = _sanitize_params(v)  # Recurse nested dicts
@@ -670,7 +682,39 @@ class TraceRecorder:
                 mismatches.append({"entry_id": eid, "reason": "entry_hash_mismatch"})
                 logger.error("Chain broken at entry %s: entry_hash mismatch (tampered)", eid)
             prev = g(entry, "entry_hash")
-        return _ChainResult(ok=not mismatches, mismatches=mismatches)
+        result = _ChainResult(ok=not mismatches, mismatches=mismatches)
+        # G10: breach/tamper alerting. A broken audit hash chain is evidence of
+        # tampering (or corruption) — 等保三级/HIPAA require an alert so an
+        # operator can act, not just a log line. Fire a POST to a configured
+        # webhook (FUSION_SCIENCE_TAMPER_ALERT_URL) carrying the session id +
+        # mismatch details. Fire-and-forget on a daemon thread: never blocks
+        # verification, never raises into the caller (a sink outage degrades to
+        # the existing ERROR log + local file trail, still tamper-evident).
+        if mismatches:
+            self._fire_tamper_alert(session_id or (session.session_id if session else ""), mismatches)
+        return result
+
+    def _fire_tamper_alert(self, session_id: str, mismatches: list[dict[str, str]]) -> None:
+        url = os.getenv("FUSION_SCIENCE_TAMPER_ALERT_URL", "")
+        if not url:
+            return
+        payload = json.dumps(
+            {"event": "audit_tamper_detected", "session_id": session_id, "mismatches": mismatches},
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        def _send() -> None:
+            try:
+                import httpx
+
+                with httpx.Client(timeout=5.0) as client:
+                    resp = client.post(url, content=payload, headers={"Content-Type": "application/json"})
+                    if resp.status_code >= 400:
+                        logger.warning("Tamper-alert sink %s returned %s", url, resp.status_code)
+            except Exception as exc:
+                logger.warning("Tamper-alert delivery to %s failed (non-fatal): %s", url, exc)
+
+        threading.Thread(target=_send, daemon=True).start()
 
     def prune(self) -> dict[str, int]:
         """Apply the retention policy: drop sessions older than max_age_days and

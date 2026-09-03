@@ -199,6 +199,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.8 | Enterprise production hardening (PRs #23, #25): OS-level sandbox isolation for user code (`sandbox-exec` on macOS / `bwrap` on Linux, rlimit fallback); built-in RBAC + JWT (3 roles: admin/science/viewer, HS256, no external IdP); multi-worker support via shared SQLite store; tamper-evident audit retention (age/count prune) + NDJSON SIEM export; runtime API-key rotation without restart; macOS Keychain-backed secret resolution. See **Enterprise Security** below. |
 | v1.0.9 | Enterprise federation + HA (closes #22, #24, #25): external OAuth2/OIDC IdP (RS256 via JWKS, claim→role mapping, HS256 fallback); pluggable session store with Postgres backend (`psycopg` 3, connection pool, optimistic locking); readiness vs liveness probes (`/api/v1/ready` 503 on store-down); central audit sink fan-out (`FUSION_SCIENCE_AUDIT_SINK_URL`); compliance control-matrix doc. See **Enterprise Federation & HA** below. |
 | v1.0.10 | Enterprise compliance hardening (compliance gaps G1/G2/G6/G9): TLS termination in the API server (`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`, HTTPS health check); encryption-at-rest for audit JSON (AES-256-GCM envelope, PBKDF2 key, `FUSION_SCIENCE_ENCRYPT_AT_REST`); TOTP MFA second factor on `/auth/token` (RFC 6238, stdlib-only, `FUSION_SCIENCE_MFA_REQUIRED`); DSAR / right-to-erasure + right-of-access endpoints (`/api/v1/data-subject/{id}`, admin-only). See **Enterprise Compliance Hardening** below. |
+| v1.0.11 | Compliance hardening batch 2 (gaps G4/G5/G7/G10/G12/G13): idle session lockout / auto-logoff (`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`); configurable JWT hard TTL (`FUSION_SCIENCE_JWT_TTL`); extensible audit redaction patterns (`FUSION_SCIENCE_REDACT_PATTERNS`); tamper-detection alert webhook (`FUSION_SCIENCE_TAMPER_ALERT_URL`); 等保三级 180-day audit retention preset (`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`); push-based SIEM export confirmed closed (v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`). See **Compliance Hardening Batch 2** below. |
 
 ## Enterprise Security (v1.0.8)
 
@@ -396,6 +397,62 @@ curl -X DELETE http://localhost:11462/api/v1/data-subject/alice -H "Authorizatio
 ```
 
 Erasure is idempotent (re-invoking returns `count: 0`, not an error), deletes across the shared store (single-node SQLite or Postgres HA), and the `data-subject` route prefix is admin-only by RBAC (not in the science/viewer permission map).
+
+## Compliance Hardening Batch 2 (v1.0.11)
+
+v1.0.11 closes six more code-level compliance gaps (G4, G5, G7, G10, G12, G13) from `architecture/compliance-matrix.md`. All are opt-in and env-var driven; a local-first deploy is unaffected until enabled.
+
+### Idle Session Lockout / Auto-Logoff (G4)
+
+A JWT session is revoked server-side after a configurable inactivity window, satisfying HIPAA §164.312(a)(2)(iii) automatic logoff:
+
+```bash
+export FUSION_SCIENCE_JWT_IDLE_TIMEOUT=900   # 15min; 0 disables (dev default)
+```
+
+`APIKeyMiddleware` records each authenticated principal's last-seen timestamp and returns `401 auto-logoff` when the idle window elapses — enforced *before* the RBAC check so an idle-but-authorized principal is still rejected. API keys bypass the idle check (they have no session concept). Tracked per-principal in-memory, single-process (same scope as the rate limiter).
+
+### Configurable JWT Hard TTL (G5)
+
+The JWT lifetime is no longer hardcoded to 1h — a high-security deploy shortens it without a code change:
+
+```bash
+export FUSION_SCIENCE_JWT_TTL=900   # seconds; 0 keeps the 3600s default
+```
+
+### Extensible Audit Redaction (G7)
+
+The sensitive-field list used by audit-log redaction is no longer hardcoded — deployers add data-class-specific PII fields at runtime:
+
+```bash
+export FUSION_SCIENCE_REDACT_PATTERNS="mrn,ssn,医保号"   # comma-separated, merged with built-ins
+```
+
+Built-ins (`patient`, `身份证`, `姓名`, `phone`, `email`, `password`, `token`, `secret`, `api_key`, `私钥`) are always present; the env list is merged in and read fresh each call (live-rotate without restart).
+
+### Tamper-Detection Alert Webhook (G10)
+
+When `audit_chain` detects a broken hash chain (evidence of tampering or corruption), it now fires an alert in addition to logging — 等保三级 / HIPAA require an operator be notified, not just a log line:
+
+```bash
+export FUSION_SCIENCE_TAMPER_ALERT_URL="https://siem.internal/alerts/audit-tamper"
+# POST body: {"event":"audit_tamper_detected","session_id":"...","mismatches":[...]}
+```
+
+Delivery is fire-and-forget on a daemon thread: it never blocks verification or raises into the caller. A sink outage degrades to the existing `ERROR` log + the local tamper-evident trail.
+
+### 等保三级 180-Day Audit Retention (G12)
+
+A multi-tenant 等保三级 deploy must retain audit logs ≥6 months. When the compliance level is set to 3 *and* the operator has not set an explicit retention, the audit `max_age_days` default is raised 90 → 180:
+
+```bash
+export FUSION_SCIENCE_COMPLIANCE_LEVEL=3                          # raises retention to 180d
+export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=365                      # explicit always wins
+```
+
+### Push-Based SIEM Export (G13)
+
+Closed in v1.0.9: every audit entry is forwarded as NDJSON to `FUSION_SCIENCE_AUDIT_SINK_URL` (fire-and-forget daemon thread in `TraceRecorder`) for cross-node SIEM aggregation / 三级集中管控. The pull-only `export_jsonl` (`GET /export`) remains as a secondary path. Marked ✅ in the compliance matrix.
 
 ## Domestic Research Environment
 

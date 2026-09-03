@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from .auth import AuthPrincipal, Role, authenticate, load_api_keys, role_allows
+from .auth import AuthPrincipal, Role, authenticate, load_api_keys, role_allows, touch_principal
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,20 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     content={"detail": "Authentication required: provide X-API-Key or Authorization: Bearer <jwt>"},
                 )
 
+        # G4 idle session lockout: enforce per-principal auto-logoff BEFORE the
+        # RBAC check so an idle-but-otherwise-authorized principal is still
+        # rejected. API keys bypass idle lockout (they have no session concept).
+        if not principal.subject.startswith("apikey:"):
+            from .auth import _load_idle_timeout
+
+            if not touch_principal(principal.subject, _load_idle_timeout()):
+                logger.warning(
+                    "Idle-lockout 401 for %s %s subject=%s", request.method, request.url.path, principal.subject
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Session expired due to inactivity (auto-logoff); re-authenticate"},
+                )
         prefix = _route_prefix(path)
         if prefix and not role_allows(principal.role, prefix, request.method):
             logger.warning(
