@@ -6,11 +6,14 @@ from httpx import ASGITransport, AsyncClient
 from fusion_science.api.app import create_app
 from fusion_science.api.auth import (
     Role,
+    _oidc_enabled,
+    authenticate,
     decode_jwt,
     describe_api_keys,
     issue_jwt,
     load_api_keys,
     role_allows,
+    verify_oidc_token,
 )
 from fusion_science.config import _SENTINEL_ENGINE_API_KEY, ScienceConfig, load_config
 from fusion_science.core.gateway import LLMGateway
@@ -333,3 +336,143 @@ class TestKeychainSecrets:
         cfg = load_config()
         # keychain not consulted; MLX blocked; stays sentinel
         assert cfg.engine_api_key == _SENTINEL_ENGINE_API_KEY
+
+
+class TestOidcIdp:
+    def _setup_oidc(self, monkeypatch, jwks_url="https://idp.example/.well-known/jwks.json"):
+        monkeypatch.setenv("FUSION_SCIENCE_OIDC_ISSUER", "https://idp.example")
+        monkeypatch.setenv("FUSION_SCIENCE_OIDC_JWKS_URL", jwks_url)
+        monkeypatch.setenv("FUSION_SCIENCE_OIDC_AUDIENCE", "fusion-science")
+        monkeypatch.setenv("FUSION_SCIENCE_OIDC_ROLE_CLAIM", "groups")
+        monkeypatch.setenv("FUSION_SCIENCE_OIDC_ROLE_MAP", "admin:admins,science:researchers,viewer:readers")
+        # reset the module-level JWKS cache so each test fetches fresh
+        import fusion_science.api.auth as authmod
+
+        authmod._jwks_cache["keys"] = {}
+        authmod._jwks_cache["fetched_at"] = 0.0
+
+    def _make_token(self, claims, kid="test-kid"):
+        # build a real RS256 JWT from a fresh RSA key + matching JWKS dict
+        import time as _t
+
+        import jwt as pyjwt
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        priv = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        pub = key.public_key()
+        import json as _json
+
+        from jwt.algorithms import RSAAlgorithm
+
+        pub_jwk = _json.loads(RSAAlgorithm.to_jwk(pub))
+        pub_jwk["kid"] = kid
+        payload = {
+            "iss": "https://idp.example",
+            "aud": "fusion-science",
+            "exp": int(_t.time()) + 3600,
+            "iat": int(_t.time()),
+            **claims,
+        }
+        token = pyjwt.encode(payload, priv, algorithm="RS256", headers={"kid": kid})
+        return token, {kid: pub_jwk}
+
+    def _patch_jwks(self, monkeypatch, jwks):
+        import fusion_science.api.auth as authmod
+
+        monkeypatch.setattr(authmod, "_fetch_jwks", lambda url: jwks)
+
+    def test_oidc_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_OIDC_ISSUER", raising=False)
+        assert _oidc_enabled() is False
+        assert verify_oidc_token("anything") is None
+
+    def test_oidc_admin_role_mapped(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "alice", "groups": ["admins"]})
+        self._patch_jwks(monkeypatch, jwks)
+        p = verify_oidc_token(token)
+        assert p is not None and p.role == Role.ADMIN and p.subject == "oidc:alice"
+
+    def test_oidc_science_role_from_list(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "bob", "groups": ["readers", "researchers"]})
+        self._patch_jwks(monkeypatch, jwks)
+        p = verify_oidc_token(token)
+        assert p is not None and p.role == Role.SCIENCE
+
+    def test_oidc_no_match_defaults_viewer(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "carol", "groups": ["guests"]})
+        self._patch_jwks(monkeypatch, jwks)
+        p = verify_oidc_token(token)
+        assert p is not None and p.role == Role.VIEWER
+
+    def test_oidc_wrong_audience_rejected(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "x", "groups": ["admins"], "aud": "other-app"})
+        self._patch_jwks(monkeypatch, jwks)
+        assert verify_oidc_token(token) is None
+
+    def test_oidc_wrong_issuer_rejected(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "x", "groups": ["admins"], "iss": "https://evil.example"})
+        self._patch_jwks(monkeypatch, jwks)
+        assert verify_oidc_token(token) is None
+
+    def test_oidc_expired_rejected(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "x", "groups": ["admins"], "exp": 1})
+        self._patch_jwks(monkeypatch, jwks)
+        assert verify_oidc_token(token) is None
+
+    def test_oidc_bad_signature_rejected(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        _token, jwks_a = self._make_token({"sub": "x", "groups": ["admins"]})
+        token_b, _jwks_b = self._make_token({"sub": "x", "groups": ["admins"]})
+        # verify against the WRONG jwks (a), token signed by b
+        self._patch_jwks(monkeypatch, jwks_a)
+        assert verify_oidc_token(token_b) is None
+
+    def test_authenticate_prefers_oidc_when_configured(self, monkeypatch):
+        self._setup_oidc(monkeypatch)
+        token, jwks = self._make_token({"sub": "alice", "groups": ["admins"]})
+        self._patch_jwks(monkeypatch, jwks)
+        p = authenticate(f"Bearer {token}", None, {})
+        assert p is not None and p.role == Role.ADMIN and p.subject == "oidc:alice"
+
+    def test_authenticate_falls_back_to_hs256_when_oidc_unconfigured(self, monkeypatch):
+        # OIDC not set → built-in HS256 path handles the local JWT
+        monkeypatch.delenv("FUSION_SCIENCE_OIDC_ISSUER", raising=False)
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "local-secret")
+        tok = issue_jwt(Role.SCIENCE, "local-user")
+        p = authenticate(f"Bearer {tok}", None, {})
+        assert p is not None and p.role == Role.SCIENCE and p.subject == "jwt:local-user"
+
+    def test_authenticate_oidc_configured_local_hs256_still_works(self, monkeypatch):
+        # OIDC configured but the caller sends a built-in HS256 local JWT (not
+        # an IdP token): OIDC verify fails (no RS256 kid match), then the
+        # built-in HS256 path still authenticates it. Local-first deployments
+        # keep working alongside an external IdP.
+        self._setup_oidc(monkeypatch)
+        self._patch_jwks(monkeypatch, {})
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "local-secret")
+        tok = issue_jwt(Role.SCIENCE, "local-user")
+        p = authenticate(f"Bearer {tok}", None, {})
+        assert p is not None and p.role == Role.SCIENCE and p.subject == "jwt:local-user"
+
+    def test_authenticate_invalid_bearer_does_not_fall_to_apikey(self, monkeypatch):
+        # A Bearer token that fails BOTH OIDC and HS256 must NOT silently fall
+        # through to the X-API-Key header — that would let a bearer that was
+        # rejected as a JWT authenticate as a key, an auth-bypass. The caller
+        # must send a real API key via X-API-Key to use key auth.
+        self._setup_oidc(monkeypatch)
+        self._patch_jwks(monkeypatch, {})
+        keys = {"real-key": Role.VIEWER}
+        p = authenticate("Bearer not-a-real-jwt", "real-key", keys)
+        assert p is None

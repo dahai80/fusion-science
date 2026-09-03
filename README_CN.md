@@ -195,6 +195,7 @@ fusion-science/
 | v1.0.6 | 对抗审计安全加固：RCE 沙箱修复（最小环境白名单、进程组 kill、临时文件传数据——不内联源码）；图表类型白名单 + 输入注入封堵；Jupyter `code`/`timeout` 边界；默认拒绝的 API 认证 + 仅回环默认绑定；MLX 内存压力 fail-closed；每会话丢失更新锁 + WAL SQLite；IDOR 范围审计追踪；增量审计持久化；缓存字节预算 + Retry-After 抖动；网关 `total_deadline` 重试上限；HPC shell 注入防护（标识符白名单、`shlex.quote`、`O_EXCL` 脚本写入）。 |
 | v1.0.7 | 企业审计加固（PR #20, #21）：全路由 4xx/5xx + `detail` 错误契约；会话/审计追踪 IDOR 属主范围；MCP 服务挂载到 `/mcp`（10/12 工具经 JSON-RPC 2.0 + SSE 暴露）；DatabaseAggregator 扩展到 8 库并行去重；defusedxml 防 XXE 解析；删除被遮蔽的遗留 `chinese.py`。产品发布门审计（0903）关闭剩余阻塞项。 |
 | v1.0.8 | 企业生产加固（PR #23, #25）：用户代码 OS 级沙箱隔离（macOS `sandbox-exec` / Linux `bwrap`，rlimit 降级）；内置 RBAC + JWT（3 角色：admin/science/viewer，HS256，无外部 IdP）；基于共享 SQLite 存储的多 worker 支持；防篡改审计留存（按年龄/数量裁剪）+ NDJSON SIEM 导出；无需重启的运行时 API key 轮换；macOS Keychain 密钥解析。详见下方**企业安全**。 |
+| v1.0.9 | 企业联邦 + HA（关闭 #22、#24、#25）：外部 OAuth2/OIDC IdP（RS256 经 JWKS、claim→角色映射、HS256 回退）；可插拔会话存储 + Postgres 后端（`psycopg` 3、连接池、乐观锁）；就绪 vs 存活探针（`/api/v1/ready` 存储故障时 503）；中央审计汇 fan-out（`FUSION_SCIENCE_AUDIT_SINK_URL`）；合规控制矩阵文档。详见下方**企业联邦与 HA**。 |
 
 ## 企业安全 (v1.0.8)
 
@@ -280,7 +281,60 @@ curl http://localhost:11462/api/v1/sessions/{session_id}/audit/export \
 - 多 worker 时确认共享 SQLite 存储路径在快速本地存储上。
 - 当 `sandbox-exec`（macOS）或 `bwrap`（Linux）可用时，OS 沙箱隔离自动启用；仅 rlimit 降级会记录警告。
 
-> **不在范围（已提 issue）：** 多节点 HA 部署拓扑（#24）、正式合规认证路线图（#25）、外部 OAuth2/OIDC（#22）。v1.0.8 为单节点企业就绪；HA 与认证单独跟踪。
+> **范围说明：** #22（外部 IdP）、#24（多节点 HA）、#25（合规路线图）已在 v1.0.9 关闭——见下方**企业联邦与 HA**。剩余运维侧事项（TLS 终止、Postgres HA 复制、托管负载均衡、备份）记录在 `architecture/ha-deployment.md`，属于部署而非代码事项。
+
+## 企业联邦与 HA (v1.0.9)
+
+v1.0.9 扩展内置认证与存储层以支持多节点、联邦部署——默认仍本地优先（除非主动启用，无需外部服务）。
+
+### 外部 OAuth2/OIDC 身份提供商 (#22)
+
+安装 `[oidc]` extra（`pip install -e ".[oidc]"` → `pyjwt` + `cryptography`）并设置 `FUSION_SCIENCE_OIDC_*` 环境变量后，API 接受外部 IdP（Keycloak、Auth0、Azure AD 等）签发的 RS256 ID/访问令牌，并依据签发方的 JWKS 验证：
+
+```bash
+pip install -e ".[oidc]"
+export FUSION_SCIENCE_OIDC_ISSUER="https://idp.example.com/realms/sci"
+export FUSION_SCIENCE_OIDC_JWKS_URL="https://idp.example.com/realms/sci/protocol/openid-connect/certs"
+export FUSION_SCIENCE_OIDC_AUDIENCE="fusion-science"        # 可选；未设 = 跳过 audience 校验
+export FUSION_SCIENCE_OIDC_ROLE_MAP="admin:admins,science:researchers,viewer:readers"
+```
+
+`FUSION_SCIENCE_OIDC_ROLE_MAP` 把 IdP 的 group/role claim 映射到本地角色（`claim值:本地角色`）。当令牌携带多个匹配 claim 时，**最高权限**角色胜出（admin > science > viewer）——非首次匹配。签发方、audience、过期均强制校验；签名不匹配或过期则拒绝。无匹配 claim 默认 `viewer`。
+
+OIDC 未配置时内置 HS256 JWT 路径作为回退，故现有本地优先部署不受影响。Bearer 令牌若 OIDC 与 HS256 验证**均**失败，则**不会**回退到 `X-API-Key`——无认证绕过路径。
+
+### 多节点 HA：Postgres 会话存储 (#24)
+
+安装 `[ha]` extra 并把会话存储指向共享 Postgres，即可在负载均衡后运行多个无状态节点：
+
+```bash
+pip install -e ".[ha]"   # psycopg 3（二进制 wheel）
+export FUSION_SCIENCE_SESSION_STORE=postgres
+export FUSION_SCIENCE_SESSION_DSN="postgresql://user:pass@pg-ha:5432/fusion_science"
+```
+
+`PostgresSessionStore` 使用连接池（`queue.Queue`，可配 `min_conn`/`max_conn`）、会话数据用 JSONB 列，并采用**乐观锁**（`version` 列 + `WHERE version = %s` 守卫），使不同节点的并发更新能检测冲突并拒绝陈旧写入，而非静默覆盖。另提供就绪探针供负载均衡使用。
+
+### 就绪 vs 存活
+
+| 端点 | 用途 | 行为 |
+|---|---|---|
+| `GET /api/v1/health` | 存活（kubelet） | 宽松 `200`；报告 `degraded` 依赖但不返回 5xx。短暂抖动不应触发重启。 |
+| `GET /api/v1/ready` | 就绪（LB） | 硬依赖（会话存储）宕机时 `503`——LB 将节点移出池而非返回 500。就绪时 `200`。两个探针均免认证。 |
+
+### 中央审计汇
+
+每个节点把每条审计记录（NDJSON，每行一条）转发到共享采集器，使完整防篡改追踪集中一处，与处理请求的节点无关：
+
+```bash
+export FUSION_SCIENCE_AUDIT_SINK_URL="https://siem.example.com/ingest"
+```
+
+转发在守护线程上 fire-and-forget——绝不阻塞请求路径、绝不向其抛异常；采集器宕机降级为仅本地文件审计（仍经本地 SHA-256 哈希链防篡改）。v1.0.8 的拉取式导出（`GET /sessions/{id}/audit/export`）保留。
+
+### 合规路线图 (#25)
+
+`architecture/compliance-matrix.md` 把 v1.0.8/v1.0.9 的控制基元映射到 HIPAA、GDPR、等保（MLPS 2.0）要求，盘点 25 个库内基元（附 `file:symbol` 锚点），并列出通向正式认证剩余的 13 个代码级缺口（G1–G13）与 10 个组织级缺口（O1–O10）。该文档为认证工作的活文档，而非认证声明。
 
 ## 国内研究环境适配
 

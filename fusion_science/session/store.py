@@ -101,12 +101,20 @@ class SQLiteSessionStore(SessionStore):
 
     def save(self, session: ResearchSession) -> bool:
         data = session.to_dict()
+        # F-ENT-LOCK: optimistic locking. The row's version must match the
+        # in-memory version for an update to apply; on success BOTH the row
+        # and the in-memory copy advance to the same new version, so the next
+        # save's WHERE version=? matches. Pre-fix this stored 0 on INSERT while
+        # bumping memory to 1 — the next UPDATE never matched and every second
+        # save silently "conflicted". Now the stored version equals the
+        # post-increment memory version on every path.
+        new_version = session.version + 1
         with self._conn:
             if session.version > 0:
                 cursor = self._conn.execute(
                     """
                     UPDATE sessions
-                    SET title=?, owner=?, created_at=?, updated_at=?, version=version+1,
+                    SET title=?, owner=?, created_at=?, updated_at=?, version=?,
                         messages=?, context=?, artifacts=?, trace_ids=?
                     WHERE session_id=? AND version=?
                     """,
@@ -115,6 +123,7 @@ class SQLiteSessionStore(SessionStore):
                         data["owner"],
                         data["created_at"],
                         data["updated_at"],
+                        new_version,
                         json.dumps(data["messages"], ensure_ascii=False),
                         json.dumps(data["context"], ensure_ascii=False),
                         json.dumps(data["artifacts"], ensure_ascii=False),
@@ -126,7 +135,7 @@ class SQLiteSessionStore(SessionStore):
                 if cursor.rowcount == 0:
                     logger.warning("optimistic-lock conflict on session %s v%d", data["id"], session.version)
                     return False
-                session.version += 1
+                session.version = new_version
                 return True
             self._conn.execute(
                 """
@@ -136,7 +145,7 @@ class SQLiteSessionStore(SessionStore):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     title=excluded.title, owner=excluded.owner,
-                    updated_at=excluded.updated_at, version=version+1,
+                    updated_at=excluded.updated_at, version=excluded.version,
                     messages=excluded.messages, context=excluded.context,
                     artifacts=excluded.artifacts, trace_ids=excluded.trace_ids
                 """,
@@ -146,14 +155,14 @@ class SQLiteSessionStore(SessionStore):
                     data["owner"],
                     data["created_at"],
                     data["updated_at"],
-                    0,
+                    new_version,
                     json.dumps(data["messages"], ensure_ascii=False),
                     json.dumps(data["context"], ensure_ascii=False),
                     json.dumps(data["artifacts"], ensure_ascii=False),
                     json.dumps(data["trace_ids"], ensure_ascii=False),
                 ),
             )
-            session.version += 1
+            session.version = new_version
             return True
 
     def load(self, session_id: str) -> ResearchSession | None:

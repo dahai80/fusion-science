@@ -92,8 +92,13 @@ class ScienceConfig:
     # Session persistence — "sqlite" (default, crash-safe) or "memory" (tests only).
     # Production MUST use sqlite: memory store loses all sessions on restart and has
     # no per-session byte bound, so a long conversation can OOM the process.
+    # "postgres" enables multi-node HA (issue #24): all workers share one DB so any
+    # node serves any session — no sticky sessions, no lost state on failover.
     session_store: str = "sqlite"
     session_db_path: str = "~/.cache/fusion-science/sessions.db"
+    # Postgres DSN for session_store="postgres" (e.g.
+    # postgresql://user:pass@pg:5432/fusion_science). Empty → sqlite path used.
+    session_dsn: str = ""
     # Per-session safety bound: cap stored messages + total byte size so one runaway
     # conversation cannot exhaust process memory (MemorySessionStore) or bloat the
     # SQLite row (SQLiteSessionStore). 0 = unlimited (tests).

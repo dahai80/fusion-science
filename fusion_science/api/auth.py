@@ -17,7 +17,9 @@ compatibility. JWT session tokens are issued at ``POST /api/v1/auth/token``
 (HS256, 1h TTL) and carry the role claim; callers send them as
 ``Authorization: Bearer <jwt>``.
 
-No external IdP — local-first. External OAuth2/OIDC tracked in issue #22.
+No external IdP required — local-first by default. Optional external
+OAuth2/OIDC (RS256 via JWKS, claim → role mapping) when the [oidc] extra is
+installed and FUSION_SCIENCE_OIDC_* env vars are set; see issue #22.
 """
 
 from __future__ import annotations
@@ -250,15 +252,150 @@ def decode_jwt(token: str) -> AuthPrincipal | None:
     return AuthPrincipal(role=role, subject=f"jwt:{payload.get('sub', '')}")
 
 
+# --- External IdP (OAuth2 / OIDC) — optional, RS256 via JWKS ---
+#
+# When FUSION_SCIENCE_OIDC_ISSUER + FUSION_SCIENCE_OIDC_JWKS_URL are set, a
+# Bearer token issued by an external identity provider (Okta / Azure AD /
+# Keycloak) is validated against the provider's JWKS (RS256) and its role
+# claim mapped to a local Role. The built-in HS256 JWT path still works for
+# local-first deployments with no IdP. PyJWT + cryptography are imported
+# lazily so a default install without the [oidc] extra is unaffected.
+
+_jwks_cache: dict[str, object] = {"keys": {}, "fetched_at": 0.0}
+
+
+def _oidc_enabled() -> bool:
+    return bool(os.getenv("FUSION_SCIENCE_OIDC_ISSUER") and os.getenv("FUSION_SCIENCE_OIDC_JWKS_URL"))
+
+
+def _oidc_role_map() -> dict[str, Role]:
+    # FUSION_SCIENCE_OIDC_ROLE_MAP="admin:admins,science:researchers,viewer:readers"
+    # maps an IdP claim value (group/scope/role) → local Role.
+    raw = os.getenv("FUSION_SCIENCE_OIDC_ROLE_MAP", "")
+    mapping: dict[str, Role] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        role_str, _, claim_val = pair.partition(":")
+        try:
+            mapping[claim_val.strip()] = Role(role_str.strip().lower())
+        except ValueError:
+            logger.warning("OIDC role map: unknown role %r", role_str)
+    return mapping
+
+
+def _fetch_jwks(jwks_url: str) -> dict[str, object]:
+    import time as _time
+
+    now = _time.time()
+    if _jwks_cache["keys"] and now - _jwks_cache["fetched_at"] < 600:
+        return _jwks_cache["keys"]
+    import httpx
+
+    resp = httpx.get(jwks_url, timeout=10.0)
+    resp.raise_for_status()
+    keys = {k["kid"]: k for k in resp.json().get("keys", []) if "kid" in k}
+    _jwks_cache["keys"] = keys
+    _jwks_cache["fetched_at"] = now
+    return keys
+
+
+def verify_oidc_token(token: str) -> AuthPrincipal | None:
+    """Validate an external IdP JWT (RS256 via JWKS) and map to a local role.
+
+    Returns None when OIDC is unconfigured, deps missing, or validation fails.
+    """
+    if not _oidc_enabled():
+        return None
+    try:
+        import jwt as pyjwt
+    except ImportError:
+        logger.warning("OIDC configured but PyJWT not installed (need [oidc] extra)")
+        return None
+    jwks_url = os.getenv("FUSION_SCIENCE_OIDC_JWKS_URL", "")
+    issuer = os.getenv("FUSION_SCIENCE_OIDC_ISSUER", "")
+    audience = os.getenv("FUSION_SCIENCE_OIDC_AUDIENCE", "")
+    role_claim = os.getenv("FUSION_SCIENCE_OIDC_ROLE_CLAIM", "roles")
+    try:
+        unverified = pyjwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        logger.warning("OIDC: malformed token")
+        return None
+    kid = unverified.get("kid") if isinstance(unverified, dict) else None
+    try:
+        keys = _fetch_jwks(jwks_url)
+    except Exception as exc:
+        logger.warning("OIDC: JWKS fetch failed: %s", exc)
+        return None
+    signing_key = None
+    if kid and kid in keys:
+        signing_key = pyjwt.PyJWK(keys[kid]).key
+    else:
+        # No kid match — try each key (some providers omit kid).
+        for k in keys.values():
+            try:
+                signing_key = pyjwt.PyJWK(k).key
+                break
+            except Exception:
+                continue
+    if signing_key is None:
+        logger.warning("OIDC: no matching JWKS key for kid=%s", kid)
+        return None
+    decode_options = {"verify_aud": bool(audience)}
+    try:
+        payload = pyjwt.decode(
+            token,
+            signing_key,
+            algorithms=["RS256"],
+            issuer=issuer or None,
+            audience=audience or None,
+            options=decode_options,
+        )
+    except pyjwt.PyJWTError as exc:
+        logger.warning("OIDC: token validation failed: %s", exc)
+        return None
+    # Map IdP claim → local role. The claim may be a list (groups/scopes) or a
+    # single string. IdP group lists are unordered, so we pick the HIGHEST
+    # privilege among all matched values (admin > science > viewer) rather
+    # than first-match — a user in both "readers" and "researchers" gets
+    # science, not the accidental viewer from list order.
+    mapping = _oidc_role_map()
+    claim_val = payload.get(role_claim, [])
+    if isinstance(claim_val, str):
+        claim_vals = [claim_val]
+    else:
+        claim_vals = list(claim_val) if isinstance(claim_val, (list, tuple)) else []
+    privilege = {Role.VIEWER: 0, Role.SCIENCE: 1, Role.ADMIN: 2}
+    role = Role.VIEWER
+    matched = False
+    for val in claim_vals:
+        if val in mapping:
+            mapped = mapping[val]
+            if privilege.get(mapped, 0) > privilege.get(role, 0):
+                role = mapped
+            matched = True
+    if not matched and mapping:
+        # explicit mapping exists but no claim matched → least privilege
+        role = Role.VIEWER
+    subject = payload.get("sub", "") or payload.get("email", "")
+    return AuthPrincipal(role=role, subject=f"oidc:{subject}")
+
+
 def authenticate(authorization: str | None, x_api_key: str | None, api_keys: dict[str, Role]) -> AuthPrincipal | None:
     """Resolve a principal from a Bearer JWT or an X-API-Key header.
 
+    Order: external OIDC JWT (if configured) → built-in HS256 JWT → API key.
     Returns None when no credential is present or verification fails — the
     caller decides whether to reject (non-exempt route) or admit (exempt).
     """
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() == "bearer" and token:
+            if _oidc_enabled():
+                oidc_principal = verify_oidc_token(token)
+                if oidc_principal is not None:
+                    return oidc_principal
             return decode_jwt(token)
     if x_api_key and x_api_key in api_keys:
         return AuthPrincipal(role=api_keys[x_api_key], subject=f"apikey:{x_api_key[:8]}")

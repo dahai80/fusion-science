@@ -120,6 +120,13 @@ async def lifespan(app: FastAPI):
     if config.session_store.lower() == "sqlite":
         store = SQLiteSessionStore(db_path=config.session_db_path)
         logger.info("Session store: sqlite (%s)", config.session_db_path)
+    elif config.session_store.lower() == "postgres":
+        # F-ENT-HA (issue #24): shared Postgres store so any HA node can serve
+        # any session. DSN from config.session_dsn (FUSION_SCIENCE_SESSION_DSN).
+        from ..session import PostgresSessionStore
+
+        store = PostgresSessionStore(dsn=config.session_dsn)
+        logger.info("Session store: postgres (HA shared)")
     else:
         store = MemorySessionStore()
         logger.warning("Session store: memory — sessions lost on restart (test override)")
@@ -158,7 +165,10 @@ async def lifespan(app: FastAPI):
     # keep 90 days / 1000 sessions so an unattended deploy does not fill disk.
     _audit_age = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "90"))
     _audit_max = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_SESSIONS", "1000"))
-    recorder = TraceRecorder(max_age_days=_audit_age, max_sessions=_audit_max)
+    # F-ENT-HA-SINK (issue #24): central audit collector URL. When set, every
+    # node forwards audit entries (NDJSON) here for cross-node SIEM aggregation.
+    _audit_sink = os.getenv("FUSION_SCIENCE_AUDIT_SINK_URL", "")
+    recorder = TraceRecorder(max_age_days=_audit_age, max_sessions=_audit_max, sink_url=_audit_sink)
     recorder.start_session(metadata={"api": True})
     app.state.recorder = recorder
     _audit_handler._recorder = recorder

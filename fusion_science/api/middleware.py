@@ -13,7 +13,15 @@ from .auth import AuthPrincipal, Role, authenticate, load_api_keys, role_allows
 logger = logging.getLogger(__name__)
 
 
-_EXEMPT_PATHS = {"/api/v1/health", "/docs", "/openapi.json", "/redoc", "/redoc.openapi.json", "/favicon.ico"}
+_EXEMPT_PATHS = {
+    "/api/v1/health",
+    "/api/v1/ready",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/redoc.openapi.json",
+    "/favicon.ico",
+}
 
 # Routes that authenticate themselves in the body and must NOT be gated by the
 # API-key/JWT check (else the token-exchange endpoint could never be reached).

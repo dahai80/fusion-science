@@ -102,6 +102,7 @@ class TraceRecorder:
         storage_dir: str = "~/.cache/fusion-science/traces",
         max_age_days: int = 90,
         max_sessions: int = 1000,
+        sink_url: str = "",
     ):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +122,14 @@ class TraceRecorder:
         # F-7: persist incrementally so a crash mid-session doesn't lose the trail
         self._persist_every: int = 20
         self._records_since_persist: int = 0
+        # F-ENT-HA-SINK (issue #24): central audit sink for multi-node HA. Each
+        # node forwards every audit entry (NDJSON line) to a shared collector
+        # (SIEM/ELK/HTTP log aggregator) so the full audit trail lives in one
+        # place regardless of which node handled the request. Fire-and-forget
+        # on a daemon thread — never blocks the request path, never raises into
+        # it; a collector outage degrades to local-file-only audit (still
+        # tamper-evident via the hash chain) rather than failing the operation.
+        self._sink_url = sink_url
         with contextlib.suppress(Exception):
             self.prune()
 
@@ -250,6 +259,8 @@ class TraceRecorder:
                 self._records_since_persist = 0
         if should_persist:
             self._save_session()
+        if self._sink_url:
+            self._forward_to_sink(entry)
         return entry_id
 
     def set_parent(self, parent_id: str) -> None:
@@ -263,6 +274,31 @@ class TraceRecorder:
     def clear_parent(self) -> None:
         """Clear the current parent entry."""
         self._current_parent = ""
+
+    def _forward_to_sink(self, entry: TraceEntry) -> None:
+        # F-ENT-HA-SINK: push this entry as one NDJSON line to the central
+        # audit collector. Runs on a daemon thread so the request path never
+        # waits on the network or blocks on a dead collector. Failures are
+        # logged once and swallowed — local hash-chain audit is the source of
+        # truth; the sink is a fan-out for SIEM aggregation across HA nodes.
+        session_id = self._session.session_id if self._session else ""
+        try:
+            line = self._entry_to_jsonl(entry, session_id)
+        except Exception as e:
+            logger.warning("audit sink: failed to serialize entry %s: %s", self._field(entry, "id"), e)
+            return
+
+        def _post() -> None:
+            try:
+                import httpx
+
+                httpx.post(
+                    self._sink_url, content=line + "\n", headers={"Content-Type": "application/x-ndjson"}, timeout=5.0
+                )
+            except Exception as e:
+                logger.debug("audit sink post failed (non-fatal, local audit intact): %s", e)
+
+        threading.Thread(target=_post, daemon=True).start()
 
     def record_db_query(
         self,
