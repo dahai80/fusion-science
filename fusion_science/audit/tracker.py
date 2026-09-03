@@ -41,6 +41,25 @@ def _redaction_patterns() -> list[str]:
     return _SENSITIVE_PATTERNS + [p.strip() for p in extra.split(",") if p.strip()]
 
 
+def _load_retention_map() -> dict[str, int]:
+    # G8: per-data-class retention ages (days) from env.
+    # FUSION_SCIENCE_RETENTION_MAP="ephi:2555,literature:365,audit:180"
+    # A class age of 0 means retain indefinitely (never age-prune). Empty/absent
+    # env -> empty map (all sessions fall back to the global max_age_days).
+    raw = os.getenv("FUSION_SCIENCE_RETENTION_MAP", "")
+    mapping: dict[str, int] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        cls, _, age = pair.partition(":")
+        try:
+            mapping[cls.strip()] = int(age)
+        except ValueError:
+            logger.warning("Retention map: bad age %r for class %r, skipping", age, cls)
+    return mapping
+
+
 def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     """Redact sensitive parameter values before logging.
 
@@ -116,6 +135,7 @@ class TraceRecorder:
         max_sessions: int = 1000,
         sink_url: str = "",
         encrypt_at_rest: bool = False,
+        retention_map: dict[str, int] | None = None,
     ):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -127,6 +147,13 @@ class TraceRecorder:
         # cost on every audit event).
         self._max_age_days = max_age_days
         self._max_sessions = max_sessions
+        # G8: per-data-class retention. GDPR/HIPAA require different retention
+        # per data class (ePHI vs literature vs audit). A session whose metadata
+        # carries a `data_class` is pruned by that class's age (days) when
+        # present, else by the global max_age_days. A class age of 0 means
+        # "retain indefinitely" (never age-prune that class). Loaded from env
+        # FUSION_SCIENCE_RETENTION_MAP="ephi:2555,literature:365,audit:180".
+        self._retention_map = retention_map or _load_retention_map()
         self._session: TraceSession | None = None
         self._current_parent: str = ""
         self._last_entry_hash: str = ""
@@ -716,9 +743,27 @@ class TraceRecorder:
 
         threading.Thread(target=_send, daemon=True).start()
 
+    def _retention_age_for(self, path: Path) -> int | None:
+        # G8: resolve the age (days) at which a session file should be pruned.
+        # Reads the stored metadata `data_class` to look up a per-class age in
+        # the retention map; falls back to the global max_age_days. Returns None
+        # when neither applies (retain indefinitely). A read failure (corrupt/
+        # encrypted-without-key file) falls back to the global age rather than
+        # risking over-retention — and never raises into prune().
+        data_class = ""
+        with contextlib.suppress(Exception):
+            session = self._read_file(path)
+            meta = json.loads(session).get("metadata", {}) if session else {}
+            if isinstance(meta, dict):
+                data_class = str(meta.get("data_class", ""))
+        if data_class and data_class in self._retention_map:
+            return self._retention_map[data_class]
+        return self._max_age_days if self._max_age_days > 0 else None
+
     def prune(self) -> dict[str, int]:
-        """Apply the retention policy: drop sessions older than max_age_days and
-        keep at most max_sessions (newest first).
+        """Apply the retention policy: drop sessions older than their retention
+        age (per-data-class map or global max_age_days) and keep at most
+        max_sessions (newest first).
 
         Returns a summary {pruned_by_age, pruned_by_count, remaining}.
         """
@@ -730,11 +775,18 @@ class TraceRecorder:
             reverse=True,
         )
         now = time.time()
-        # Age-based pruning.
-        if self._max_age_days > 0:
-            cutoff = now - self._max_age_days * 86400
+        # Age-based pruning. G8: when a per-data-class retention map is set, a
+        # session is pruned by ITS class's age (read from stored metadata
+        # `data_class`), not the global max_age_days. A class age of 0 retains
+        # that class indefinitely. Sessions whose class is unmapped (or whose
+        # file has no data_class) fall back to the global max_age_days. When no
+        # retention map is set this collapses to the original mtime-only prune.
+        if self._max_age_days > 0 or self._retention_map:
             for f in files:
-                if f.stat().st_mtime < cutoff:
+                age_days = self._retention_age_for(f)
+                if age_days is None or age_days <= 0:
+                    continue  # retain indefinitely (no global limit or class=0)
+                if f.stat().st_mtime < now - age_days * 86400:
                     with contextlib.suppress(OSError):
                         f.unlink()
                     pruned_age += 1

@@ -25,7 +25,7 @@ from ..utils.events import (
     EVENT_VISUALIZATION,
     get_event_bus,
 )
-from .middleware import APIKeyMiddleware, MetricsMiddleware, RateLimitMiddleware
+from .middleware import AnomalyMiddleware, APIKeyMiddleware, MetricsMiddleware, RateLimitMiddleware
 from .routes import (
     analysis,
     audit_route,
@@ -260,6 +260,12 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     if _rl_limit > 0:
         app.add_middleware(RateLimitMiddleware, limit=_rl_limit, window=_rl_window)
         logger.info("Rate limit enabled: %d req/%ds per IP", _rl_limit, _rl_window)
+    # G11: anomaly detection for 等保三级入侵防范 (route enumeration + burst
+    # spike). Opt-in via FUSION_SCIENCE_ANOMALY_DETECT; alerts to the tamper
+    # sink. Detection only — does not block (the rate limiter enforces).
+    if os.getenv("FUSION_SCIENCE_ANOMALY_DETECT", "").lower() in ("true", "1", "yes"):
+        app.add_middleware(AnomalyMiddleware)
+        logger.info("Anomaly detection enabled (三级入侵防范)")
 
     if config:
         app.state.config = config

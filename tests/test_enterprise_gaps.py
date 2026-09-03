@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import time
 
 import pytest
@@ -11,6 +12,7 @@ from fusion_science.audit.tracker import TraceRecorder, _redaction_patterns
 from fusion_science.config import ScienceConfig
 from fusion_science.session import MemorySessionStore, SessionManager
 from fusion_science.utils.events import reset_event_bus
+from fusion_science.utils.malware_scan import scan_bytes
 from fusion_science.utils.mfa import generate_totp, verify_subject_mfa, verify_totp
 
 # --- G2 TLS config ---------------------------------------------------------
@@ -436,3 +438,219 @@ class TestComplianceRetention:
         if int(os.getenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "1")) >= 3 and not _explicit and _audit_age < 180:
             _audit_age = 180
         assert _audit_age == 365
+
+
+# --- G3 malware scan ------------------------------------------------------
+
+
+class TestMalwareScan:
+    def test_clean_text_passes(self):
+        result = scan_bytes(b"%PDF-1.4 some paper text content here", filename="paper.pdf")
+        assert result.clean
+        assert result.scanned_bytes > 0
+
+    def test_pe_executable_flagged(self):
+        result = scan_bytes(b"MZ\x90\x00" + b"\x00" * 200, filename="paper.pdf")
+        assert not result.clean
+        assert any("PE/COFF" in f for f in result.flags)
+
+    def test_elf_executable_flagged(self):
+        result = scan_bytes(b"\x7fELF\x02\x01\x01" + b"\x00" * 100, filename="data.bin")
+        assert not result.clean
+        assert any("ELF" in f for f in result.flags)
+
+    def test_script_shebang_flagged(self):
+        result = scan_bytes(b"#!/bin/bash\nrm -rf /\n", filename="dataset.csv")
+        assert not result.clean
+        assert any("shebang" in f for f in result.flags)
+
+    def test_blocked_extension_flagged(self):
+        result = scan_bytes(b"anything", filename="payload.exe")
+        assert not result.clean
+        assert any("blocked extension" in f for f in result.flags)
+
+    def test_archive_not_flagged_despite_high_entropy(self):
+        # a zip is high-entropy but a recognized archive -> must pass
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("data.json", "x" * 10000)
+        result = scan_bytes(buf.getvalue(), filename="dataset.zip")
+        assert result.clean
+
+    def test_empty_bytes_clean(self):
+        assert scan_bytes(b"").clean
+
+
+class TestScanRoute:
+    @pytest.fixture
+    def app(self, monkeypatch):
+        reset_event_bus()
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS", "admin:admin-key,viewer:view-key")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "test-secret")
+        config = ScienceConfig()
+        application = create_app(config=config)
+        application.state.config = config
+        application.state.session_manager = SessionManager(MemorySessionStore())
+        yield application
+        reset_event_bus()
+
+    @pytest.mark.asyncio
+    async def test_scan_clean_blob(self, app):
+        tok = issue_jwt(Role.ADMIN, "admin")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/api/v1/security/scan",
+                json={"filename": "paper.pdf", "content_b64": base64.b64encode(b"%PDF-1.4 text").decode()},
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["clean"] is True
+
+    @pytest.mark.asyncio
+    async def test_scan_flagged_blob(self, app):
+        tok = issue_jwt(Role.ADMIN, "admin")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/api/v1/security/scan",
+                json={"filename": "x.exe", "content_b64": base64.b64encode(b"MZ\x90").decode()},
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["clean"] is False
+
+    @pytest.mark.asyncio
+    async def test_viewer_blocked_from_scan(self, app):
+        tok = issue_jwt(Role.VIEWER, "viewer")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post(
+                "/api/v1/security/scan",
+                json={"filename": "x.pdf", "content_b64": base64.b64encode(b"text").decode()},
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+            assert resp.status_code == 403
+
+
+# --- G8 per-data-class retention ------------------------------------------
+
+
+class TestRetentionMap:
+    def test_env_retention_map_loaded(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_RETENTION_MAP", "ephi:2555,literature:365,audit:0")
+        from fusion_science.audit.tracker import _load_retention_map
+
+        m = _load_retention_map()
+        assert m == {"ephi": 2555, "literature": 365, "audit": 0}
+
+    def test_per_class_prune(self, tmp_path, monkeypatch):
+        # ephi class: 1 day; literature class: 1000 days (keep). Global 90.
+        monkeypatch.setenv("FUSION_SCIENCE_RETENTION_MAP", "ephi:1,literature:1000")
+        rec = TraceRecorder(storage_dir=str(tmp_path), max_age_days=90)
+        # write an ephi session (old) and a literature session (old)
+        old_ts = time.time() - 200 * 86400  # 200 days old
+        rec.start_session(metadata={"data_class": "ephi"})
+        rec.record("llm_call", "test", "e")
+        rec.end_session()
+        rec.start_session(metadata={"data_class": "literature"})
+        rec.record("llm_call", "test", "l")
+        rec.end_session()
+        # backdate both files' mtime to 200 days ago
+        import os
+
+        for f in tmp_path.glob("trace_*.json"):
+            os.utime(f, (old_ts, old_ts))
+        result = rec.prune()
+        remaining = list(tmp_path.glob("trace_*.json"))
+        # ephi (1d, 200d old) pruned; literature (1000d, 200d old) kept
+        assert result["pruned_by_age"] >= 1
+        blobs = [f.read_text() for f in remaining]
+        assert any('"literature"' in b for b in blobs), "literature session must survive"
+        assert not any('"ephi"' in b for b in blobs), "ephi session must be pruned"
+
+    def test_unmapped_class_falls_back_to_global(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_RETENTION_MAP", raising=False)
+        rec = TraceRecorder(storage_dir=str(tmp_path), max_age_days=1)
+        rec.start_session(metadata={"data_class": "unknown"})
+        rec.record("llm_call", "test", "u")
+        rec.end_session()
+        import os
+
+        old_ts = time.time() - 200 * 86400
+        for f in tmp_path.glob("trace_*.json"):
+            os.utime(f, (old_ts, old_ts))
+        result = rec.prune()
+        assert result["pruned_by_age"] >= 1
+
+
+# --- G11 anomaly detection ------------------------------------------------
+
+
+class TestAnomalyDetect:
+    @pytest.fixture
+    def app(self, monkeypatch):
+        reset_event_bus()
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS", "admin:admin-key")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "test-secret")
+        monkeypatch.setenv("FUSION_SCIENCE_ANOMALY_DETECT", "1")
+        config = ScienceConfig()
+        application = create_app(config=config)
+        application.state.config = config
+        application.state.session_manager = SessionManager(MemorySessionStore())
+        yield application
+        reset_event_bus()
+
+    @pytest.mark.asyncio
+    async def test_route_enumeration_alerts_without_blocking(self, app, caplog):
+        # hit >=12 distinct route prefixes -> anomaly logged but request still
+        # served (detection, not enforcement). Use health + many bogus prefixes.
+        tok = issue_jwt(Role.ADMIN, "admin")
+        transport = ASGITransport(app=app)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="fusion_science.api.middleware"):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                # 13 distinct prefixes that are NOT exempt (admin can reach any)
+                for prefix in [
+                    "sessions",
+                    "databases",
+                    "search",
+                    "citations",
+                    "math",
+                    "compute",
+                    "chat",
+                    "audit",
+                    "pipelines",
+                    "models",
+                    "tools",
+                    "metrics",
+                    "review",
+                ]:
+                    await c.get(f"/api/v1/{prefix}", headers={"Authorization": f"Bearer {tok}"})
+        assert any("route_enumeration" in rec.message for rec in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_no_anomaly_when_disabled(self, monkeypatch, caplog):
+        reset_event_bus()
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS", "admin:admin-key")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "test-secret")
+        monkeypatch.delenv("FUSION_SCIENCE_ANOMALY_DETECT", raising=False)
+        config = ScienceConfig()
+        application = create_app(config=config)
+        application.state.config = config
+        application.state.session_manager = SessionManager(MemorySessionStore())
+        tok = issue_jwt(Role.ADMIN, "admin")
+        transport = ASGITransport(app=application)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="fusion_science.api.middleware"):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                for _ in range(15):
+                    await c.get("/api/v1/sessions", headers={"Authorization": f"Bearer {tok}"})
+        assert not any("route_enumeration" in rec.message for rec in caplog.records)
+        reset_event_bus()

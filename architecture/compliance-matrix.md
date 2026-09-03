@@ -298,10 +298,14 @@ out of code scope — deployer/DPO/certifying body owns it).
   `FUSION_SCIENCE_TLS_CERTFILE`/`FUSION_SCIENCE_TLS_KEYFILE`; the startup
   health probe switches to `https://`. Default HTTP (local-first).
 
-- **G3 [code] uploaded-artifact malware scan** — AST gate covers
-  user-supplied *code*, but uploaded *files* (paper PDFs, datasets) are not
-  scanned. Add a ClamAV / yara hook at the ingestion boundary.
-  *File:* `literature/reader.py`, new `utils/malware_scan.py`.
+- **G3 [code] uploaded-artifact malware scan** — ✅ **Closed in v1.0.12.**
+  New `utils/malware_scan.py`: stdlib heuristic (executable-magic blocklist for
+  PE/ELF/Mach-O/Java, script-shebang detection, blocked-extension list,
+  packed-binary entropy >7.5 bits/byte excluding recognized archives) + optional
+  yara signatures from `FUSION_SCIENCE_YARA_RULES_DIR` when `yara-python` is
+  installed. No ClamAV daemon (local-first). Wired at the raw-bytes cache
+  boundary (`ScienceCache.set` rejects flagged blobs, fail-closed) and exposed
+  via `POST /api/v1/security/scan` (base64 blob → ScanResult, admin-only).
 
 - **G4 [code] idle session lockout** — ✅ **Closed in v1.0.11.**
   `touch_principal()` in `api/auth.py` tracks per-principal last-seen
@@ -330,10 +334,12 @@ out of code scope — deployer/DPO/certifying body owns it).
   call (live-rotate without restart). `_sanitize_params` uses the merged
   list so a deployer can add data-class-specific PII fields.
 
-- **G8 [code] per-data-class retention policy** — `prune` uses a single
-  `max_age_days=90`. GDPR/HIPAA require different retention per data class
-  (ePHI vs literature vs audit). Add a retention map keyed by data class.
-  *File:* `audit/tracker.py`, `config.py`.
+- **G8 [code] per-data-class retention policy** — ✅ **Closed in v1.0.12.**
+  `TraceRecorder` accepts a `retention_map: {data_class: age_days}`; `prune`
+  reads each session's stored metadata `data_class` and prunes by that class's
+  age, falling back to the global `max_age_days`. Class age 0 = retain
+  indefinitely. Loaded from `FUSION_SCIENCE_RETENTION_MAP` (e.g.
+  `ephi:2555,literature:365,audit:180`).
 
 - **G9 [code] DSAR / right-to-erasure endpoint** — ✅ **Closed in v1.0.10.**
   New `api/routes/privacy_route.py`: `DELETE /api/v1/data-subject/{id}`
@@ -348,9 +354,12 @@ out of code scope — deployer/DPO/certifying body owns it).
   into the caller; a sink outage degrades to the existing ERROR log + local
   tamper-evident trail).
 
-- **G11 [code] anomaly detection for 三级** — `RateLimitMiddleware` is a
-  fixed window. Add a simple anomaly detector (request-rate spike, unusual
-  route sequence) for 三级入侵防范. *File:* `api/middleware.py`.
+- **G11 [code] anomaly detection for 三级** — ✅ **Closed in v1.0.12.**
+  New `AnomalyMiddleware` in `api/middleware.py`: detects route enumeration
+  (>=12 distinct route prefixes/60s window) and burst spikes (rate >=5× the
+  client's rolling baseline). Detection only (does not block — the rate limiter
+  enforces); alerts to the tamper/SIEM sink for 三级集中管控 correlation. Opt-in
+  via `FUSION_SCIENCE_ANOMALY_DETECT`.
 
 - **G12 [code] 三级 audit retention ≥180 days** — ✅ **Closed in v1.0.11.**
   `api/app.py` lifespan reads `FUSION_SCIENCE_COMPLIANCE_LEVEL`; when >=3
