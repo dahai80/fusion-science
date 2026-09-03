@@ -7,5 +7,5 @@ and result traceability into a single interface.
 
 from __future__ import annotations
 
-__version__ = "1.0.10"
+__version__ = "1.0.11"
 __all__ = ["__version__"]

@@ -170,6 +170,46 @@ def describe_api_keys(keys: dict[str, Role]) -> dict[str, object]:
 # --- JWT (HS256, dependency-free: stdlib hmac + hashlib + base64 + json) ---
 
 _JWT_TTL = 3600
+# G4 idle lockout: per-principal last-seen timestamps (single-process, same
+# scope as RateLimitMiddleware). A request resets the clock; a principal whose
+# last-seen is older than the configured idle window is rejected (auto-logoff).
+_IDLE_TRACK: dict[str, float] = {}
+
+
+def _jwt_ttl() -> int:
+    # G5: per-deploy JWT hard TTL from env (seconds). 0 keeps the 3600s default.
+    raw = os.getenv("FUSION_SCIENCE_JWT_TTL", "0")
+    try:
+        ttl = int(raw)
+    except ValueError:
+        logger.warning("FUSION_SCIENCE_JWT_TTL=%r not int, using default %ds", raw, _JWT_TTL)
+        return _JWT_TTL
+    return ttl if ttl > 0 else _JWT_TTL
+
+
+def touch_principal(subject: str, idle_timeout: int) -> bool:
+    # G4: record activity for the principal; return False if the idle window has
+    # elapsed (caller rejects with 401 auto-logoff). idle_timeout<=0 disables.
+    if idle_timeout <= 0:
+        return True
+    now = time.time()
+    last = _IDLE_TRACK.get(subject)
+    if last is not None and (now - last) > idle_timeout:
+        # expired: drop the track entry and reject
+        _IDLE_TRACK.pop(subject, None)
+        logger.warning("Idle lockout: principal=%s idle %.0fs > %ds (auto-logoff)", subject, now - last, idle_timeout)
+        return False
+    _IDLE_TRACK[subject] = now
+    return True
+
+
+def _load_idle_timeout() -> int:
+    raw = os.getenv("FUSION_SCIENCE_JWT_IDLE_TIMEOUT", "0")
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("FUSION_SCIENCE_JWT_IDLE_TIMEOUT=%r not int, disabled", raw)
+        return 0
 
 
 def _jwt_secret() -> str:
@@ -204,7 +244,7 @@ def issue_jwt(role: Role, subject: str) -> str:
         "sub": subject,
         "role": role.value,
         "iat": now,
-        "exp": now + _JWT_TTL,
+        "exp": now + _jwt_ttl(),
     }
 
     def _b64(obj: dict) -> str:

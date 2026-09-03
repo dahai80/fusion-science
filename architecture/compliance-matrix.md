@@ -303,12 +303,18 @@ out of code scope — deployer/DPO/certifying body owns it).
   scanned. Add a ClamAV / yara hook at the ingestion boundary.
   *File:* `literature/reader.py`, new `utils/malware_scan.py`.
 
-- **G4 [code] idle session lockout** — JWT has 1h hard TTL but no idle
-  timeout. Add an inactivity window (default 15min) that revokes the token
-  server-side. *File:* `api/auth.py`, `api/middleware.py`.
+- **G4 [code] idle session lockout** — ✅ **Closed in v1.0.11.**
+  `touch_principal()` in `api/auth.py` tracks per-principal last-seen
+  timestamps (in-memory, single-process); `APIKeyMiddleware.dispatch`
+  enforces the window BEFORE the RBAC check and returns 401 auto-logoff when
+  exceeded. Configured via `FUSION_SCIENCE_JWT_IDLE_TIMEOUT` (seconds; 0
+  disables for dev, 900 for a HIPAA/三级 deploy). API keys bypass (no
+  session concept).
 
-- **G5 [code] per-context JWT TTL** — `_JWT_TTL=3600` is global. For ePHI
-  sessions, allow a shorter TTL via config/role. *File:* `api/auth.py`.
+- **G5 [code] per-context JWT TTL** — ✅ **Closed in v1.0.11.** `_jwt_ttl()`
+  in `api/auth.py` reads `FUSION_SCIENCE_JWT_TTL` (seconds; 0 keeps the
+  3600s default). `issue_jwt` uses it for the `exp` claim, so a high-security
+  deploy shortens the hard TTL without a code change.
 
 - **G6 [code] MFA / second factor** — ✅ **Closed in v1.0.10.** New
   `utils/mfa.py` (RFC 6238 TOTP, stdlib-only, ±1 step drift, constant-time
@@ -317,10 +323,12 @@ out of code scope — deployer/DPO/certifying body owns it).
   `FUSION_SCIENCE_MFA_SECRETS_FILE`. Fail-closed: required but no secret
   → 401.
 
-- **G7 [code] extensible redaction patterns** — `_SENSITIVE_PATTERNS` in
-  `audit/tracker.py` is hardcoded. Load from config so deployers can add
-  data-class-specific PII patterns. *File:* `audit/tracker.py`,
-  `config.py:ScienceConfig`.
+- **G7 [code] extensible redaction patterns** — ✅ **Closed in v1.0.11.**
+  `_redaction_patterns()` in `audit/tracker.py` merges the hardcoded
+  `_SENSITIVE_PATTERNS` with a comma-separated list from
+  `FUSION_SCIENCE_REDACT_PATTERNS` (e.g. `mrn,ssn,医保号`), read fresh each
+  call (live-rotate without restart). `_sanitize_params` uses the merged
+  list so a deployer can add data-class-specific PII fields.
 
 - **G8 [code] per-data-class retention policy** — `prune` uses a single
   `max_age_days=90`. GDPR/HIPAA require different retention per data class
@@ -333,23 +341,28 @@ out of code scope — deployer/DPO/certifying body owns it).
   (Art.15 access). Admin-only via RBAC; `session/manager.py:purge_subject`
   deletes across the shared store (SQLite or Postgres HA).
 
-- **G10 [code] breach/tamper alerting** — `audit_chain` detects tamper but
-  only logs. Add a configurable alert sink (webhook/syslog) fired on
-  `mismatches` non-empty. *File:* `audit/tracker.py:audit_chain`,
-  `utils/events.py`.
+- **G10 [code] breach/tamper alerting** — ✅ **Closed in v1.0.11.**
+  `audit_chain` fires `_fire_tamper_alert()` when `mismatches` is non-empty:
+  a POST (JSON: event/session_id/mismatches) to `FUSION_SCIENCE_TAMPER_ALERT_URL`
+  on a daemon thread (fire-and-forget, never blocks verification or raises
+  into the caller; a sink outage degrades to the existing ERROR log + local
+  tamper-evident trail).
 
 - **G11 [code] anomaly detection for 三级** — `RateLimitMiddleware` is a
   fixed window. Add a simple anomaly detector (request-rate spike, unusual
   route sequence) for 三级入侵防范. *File:* `api/middleware.py`.
 
-- **G12 [code] 三级 audit retention ≥180 days** — Default `max_age_days=90`
-  is too short for 等保三级 (≥6 months). Raise default or add a
-  等保三级 preset. *File:* `audit/tracker.py`, `config.py`.
+- **G12 [code] 三级 audit retention ≥180 days** — ✅ **Closed in v1.0.11.**
+  `api/app.py` lifespan reads `FUSION_SCIENCE_COMPLIANCE_LEVEL`; when >=3
+  (等保三级) and the operator has NOT set an explicit retention, the audit
+  `max_age_days` default is raised 90 → 180 (≥6 months, the 三级 minimum).
+  An explicit `FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS` always wins.
 
-- **G13 [code] push-based SIEM export** — `export_jsonl` is pull-only
-  (GET /export). Add a background task that streams NDJSON to a configured
-  SIEM endpoint (syslog/HTTP) for 三级集中管控. *File:* new
-  `utils/siem_export.py`, `api/app.py` lifespan.
+- **G13 [code] push-based SIEM export** — ✅ **Closed in v1.0.9.** Every audit
+  entry is forwarded as NDJSON to `FUSION_SCIENCE_AUDIT_SINK_URL` (fire-and-
+  forget daemon thread in `TraceRecorder`) for cross-node SIEM
+  aggregation / 三级集中管控. The pull-only `export_jsonl` remains as a
+  secondary GET /export path.
 
 ### 7.2 Organizational gaps (out of code scope — listed for completeness)
 

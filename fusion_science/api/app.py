@@ -166,6 +166,15 @@ async def lifespan(app: FastAPI):
     # keep 90 days / 1000 sessions so an unattended deploy does not fill disk.
     _audit_age = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "90"))
     _audit_max = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_SESSIONS", "1000"))
+    # G12 等保三级: a multi-tenant 三级 deploy must retain audit logs >=6 months
+    # (180 days). When compliance_level>=3 and the operator has NOT set an
+    # explicit retention, raise the default 90d to 180d. An explicit
+    # FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS always wins (it is non-default here).
+    _compliance = int(os.getenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "1"))
+    _audit_age_explicit = os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS") is not None
+    if _compliance >= 3 and not _audit_age_explicit and _audit_age < 180:
+        _audit_age = 180
+        logger.info("Compliance level %d (等保三级): audit retention raised to 180d", _compliance)
     # F-ENT-HA-SINK (issue #24): central audit collector URL. When set, every
     # node forwards audit entries (NDJSON) here for cross-node SIEM aggregation.
     _audit_sink = os.getenv("FUSION_SCIENCE_AUDIT_SINK_URL", "")

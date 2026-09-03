@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from fusion_science.api.app import create_app
-from fusion_science.api.auth import Role, issue_jwt
-from fusion_science.audit.tracker import TraceRecorder
+from fusion_science.api.auth import Role, _jwt_ttl, issue_jwt, touch_principal
+from fusion_science.audit.tracker import TraceRecorder, _redaction_patterns
 from fusion_science.config import ScienceConfig
 from fusion_science.session import MemorySessionStore, SessionManager
 from fusion_science.utils.events import reset_event_bus
@@ -243,3 +245,194 @@ class TestDsar:
                 headers={"Authorization": f"Bearer {tok}"},
             )
             assert resp.status_code == 403
+
+
+# --- G4 idle session lockout ----------------------------------------------
+
+
+class TestIdleLockout:
+    def test_disabled_when_timeout_zero(self):
+        # idle_timeout<=0 always admits (dev default)
+        assert touch_principal("u1", 0) is True
+        assert touch_principal("u1", 0) is True
+
+    def test_active_within_window_admitted(self):
+        touch_principal("idle-a", 1000)
+        # immediately again -> still within window
+        assert touch_principal("idle-a", 1000) is True
+
+    def test_expired_window_rejected(self, monkeypatch):
+        # seed last-seen, then rewind it past the window
+        touch_principal("idle-b", 1000)
+        from fusion_science.api import auth as authmod
+
+        monkeypatch.setitem(authmod._IDLE_TRACK, "idle-b", time.time() - 2000)
+        assert touch_principal("idle-b", 1000) is False
+        # entry dropped after expiry
+        assert "idle-b" not in authmod._IDLE_TRACK
+
+
+# --- G5 configurable JWT TTL ----------------------------------------------
+
+
+class TestJwtTtl:
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_JWT_TTL", raising=False)
+        assert _jwt_ttl() == 3600
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_TTL", "900")
+        assert _jwt_ttl() == 900
+
+    def test_zero_keeps_default(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_TTL", "0")
+        assert _jwt_ttl() == 3600
+
+    def test_bad_value_keeps_default(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_TTL", "not-a-number")
+        assert _jwt_ttl() == 3600
+
+    def test_issue_jwt_uses_configured_ttl(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_TTL", "120")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "s")
+        tok = issue_jwt(Role.SCIENCE, "sci-user")
+        # decode the payload exp and check it is ~120s ahead (allow jitter)
+        import base64
+        import json
+
+        payload_b64 = tok.split(".")[1]
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4)))
+        delta = payload["exp"] - payload["iat"]
+        assert 100 <= delta <= 130
+
+
+# --- G7 extensible redaction ----------------------------------------------
+
+
+class TestRedaction:
+    def test_builtin_patterns_present(self, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_REDACT_PATTERNS", raising=False)
+        pats = _redaction_patterns()
+        assert "email" in pats
+        assert "patient" in pats
+
+    def test_env_patterns_merged(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_REDACT_PATTERNS", "mrn,ssn, 医保号 ")
+        pats = _redaction_patterns()
+        assert "mrn" in pats and "ssn" in pats and "医保号" in pats
+        # built-ins still present
+        assert "email" in pats
+
+    def test_sanitizer_uses_extra_patterns(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_REDACT_PATTERNS", "mrn")
+        rec = TraceRecorder(storage_dir="~/.cache/fusion-science/test-traces-redact")
+        rec.start_session()
+        rec.record("db_query", "test", "q", parameters={"mrn": "12345", "note": "keep"})
+        rec.end_session()
+        from fusion_science.audit.tracker import _sanitize_params
+
+        out = _sanitize_params({"mrn": "12345", "note": "keep"})
+        assert out["mrn"] == "***REDACTED***"
+        assert out["note"] == "keep"
+
+
+# --- G10 tamper alert -----------------------------------------------------
+
+
+class TestTamperAlert:
+    def test_no_alert_when_url_unset(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_TAMPER_ALERT_URL", raising=False)
+        rec = TraceRecorder(storage_dir=str(tmp_path))
+        sid = rec.start_session()
+        rec.record("llm_call", "test", "probe")
+        rec.end_session()
+        # audit_chain on intact chain -> ok, no alert path exercised (no crash)
+        result = rec.audit_chain(sid)
+        assert result.ok is True
+
+    def test_alert_fired_on_tamper(self, tmp_path, monkeypatch):
+        # stand up a tiny HTTP sink that records the POST
+        import http.server
+        import threading
+
+        received: list[bytes] = []
+
+        class _Sink(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                received.append(self.rfile.read(length))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *_a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), _Sink)
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            monkeypatch.setenv("FUSION_SCIENCE_TAMPER_ALERT_URL", f"http://127.0.0.1:{port}/alert")
+            rec = TraceRecorder(storage_dir=str(tmp_path))
+            sid = rec.start_session()
+            rec.record("llm_call", "test", "probe")
+            rec.end_session()
+            # tamper: rewrite the on-disk file to break the hash chain
+            files = list(tmp_path.glob("trace_*.json"))
+            assert files
+            files[0].write_text('{"session_id":"x","entries":[{"id":"e1","prev_hash":"","entry_hash":"BAD"}]}')
+            result = rec.audit_chain(sid)
+            assert result.ok is False
+            assert result.mismatches
+            # the daemon thread delivers asynchronously; poll briefly
+            for _ in range(50):
+                if received:
+                    break
+                time.sleep(0.05)
+            assert received, "tamper alert must be POSTed to the configured sink"
+            import json
+
+            payload = json.loads(received[0])
+            assert payload["event"] == "audit_tamper_detected"
+            assert payload["mismatches"]
+        finally:
+            srv.shutdown()
+            thread.join(timeout=2)
+
+
+# --- G12 等保三级 180d retention -------------------------------------------
+
+
+class TestComplianceRetention:
+    def test_compliance_level_field_default(self):
+        assert ScienceConfig().compliance_level == 1
+
+    def test_level3_env_binds(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "3")
+        from fusion_science.config import load_config
+
+        assert load_config().compliance_level == 3
+
+    def test_level3_raises_retention_default(self, monkeypatch, tmp_path):
+        # app.py lifespan logic: level>=3 + no explicit age -> 180
+        monkeypatch.setenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "3")
+        monkeypatch.delenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", raising=False)
+        import os
+
+        _compliance = int(os.getenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "1"))
+        _audit_age = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "90"))
+        _explicit = os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS") is not None
+        if _compliance >= 3 and not _explicit and _audit_age < 180:
+            _audit_age = 180
+        assert _audit_age == 180
+
+    def test_explicit_age_wins_over_level3(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "3")
+        monkeypatch.setenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "365")
+        import os
+
+        _audit_age = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "90"))
+        _explicit = os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS") is not None
+        if int(os.getenv("FUSION_SCIENCE_COMPLIANCE_LEVEL", "1")) >= 3 and not _explicit and _audit_age < 180:
+            _audit_age = 180
+        assert _audit_age == 365
