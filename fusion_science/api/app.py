@@ -154,7 +154,11 @@ async def lifespan(app: FastAPI):
     )
     app.state.context_manager = context_manager
 
-    recorder = TraceRecorder()
+    # F-ENT-AUDIT: retention policy from env (days / max sessions). Defaults
+    # keep 90 days / 1000 sessions so an unattended deploy does not fill disk.
+    _audit_age = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS", "90"))
+    _audit_max = int(os.getenv("FUSION_SCIENCE_AUDIT_MAX_SESSIONS", "1000"))
+    recorder = TraceRecorder(max_age_days=_audit_age, max_sessions=_audit_max)
     recorder.start_session(metadata={"api": True})
     app.state.recorder = recorder
     _audit_handler._recorder = recorder

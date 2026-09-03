@@ -195,6 +195,94 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.4 | Acceptance pass: ToolRegistry expanded 8→12 MCP-compatible tools (added `visualize_molecule`, `visualize_protein`, `explain_math`, `generate_citation`) with OpenAI function-calling + MCP export; corrected connector/docs counts (5 overseas + 3 Chinese); fixed live MLX auto-detect test for the no-model-loaded case. |
 | v1.0.5 | Unified API port 11462 (single source of truth across `serve` + `start.sh`); ruff `I001` import sorting enforced; CI matrix pinned to Python 3.12 (fusion-core `requires-python>=3.12`) (#16, PR #17). |
 | v1.0.6 | Security hardening from adversarial audit: RCE sandbox fixes (minimal env whitelist, process-group kill, temp-file data passing — no source inlining); chart-type whitelist + input-data injection closed; Jupyter `code`/`timeout` bounds; deny-by-default API auth with loopback-only default bind; fail-closed MLX memory pressure; per-session lost-update locks + WAL SQLite; IDOR-scoped audit traces; incremental audit persist; cache byte budget + Retry-After jitter; gateway `total_deadline` retry cap; HPC shell-injection guards (identifier whitelist, `shlex.quote`, `O_EXCL` script write). |
+| v1.0.7 | Enterprise audit hardening (PRs #20, #21): 4xx/5xx + `detail` error contract across all routes; IDOR owner-scoping on session/audit traces; MCP server wired at `/mcp` (10/12 tools exposed via JSON-RPC 2.0 + SSE); DatabaseAggregator extended to 8 databases with parallel dedup; defusedxml-backed XXE-safe parsing; shadowed legacy `chinese.py` removed. Product release-gate audit (0903) closed the remaining blockers. |
+| v1.0.8 | Enterprise production hardening (PRs #23, #25): OS-level sandbox isolation for user code (`sandbox-exec` on macOS / `bwrap` on Linux, rlimit fallback); built-in RBAC + JWT (3 roles: admin/science/viewer, HS256, no external IdP); multi-worker support via shared SQLite store; tamper-evident audit retention (age/count prune) + NDJSON SIEM export; runtime API-key rotation without restart; macOS Keychain-backed secret resolution. See **Enterprise Security** below. |
+
+## Enterprise Security (v1.0.8)
+
+Fusion-Science v1.0.8 closes the code-level enterprise production gaps. Configuration is environment-variable driven; no external identity provider is required (local-first).
+
+### RBAC + JWT
+
+Three built-in roles govern every `/api/v1/*` route by route-prefix × HTTP-method:
+
+| Role | Access |
+|---|---|
+| `admin` | All routes, all methods (backward-compatible default for the legacy single key). |
+| `science` | Read + research workflows: search, databases, citations, math, compute, chat, analysis, visualize, review, audit, pipelines, sessions, tools (read). No system/security/model mutation. |
+| `viewer` | Read-only: search, databases, citations, math, visualization, models (list), health, metrics. No compute, no chat, no mutations. |
+
+Provision keys via env or a key file:
+
+```bash
+# Multi-role keys (comma- OR newline-separated "role:key" pairs)
+export FUSION_SCIENCE_API_KEYS="admin:admin-secret,science:sci-secret,viewer:viewer-secret"
+
+# Legacy single key (still admin, backward compatible)
+export FUSION_SCIENCE_API_KEY="admin-secret"
+```
+
+Exchange a key for a short-lived JWT (1h, HS256, role claim) at `POST /api/v1/auth/token`; send it as `Authorization: Bearer <jwt>`. A key can only mint a same-or-lower-privilege token — no escalation. `GET /api/v1/auth/whoami` returns the resolved principal.
+
+The JWT signing secret defaults to `FUSION_SCIENCE_JWT_SECRET`; if unset it is derived from the legacy API key.
+
+### Runtime Key Rotation
+
+```bash
+# Point at a key file the operator can rewrite without restarting the process
+export FUSION_SCIENCE_API_KEYS_FILE="/etc/fusion-science/api-keys.txt"
+```
+
+The middleware re-reads provisioned keys on every request, so rewriting the file is a live rotation — no restart. Confirm the reload and audit who triggered it:
+
+```bash
+curl -X POST http://localhost:11462/api/v1/security/rotate-keys \
+  -H "X-API-Key: admin-secret"
+# {"rotated": true, "actor": "apikey:admin-s", "total": 3, "by_role": {...}, "keys": [{"role":"admin","key":"****cret"}]}
+```
+
+Secrets never cross the wire inbound — the endpoint only reports masked confirmation; it never mutates env over HTTP.
+
+### Multi-Worker
+
+```bash
+export FUSION_SCIENCE_WORKERS=4
+./start.sh start   # uvicorn --workers 4
+```
+
+Sessions are safe across workers via the shared SQLite store (WAL mode + `busy_timeout=5000`). EventBus/ScienceCache/MirrorRouter remain per-worker (read-mostly state — acceptable). Use `--workers 1` for strictly-single-process semantics.
+
+### Secret Storage (macOS Keychain)
+
+Opt in with `FUSION_SCIENCE_KEYCHAIN=1` to resolve the engine API key and JWT signing secret from the macOS Keychain (service `fusion-science`) instead of plaintext env/config files. Keychain takes priority over the MLX `settings.json` file; explicit env vars always win. Manage stored keys via `POST/GET/DELETE /api/v1/security/keys`.
+
+### Audit Retention & SIEM Export
+
+The tamper-evident trace recorder (SHA-256 hash chain, incremental atomic persist) now prunes at startup by age and count:
+
+```bash
+export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=180   # default 90
+export FUSION_SCIENCE_AUDIT_MAX_SESSIONS=2000  # default 1000
+```
+
+Export a session's audit trail as NDJSON (one entry per line) for SIEM/ELK/Splunk ingest:
+
+```bash
+curl http://localhost:11462/api/v1/sessions/{session_id}/audit/export \
+  -H "X-API-Key: admin-secret"
+# Content-Type: application/x-ndjson
+```
+
+### Production Deployment Checklist
+
+- Bind loopback by default (`127.0.0.1`). To expose on a LAN set `FUSION_SCIENCE_API_HOST=0.0.0.0` **and** provision API keys.
+- Provision role-scoped keys via `FUSION_SCIENCE_API_KEYS` or a rotated key file.
+- Set a strong `FUSION_SCIENCE_JWT_SECRET` (or use Keychain).
+- Enable audit retention to bound disk growth.
+- For multi-worker, confirm the shared SQLite store path is on fast local storage.
+- OS sandbox isolation is automatic when `sandbox-exec` (macOS) or `bwrap` (Linux) is available; rlimit-only fallback logs a warning.
+
+> **Not in scope (filed as issues):** multi-node HA deployment topology (#24), formal compliance certification roadmap (#25), external OAuth2/OIDC (#22). v1.0.8 is single-node enterprise-ready; HA and certification are tracked separately.
 
 ## Domestic Research Environment
 

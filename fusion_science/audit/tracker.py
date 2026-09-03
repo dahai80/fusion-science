@@ -97,9 +97,22 @@ class TraceRecorder:
     every operation with full parameter and result context.
     """
 
-    def __init__(self, storage_dir: str = "~/.cache/fusion-science/traces"):
+    def __init__(
+        self,
+        storage_dir: str = "~/.cache/fusion-science/traces",
+        max_age_days: int = 90,
+        max_sessions: int = 1000,
+    ):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        # F-ENT-AUDIT: retention policy. Audit JSON files accumulate forever
+        # without a cap — a long-running enterprise deploy fills the disk. Prune
+        # sessions older than max_age_days and keep at most max_sessions (newest).
+        # max_age_days<=0 disables age pruning; max_sessions<=0 disables count
+        # pruning. Pruning runs once at startup (not per-record, to avoid the
+        # cost on every audit event).
+        self._max_age_days = max_age_days
+        self._max_sessions = max_sessions
         self._session: TraceSession | None = None
         self._current_parent: str = ""
         self._last_entry_hash: str = ""
@@ -108,22 +121,32 @@ class TraceRecorder:
         # F-7: persist incrementally so a crash mid-session doesn't lose the trail
         self._persist_every: int = 20
         self._records_since_persist: int = 0
+        with contextlib.suppress(Exception):
+            self.prune()
+
+    @staticmethod
+    def _field(entry: Any, key: str) -> Any:
+        # Entries are TraceEntry objects in a live session but plain dicts when
+        # loaded back from storage (the dataclass field types are not coerced
+        # on deserialize). Normalize access so chain verify/export work in both.
+        return getattr(entry, key) if not isinstance(entry, dict) else entry.get(key, "")
 
     @staticmethod
     def _entry_hash(entry: TraceEntry) -> str:
+        g = TraceRecorder._field
         payload = {
-            "id": entry.id,
-            "timestamp": entry.timestamp,
-            "operation": entry.operation,
-            "source": entry.source,
-            "description": entry.description,
-            "parameters": entry.parameters,
-            "result_summary": entry.result_summary,
-            "duration_ms": entry.duration_ms,
-            "success": entry.success,
-            "error": entry.error,
-            "parent_id": entry.parent_id,
-            "prev_hash": entry.prev_hash,
+            "id": g(entry, "id"),
+            "timestamp": g(entry, "timestamp"),
+            "operation": g(entry, "operation"),
+            "source": g(entry, "source"),
+            "description": g(entry, "description"),
+            "parameters": g(entry, "parameters"),
+            "result_summary": g(entry, "result_summary"),
+            "duration_ms": g(entry, "duration_ms"),
+            "success": g(entry, "success"),
+            "error": g(entry, "error"),
+            "parent_id": g(entry, "parent_id"),
+            "prev_hash": g(entry, "prev_hash"),
         }
         raw = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -577,16 +600,104 @@ class TraceRecorder:
         if session is None:
             return _ChainResult(ok=False, mismatches=[{"reason": "session_not_found"}])
         prev = ""
+        g = self._field
         for entry in session.entries:
-            if entry.prev_hash != prev:
-                mismatches.append({"entry_id": entry.entry_id, "reason": "prev_hash_mismatch"})
-                logger.error("Chain broken at entry %s: prev_hash mismatch", entry.entry_id)
+            eid = g(entry, "id")
+            if g(entry, "prev_hash") != prev:
+                mismatches.append({"entry_id": eid, "reason": "prev_hash_mismatch"})
+                logger.error("Chain broken at entry %s: prev_hash mismatch", eid)
             recomputed = self._entry_hash(entry)
-            if entry.entry_hash != recomputed:
-                mismatches.append({"entry_id": entry.entry_id, "reason": "entry_hash_mismatch"})
-                logger.error("Chain broken at entry %s: entry_hash mismatch (tampered)", entry.entry_id)
-            prev = entry.entry_hash
+            if g(entry, "entry_hash") != recomputed:
+                mismatches.append({"entry_id": eid, "reason": "entry_hash_mismatch"})
+                logger.error("Chain broken at entry %s: entry_hash mismatch (tampered)", eid)
+            prev = g(entry, "entry_hash")
         return _ChainResult(ok=not mismatches, mismatches=mismatches)
+
+    def prune(self) -> dict[str, int]:
+        """Apply the retention policy: drop sessions older than max_age_days and
+        keep at most max_sessions (newest first).
+
+        Returns a summary {pruned_by_age, pruned_by_count, remaining}.
+        """
+        pruned_age = 0
+        pruned_count = 0
+        files = sorted(
+            self.storage_dir.glob("trace_*.json"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+        now = time.time()
+        # Age-based pruning.
+        if self._max_age_days > 0:
+            cutoff = now - self._max_age_days * 86400
+            for f in files:
+                if f.stat().st_mtime < cutoff:
+                    with contextlib.suppress(OSError):
+                        f.unlink()
+                    pruned_age += 1
+            files = [f for f in files if f.exists()]
+        # Count-based pruning (keep newest max_sessions).
+        if self._max_sessions > 0 and len(files) > self._max_sessions:
+            for f in files[self._max_sessions :]:
+                with contextlib.suppress(OSError):
+                    f.unlink()
+                pruned_count += 1
+        remaining = len([f for f in files if f.exists()])
+        if pruned_age or pruned_count:
+            logger.info(
+                "Audit retention prune: %d by age, %d by count, %d remaining",
+                pruned_age,
+                pruned_count,
+                remaining,
+            )
+        return {
+            "pruned_by_age": pruned_age,
+            "pruned_by_count": pruned_count,
+            "remaining": remaining,
+        }
+
+    def export_jsonl(self, session_id: str | None = None) -> str:
+        """Export trace entries as newline-delimited JSON (JSONL / NDJSON).
+
+        JSONL is the de-facto SIEM/streaming ingest format (one record per
+        line, no wrapping array) so an enterprise can ship audit events to a
+        SIEM/ELK/Splunk pipeline without re-parsing. Each line is a single
+        TraceEntry dict.
+        """
+        session = self._get_session(session_id)
+        if session is None:
+            return ""
+        lines = []
+        for entry in session.entries:
+            # Entries may be TraceEntry objects (live session) or plain dicts
+            # (loaded from storage, where dataclass field types aren't coerced).
+            line = self._entry_to_jsonl(entry, session.session_id)
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _entry_to_jsonl(entry: Any, session_id: str) -> str:
+        get = (lambda k: getattr(entry, k)) if not isinstance(entry, dict) else (lambda k: entry.get(k, ""))
+        return json.dumps(
+            {
+                "session_id": session_id,
+                "id": get("id"),
+                "timestamp": get("timestamp"),
+                "operation": get("operation"),
+                "source": get("source"),
+                "description": get("description"),
+                "parameters": get("parameters"),
+                "result_summary": get("result_summary"),
+                "duration_ms": get("duration_ms"),
+                "success": get("success"),
+                "error": get("error"),
+                "parent_id": get("parent_id"),
+                "entry_hash": get("entry_hash"),
+                "prev_hash": get("prev_hash"),
+            },
+            default=str,
+            ensure_ascii=False,
+        )
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all saved trace sessions.

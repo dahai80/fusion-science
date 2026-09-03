@@ -99,37 +99,70 @@ def role_allows(role: Role, route_prefix: str, method: str) -> bool:
     return method.upper() in methods
 
 
+def _parse_key_pairs(text: str) -> dict[str, Role]:
+    """Parse ``role:key`` pairs from comma- OR newline-separated text."""
+    keys: dict[str, Role] = {}
+    for raw in text.replace("\n", ",").split(","):
+        pair = raw.strip()
+        if not pair or ":" not in pair:
+            if pair:
+                logger.warning("Ignoring malformed API key entry (no role:key): %r", pair)
+            continue
+        role_str, _, key = pair.partition(":")
+        role_str = role_str.strip().lower()
+        key = key.strip()
+        if not key:
+            logger.warning("Ignoring empty API key for role %s", role_str)
+            continue
+        try:
+            role = Role(role_str)
+        except ValueError:
+            logger.warning("Ignoring unknown role %r in API keys", role_str)
+            continue
+        keys[key] = role
+    return keys
+
+
 def load_api_keys() -> dict[str, Role]:
     """Parse provisioned API keys into a {key: role} map.
 
-    Sources (later wins):
-    - ``FUSION_SCIENCE_API_KEY`` → admin (legacy single key)
-    - ``FUSION_SCIENCE_API_KEYS`` → ``science:abc,viewer:def`` pairs
+    Sources:
+    - ``FUSION_SCIENCE_API_KEY`` → admin (legacy single key, always merged)
+    - ``FUSION_SCIENCE_API_KEYS`` → ``science:abc,viewer:def`` pairs (env)
+    - ``FUSION_SCIENCE_API_KEYS_FILE`` → same format, read from a file each
+      call. When set, the **file is the authoritative multi-key source** and
+      shadows ``FUSION_SCIENCE_API_KEYS`` (env is ignored). This enables
+      runtime key rotation without restart: an operator rewrites the file and
+      the next request picks up the new keys (middleware re-reads per
+      request). The legacy single key still merges in for backward compat.
     """
     keys: dict[str, Role] = {}
     legacy = os.getenv("FUSION_SCIENCE_API_KEY", "")
     if legacy:
         keys[legacy] = Role.ADMIN
+    key_file = os.getenv("FUSION_SCIENCE_API_KEYS_FILE", "")
+    if key_file:
+        try:
+            with open(key_file, encoding="utf-8") as fh:
+                keys.update(_parse_key_pairs(fh.read()))
+        except OSError as exc:
+            logger.warning("Cannot read API keys file %s: %s", key_file, exc)
+        return keys
     multi = os.getenv("FUSION_SCIENCE_API_KEYS", "")
     if multi:
-        for pair in multi.split(","):
-            pair = pair.strip()
-            if not pair or ":" not in pair:
-                logger.warning("Ignoring malformed API key entry (no role:key): %r", pair)
-                continue
-            role_str, _, key = pair.partition(":")
-            role_str = role_str.strip().lower()
-            key = key.strip()
-            if not key:
-                logger.warning("Ignoring empty API key for role %s", role_str)
-                continue
-            try:
-                role = Role(role_str)
-            except ValueError:
-                logger.warning("Ignoring unknown role %r in API keys", role_str)
-                continue
-            keys[key] = role
+        keys.update(_parse_key_pairs(multi))
     return keys
+
+
+def describe_api_keys(keys: dict[str, Role]) -> dict[str, object]:
+    """Return a role-counted, key-masked summary for rotation audit logs."""
+    counts: dict[str, int] = {r.value: 0 for r in Role}
+    masked: list[dict[str, str]] = []
+    for key, role in keys.items():
+        counts[role.value] += 1
+        tail = key[-4:] if len(key) >= 8 else "****"
+        masked.append({"role": role.value, "key": f"****{tail}"})
+    return {"total": len(keys), "by_role": counts, "keys": masked}
 
 
 # --- JWT (HS256, dependency-free: stdlib hmac + hashlib + base64 + json) ---
@@ -139,6 +172,17 @@ _JWT_TTL = 3600
 
 def _jwt_secret() -> str:
     secret = os.getenv("FUSION_SCIENCE_JWT_SECRET", "")
+    if not secret and os.getenv("FUSION_SCIENCE_KEYCHAIN", "").lower() in ("true", "1", "yes"):
+        # F-ENT-KC: prefer a Keychain-stored signing secret over deriving one.
+        try:
+            from ..utils.keychain import retrieve_key
+
+            kc = retrieve_key("jwt_secret")
+            if kc:
+                secret = kc
+                logger.info("Resolved JWT secret from macOS Keychain")
+        except Exception as e:
+            logger.warning("Keychain JWT secret resolution failed (non-fatal): %s", e)
     if not secret:
         # Derive from the legacy API key so a single-key setup still gets a
         # stable signing secret without an extra env var.

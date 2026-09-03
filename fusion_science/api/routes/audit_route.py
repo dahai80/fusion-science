@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Request
+from fastapi.responses import PlainTextResponse
 
 from ...audit.compliance import ComplianceChecker
 from ...audit.integrity import AuditIntegrityChecker
@@ -35,6 +36,24 @@ async def get_audit(session_id: str, request: Request):
         trace_entries=trace_entries or None,
     )
     return {"session_id": session_id, "trace_count": len(trace_entries), "compliance": report}
+
+
+@router.get("/export", response_class=PlainTextResponse)
+async def export_audit(session_id: str, request: Request):
+    # F-ENT-AUDIT: JSONL (NDJSON) export for SIEM/ELK/Splunk ingest. One
+    # TraceEntry per line, no wrapping array — the de-facto streaming format.
+    mgr = request.app.state.session_manager
+    session = mgr.get_session(session_id)
+    denied = check_owner(request, session)
+    if denied:
+        return denied
+    recorder = getattr(request.app.state, "recorder", None)
+    if not recorder:
+        return PlainTextResponse("", status_code=404)
+    body = recorder.export_jsonl(session_id=session_id)
+    if not body:
+        return PlainTextResponse("", status_code=404)
+    return PlainTextResponse(body, media_type="application/x-ndjson")
 
 
 @router.get("/integrity")

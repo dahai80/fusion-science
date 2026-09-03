@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ...utils.keychain import SecureConfig
+from ..auth import describe_api_keys, load_api_keys
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,3 +51,20 @@ async def delete_api_key(key_name: str):
     if ok:
         return {"deleted": key_name}
     return {"error": f"Key '{key_name}' not found or delete failed"}
+
+
+@router.post("/rotate-keys")
+async def rotate_api_keys(request: Request):
+    # F-ENT-ROTATE: runtime key rotation without process restart. Middleware
+    # re-reads provisioned keys per request, so an operator only needs to
+    # rewrite the key file (FUSION_SCIENCE_API_KEYS_FILE) or change the env
+    # in the process supervisor — this endpoint confirms the reload took and
+    # records who triggered it. Admin-only (RBAC: only admin reaches the
+    # security route prefix). No env mutation over HTTP on purpose: secrets
+    # must never cross the wire inbound.
+    principal = getattr(request.state, "principal", None)
+    actor = getattr(principal, "subject", "unknown") if principal else "unknown"
+    keys = load_api_keys()
+    summary = describe_api_keys(keys)
+    logger.info("API key rotation triggered by %s — active keys: %d", actor, summary["total"])
+    return {"rotated": True, "actor": actor, **summary}
