@@ -321,6 +321,20 @@ class ScienceCache:
         """Store a value in the cache."""
         if not self.config.enabled or self._conn is None:
             return
+        # G3: scan raw-bytes payloads before persisting. A fetched structure /
+        # dataset blob that trips the malware heuristic is NOT cached (fail-
+        # closed at the cache boundary) — a poisoned upstream mirror cannot
+        # plant a cached malicious payload. Non-bytes values (JSON results) are
+        # not scanned; the heuristic targets binary executable indicators.
+        if isinstance(data, (bytes, bytearray)):
+            from ..utils.malware_scan import scan_bytes
+
+            scan = scan_bytes(bytes(data), filename=key)
+            if not scan.clean:
+                logger.warning(
+                    "Cache rejected malware-flagged blob for key=%s source=%s: %s", key, source, "; ".join(scan.flags)
+                )
+                return
         try:
             with self._lock:
                 self._evict_if_needed()

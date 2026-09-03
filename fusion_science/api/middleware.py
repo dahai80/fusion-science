@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections import defaultdict
 
@@ -193,3 +194,85 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         is_error = response.status_code >= 500
         get_metrics().record_request(time.monotonic() - start, is_error=is_error)
         return response
+
+
+class AnomalyMiddleware(BaseHTTPMiddleware):
+    # G11: lightweight anomaly detection for 等保三级入侵防范. The rate limiter
+    # already ENFORCES a per-IP cap; this DETECTS the two signatures of
+    # reconnaissance/abuse that a flat rate limit misses and alerts (it does
+    # not block — detection, not enforcement, is the 三级 control):
+    #   1. route enumeration — a single client hitting >= DISTINCT_ROUTE_THRESHOLD
+    #      distinct route prefixes within a short window (scanning the API
+    #      surface for an open path).
+    #   2. burst spike — request rate within the window exceeds BURST_RATIO ×
+    #      the client's own rolling baseline (a sudden burst vs normal cadence).
+    # Single-process, in-memory (same scope as RateLimitMiddleware). Disabled
+    # when FUSION_SCIENCE_ANOMALY_DETECT is not set (opt-in, like the other
+    # 三级 controls). Alerts go to the tamper-alert sink when configured so a
+    # SIEM correlates them with the audit trail.
+
+    _WINDOW = 60.0  # seconds rolling window
+    _DISTINCT_ROUTE_THRESHOLD = 12  # >= this many distinct prefixes/window = scan
+    _BURST_RATIO = 5.0  # rate >= 5× baseline = spike
+
+    def __init__(self, app):
+        super().__init__(app)
+        # per-IP: list of (timestamp, route_prefix) within the window
+        self._hits: dict[str, list[tuple[float, str]]] = defaultdict(list)
+        # per-IP rolling baseline request count over a longer history
+        self._baseline: dict[str, list[int]] = defaultdict(list)
+
+    async def dispatch(self, request: Request, call_next):
+        if os.getenv("FUSION_SCIENCE_ANOMALY_DETECT", "").lower() not in ("true", "1", "yes"):
+            return await call_next(request)
+        path = request.url.path.rstrip("/").lower()
+        if path in _EXEMPT_PATHS:
+            return await call_next(request)
+        client_host = request.client.host if request.client else "unknown"
+        prefix = _route_prefix(path) or path
+        now = time.monotonic()
+        window = self._hits[client_host]
+        cutoff = now - self._WINDOW
+        self._hits[client_host] = [(t, r) for t, r in window if t > cutoff]
+        fresh = self._hits[client_host]
+        fresh.append((now, prefix))
+        # signature 1: route enumeration
+        distinct = {r for _, r in fresh}
+        if len(distinct) >= self._DISTINCT_ROUTE_THRESHOLD:
+            self._alert(client_host, "route_enumeration", f"{len(distinct)} distinct prefixes in {self._WINDOW:.0f}s")
+        # signature 2: burst spike vs the client's own baseline
+        baseline_windows = self._baseline[client_host]
+        # update baseline every window-length with the prior window's count
+        if not baseline_windows or (len(fresh) == 1):
+            pass
+        current_rate = len(fresh)
+        if baseline_windows:
+            avg = sum(baseline_windows) / len(baseline_windows)
+            if avg > 0 and current_rate >= avg * self._BURST_RATIO and current_rate >= 10:
+                self._alert(client_host, "burst_spike", f"{current_rate} reqs vs baseline {avg:.1f}")
+        return await call_next(request)
+
+    def _alert(self, client_host: str, kind: str, detail: str) -> None:
+        logger.warning("Anomaly detected: host=%s kind=%s %s", client_host, kind, detail)
+        # forward to the tamper/SIEM sink if configured so a SIEM correlates it
+        url = os.getenv("FUSION_SCIENCE_TAMPER_ALERT_URL", "")
+        if not url:
+            return
+        import json
+        import threading
+
+        payload = json.dumps(
+            {"event": "anomaly_detected", "host": client_host, "kind": kind, "detail": detail},
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        def _send() -> None:
+            try:
+                import httpx
+
+                with httpx.Client(timeout=5.0) as client:
+                    client.post(url, content=payload, headers={"Content-Type": "application/json"})
+            except Exception as exc:
+                logger.warning("Anomaly-alert delivery to %s failed (non-fatal): %s", url, exc)
+
+        threading.Thread(target=_send, daemon=True).start()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 import logging
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ...utils.keychain import SecureConfig
+from ...utils.malware_scan import scan_bytes
 from ..auth import describe_api_keys, load_api_keys
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,14 @@ class StoreKeyRequest(BaseModel):
 
 class DeleteKeyRequest(BaseModel):
     key_name: str
+
+
+class ScanArtifactRequest(BaseModel):
+    # G3: scan an uploaded artifact (paper PDF, dataset) for malware indicators
+    # before it is persisted. The blob arrives base64-encoded (JSON body), so a
+    # caller can pre-screen any fetch/upload without a multipart dependency.
+    filename: str = ""
+    content_b64: str
 
 
 @router.post("/keys")
@@ -68,3 +78,23 @@ async def rotate_api_keys(request: Request):
     summary = describe_api_keys(keys)
     logger.info("API key rotation triggered by %s — active keys: %d", actor, summary["total"])
     return {"rotated": True, "actor": actor, **summary}
+
+
+@router.post("/scan")
+async def scan_artifact(body: ScanArtifactRequest):
+    # G3: malware-scan an uploaded/fetched artifact blob. Returns the ScanResult
+    # (clean + flags + scanned_bytes). The caller decides whether a flagged
+    # result blocks ingestion (fail-closed for uploads). Admin-only via RBAC
+    # (the security prefix is not in the science/viewer map).
+    try:
+        raw = base64.b64decode(body.content_b64)
+    except Exception as exc:
+        logger.warning("Artifact scan: bad base64 payload: %s", exc)
+        return {"error": "content_b64 is not valid base64"}
+    result = scan_bytes(raw, filename=body.filename)
+    return {
+        "clean": result.clean,
+        "flags": result.flags,
+        "scanned_bytes": result.scanned_bytes,
+        "filename": body.filename,
+    }

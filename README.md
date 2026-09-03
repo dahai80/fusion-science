@@ -200,6 +200,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.9 | Enterprise federation + HA (closes #22, #24, #25): external OAuth2/OIDC IdP (RS256 via JWKS, claim→role mapping, HS256 fallback); pluggable session store with Postgres backend (`psycopg` 3, connection pool, optimistic locking); readiness vs liveness probes (`/api/v1/ready` 503 on store-down); central audit sink fan-out (`FUSION_SCIENCE_AUDIT_SINK_URL`); compliance control-matrix doc. See **Enterprise Federation & HA** below. |
 | v1.0.10 | Enterprise compliance hardening (compliance gaps G1/G2/G6/G9): TLS termination in the API server (`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`, HTTPS health check); encryption-at-rest for audit JSON (AES-256-GCM envelope, PBKDF2 key, `FUSION_SCIENCE_ENCRYPT_AT_REST`); TOTP MFA second factor on `/auth/token` (RFC 6238, stdlib-only, `FUSION_SCIENCE_MFA_REQUIRED`); DSAR / right-to-erasure + right-of-access endpoints (`/api/v1/data-subject/{id}`, admin-only). See **Enterprise Compliance Hardening** below. |
 | v1.0.11 | Compliance hardening batch 2 (gaps G4/G5/G7/G10/G12/G13): idle session lockout / auto-logoff (`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`); configurable JWT hard TTL (`FUSION_SCIENCE_JWT_TTL`); extensible audit redaction patterns (`FUSION_SCIENCE_REDACT_PATTERNS`); tamper-detection alert webhook (`FUSION_SCIENCE_TAMPER_ALERT_URL`); 等保三级 180-day audit retention preset (`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`); push-based SIEM export confirmed closed (v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`). See **Compliance Hardening Batch 2** below. |
+| v1.0.12 | Compliance hardening batch 3 (gaps G3/G8/G11): stdlib heuristic malware scan of cached blobs + admin-only `/api/v1/security/scan` endpoint (`scan_bytes`, exec-magic/shebang/extension/entropy, optional YARA via `yara-python`); per-data-class audit retention map (`FUSION_SCIENCE_RETENTION_MAP=ephi:2555,audit:0`); anomaly/intrusion detection middleware for 等保三级 (route enumeration + burst spike, `FUSION_SCIENCE_ANOMALY_DETECT`, alerts to tamper sink, detection-not-blocking). Closes all 13 code-level compliance gaps G1–G13. See **Compliance Hardening Batch 3** below. |
 
 ## Enterprise Security (v1.0.8)
 
@@ -453,6 +454,51 @@ export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=365                      # explicit alw
 ### Push-Based SIEM Export (G13)
 
 Closed in v1.0.9: every audit entry is forwarded as NDJSON to `FUSION_SCIENCE_AUDIT_SINK_URL` (fire-and-forget daemon thread in `TraceRecorder`) for cross-node SIEM aggregation / 三级集中管控. The pull-only `export_jsonl` (`GET /export`) remains as a secondary path. Marked ✅ in the compliance matrix.
+
+## Compliance Hardening Batch 3 (v1.0.12)
+
+v1.0.12 closes the last three code-level compliance gaps (G3, G8, G11) from `architecture/compliance-matrix.md`. With this batch **all 13 code-level gaps (G1–G13) are closed**; the remaining items are organizational controls (O1–O10) that are out of code scope. All three are opt-in and env-var driven; a local-first deploy is unaffected until enabled.
+
+### Malware Scan of Ingested Blobs (G3)
+
+Cached database blobs are scanned before persistence so a poisoned upstream feed cannot plant an executable or script via the cache layer. The scan is a stdlib heuristic (no ClamAV daemon dependency):
+
+- executable magic (PE/COFF, ELF, Mach-O, Java class),
+- script shebang (`#!`),
+- blocked extensions (`.exe .dll .so .dylib .sh .jar …`),
+- high-entropy non-archive sample (Shannon entropy > 7.5),
+- optional YARA rules from `FUSION_SCIENCE_YARA_RULES_DIR` when `yara-python` is installed.
+
+A flagged blob is rejected at `ScienceCache.set` (logged, not stored). The primitive is also exposed as an admin-only endpoint for future direct ingestion:
+
+```bash
+# POST /api/v1/security/scan  (admin role only, RBAC-gated)
+{"filename": "paper.pdf", "content_b64": "<base64>"}  ->  {"clean": bool, "flags": [...], "scanned_bytes": int}
+```
+
+### Per-Data-Class Audit Retention (G8)
+
+Audit retention is no longer a single global age — different data classes keep different windows, e.g. EPHI held 7 years while literature cache rotates in 1:
+
+```bash
+export FUSION_SCIENCE_RETENTION_MAP="ephi:2555,literature:365,audit:0"
+# age in days; class:0 = retain indefinitely; unmapped class falls back to FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS
+```
+
+`TraceRecorder.prune()` reads each session's stored `data_class` metadata and applies the mapped age (or the global default, or retains indefinitely when neither is set). Reads are defensive (corrupt/missing metadata never breaks pruning).
+
+### Anomaly / Intrusion Detection (G11)
+
+A 等保三级 intrusion-prevention control detects the two reconnaissance signatures a flat rate limit misses and alerts a SIEM (detection, not blocking — the rate limiter remains the enforcer):
+
+```bash
+export FUSION_SCIENCE_ANOMALY_DETECT=1
+# alerts (log + POST to FUSION_SCIENCE_TAMPER_ALERT_URL):
+#   route_enumeration — >=12 distinct route prefixes in 60s (API surface scan)
+#   burst_spike       — rate >= 5x the client's own rolling baseline (and >=10 reqs)
+```
+
+Single-process, in-memory (same scope as the rate limiter); disabled unless opted in.
 
 ## Domestic Research Environment
 

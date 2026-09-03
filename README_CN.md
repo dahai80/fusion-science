@@ -198,6 +198,7 @@ fusion-science/
 | v1.0.9 | 企业联邦 + HA（关闭 #22、#24、#25）：外部 OAuth2/OIDC IdP（RS256 经 JWKS、claim→角色映射、HS256 回退）；可插拔会话存储 + Postgres 后端（`psycopg` 3、连接池、乐观锁）；就绪 vs 存活探针（`/api/v1/ready` 存储故障时 503）；中央审计汇 fan-out（`FUSION_SCIENCE_AUDIT_SINK_URL`）；合规控制矩阵文档。详见下方**企业联邦与 HA**。 |
 | v1.0.10 | 企业合规加固（合规缺口 G1/G2/G6/G9）：API 服务 TLS 终止（`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`，HTTPS 健康检查）；审计 JSON 静态加密（AES-256-GCM 信封、PBKDF2 派生密钥、`FUSION_SCIENCE_ENCRYPT_AT_REST`）；`/auth/token` 的 TOTP MFA 第二因子（RFC 6238、纯标准库、`FUSION_SCIENCE_MFA_REQUIRED`）；DSAR 删除权 + 访问权端点（`/api/v1/data-subject/{id}`，仅 admin）。详见下方**企业合规加固**。 |
 | v1.0.11 | 合规加固第二批（合规缺口 G4/G5/G7/G10/G12/G13）：空闲会话锁定 / 自动注销（`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`）；可配置 JWT 硬 TTL（`FUSION_SCIENCE_JWT_TTL`）；可扩展审计脱敏模式（`FUSION_SCIENCE_REDACT_PATTERNS`）；篡改检测告警 webhook（`FUSION_SCIENCE_TAMPER_ALERT_URL`）；等保三级 180 天审计留存预设（`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`）；推送式 SIEM 导出确认关闭（v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`）。详见下方**合规加固第二批**。 |
+| v1.0.12 | 合规加固第三批（合规缺口 G3/G8/G11）：标准库启发式恶意软件扫描缓存 blob + 仅管理员 `/api/v1/security/scan` 端点（`scan_bytes`，可执行 magic/shebang/扩展名/熵，可选 YARA 经 `yara-python`）；按数据类审计留存映射（`FUSION_SCIENCE_RETENTION_MAP=ephi:2555,audit:0`）；等保三级异常/入侵检测中间件（路由枚举 + 突发尖峰，`FUSION_SCIENCE_ANOMALY_DETECT`，告警至篡改 sink，仅检测不阻断）。关闭全部 13 个代码级合规缺口 G1–G13。详见下方**合规加固第三批**。 |
 
 ## 企业安全 (v1.0.8)
 
@@ -451,6 +452,51 @@ export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=365                      # 显式设值
 ### 推送式 SIEM 导出 (G13)
 
 v1.0.9 已关闭：每条审计记录以 NDJSON 转发至 `FUSION_SCIENCE_AUDIT_SINK_URL`（`TraceRecorder` 中守护线程 fire-and-forget），用于跨节点 SIEM 聚合 / 三级集中管控。拉取式 `export_jsonl`（`GET /export`）作为次要路径保留。合规矩阵已标记 ✅。
+
+## 合规加固第三批 (v1.0.12)
+
+v1.0.12 关闭 `architecture/compliance-matrix.md` 中最后 3 个代码级合规缺口（G3、G8、G11）。本批后 **13 个代码级缺口（G1–G13）全部关闭**；其余为组织级控制项（O1–O10），超出代码范围。全部可选、环境变量驱动；启用前本地优先部署不受影响。
+
+### 摄入 Blob 恶意软件扫描 (G3)
+
+缓存的数据库 blob 在持久化前扫描，防止被污染的上游数据源经由缓存层植入可执行文件或脚本。扫描采用标准库启发式（无 ClamAV 守护依赖）：
+
+- 可执行 magic（PE/COFF、ELF、Mach-O、Java class），
+- 脚本 shebang（`#!`），
+- 受阻扩展名（`.exe .dll .so .dylib .sh .jar …`），
+- 高熵非归档样本（Shannon 熵 > 7.5），
+- 安装 `yara-python` 时可选 YARA 规则（`FUSION_SCIENCE_YARA_RULES_DIR`）。
+
+被标记的 blob 在 `ScienceCache.set` 拒绝（记录日志，不存储）。该原语同时以仅管理员端点暴露，供未来直接摄入：
+
+```bash
+# POST /api/v1/security/scan  （仅 admin 角色，RBAC 网关）
+{"filename": "paper.pdf", "content_b64": "<base64>"}  ->  {"clean": bool, "flags": [...], "scanned_bytes": int}
+```
+
+### 按数据类审计留存 (G8)
+
+审计留存不再是单一全局年龄 —— 不同数据类保持不同窗口，例如 EPHI 留存 7 年，而文献缓存 1 年轮换：
+
+```bash
+export FUSION_SCIENCE_RETENTION_MAP="ephi:2555,literature:365,audit:0"
+# 年龄单位天；class:0 = 永久保留；未映射类回退至 FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS
+```
+
+`TraceRecorder.prune()` 读取每个会话存储的 `data_class` 元数据并应用映射年龄（或全局默认值，或两者均未设时永久保留）。读取防御式（损坏/缺失元数据不会中断清理）。
+
+### 异常 / 入侵检测 (G11)
+
+等保三级入侵防范控制项，检测扁平限流遗漏的两种侦察特征并告警 SIEM（仅检测不阻断 —— 限流器仍是执行方）：
+
+```bash
+export FUSION_SCIENCE_ANOMALY_DETECT=1
+# 告警（日志 + POST 至 FUSION_SCIENCE_TAMPER_ALERT_URL）：
+#   route_enumeration — 60s 内 >=12 个不同路由前缀（API 表面扫描）
+#   burst_spike       — 速率 >= 客户端自身滚动基线的 5 倍（且 >=10 请求）
+```
+
+单进程、内存内（与限流器同作用域）；未显式启用则禁用。
 
 ## 国内研究环境适配
 
