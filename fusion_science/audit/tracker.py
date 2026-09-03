@@ -83,6 +83,13 @@ class TraceSession:
     status: str = "active"  # active, completed, failed
 
 
+@dataclass
+class _ChainResult:
+    # F-E12: structured chain-verification result exposing the broken entry ids.
+    ok: bool
+    mismatches: list[dict[str, str]] = field(default_factory=list)
+
+
 class TraceRecorder:
     """Records and manages a complete audit trail of all operations.
 
@@ -558,18 +565,28 @@ class TraceRecorder:
 
     def verify_chain(self, session_id: str | None = None) -> bool:
         """Verify the hash chain of a trace session is intact (tamper-evident)."""
+        return self.audit_chain(session_id).ok
+
+    def audit_chain(self, session_id: str | None = None) -> Any:
+        # F-E12: verify_chain returned a bare bool and silently dropped WHICH
+        # entry broke the chain. audit_chain returns the mismatch entry ids so
+        # an operator can investigate tampering, while verify_chain stays a
+        # bool for existing callers.
         session = self._get_session(session_id)
+        mismatches: list[dict[str, str]] = []
         if session is None:
-            return False
+            return _ChainResult(ok=False, mismatches=[{"reason": "session_not_found"}])
         prev = ""
         for entry in session.entries:
             if entry.prev_hash != prev:
-                return False
+                mismatches.append({"entry_id": entry.entry_id, "reason": "prev_hash_mismatch"})
+                logger.error("Chain broken at entry %s: prev_hash mismatch", entry.entry_id)
             recomputed = self._entry_hash(entry)
             if entry.entry_hash != recomputed:
-                return False
+                mismatches.append({"entry_id": entry.entry_id, "reason": "entry_hash_mismatch"})
+                logger.error("Chain broken at entry %s: entry_hash mismatch (tampered)", entry.entry_id)
             prev = entry.entry_hash
-        return True
+        return _ChainResult(ok=not mismatches, mismatches=mismatches)
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all saved trace sessions.

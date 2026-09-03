@@ -174,7 +174,11 @@ class DatabaseAggregator:
         # connector's LRU cache holds the original dict; mutating it in place
         # would leak aggregator-internal keys into cached results returned to
         # other callers (a silent cross-request contamination).
-        all_items: list[dict] = []
+        # F-P8: precompute the dedup key + sort tiebreak hash ONCE per item.
+        # The old sort key recomputed sha256 on every comparison (O(n log n)
+        # hash calls) and recomputed the dedup key a second time after already
+        # computing it for dedup. Now each item pays one hash + one key build.
+        all_items: list[tuple[tuple[float, str], dict]] = []
         seen: set[str] = set()
 
         for db_name, db_result in results_by_db.items():
@@ -189,17 +193,13 @@ class DatabaseAggregator:
                 # deterministic instead of leaving 0.0 defaults that make the
                 # final order depend on dict insertion order across DBs.
                 merged["_relevance"] = float(item.get("_relevance") or item.get("relevance_score") or 0.0)
-                all_items.append(merged)
+                tiebreak = hashlib.sha256(dedup_key.encode()).hexdigest()
+                all_items.append(((-merged["_relevance"], tiebreak), merged))
 
         # Stable tiebreak: relevance desc, then source-stable hash of the dedup
         # key so two equal-relevance items keep a fixed order across runs.
-        all_items.sort(
-            key=lambda x: (
-                -x["_relevance"],
-                hashlib.sha256(self._item_dedup_key(x, x["_source_db"]).encode()).hexdigest(),
-            ),
-        )
-        return all_items
+        all_items.sort(key=lambda pair: pair[0])
+        return [merged for _, merged in all_items]
 
     def _item_dedup_key(self, item: dict, db_name: str) -> str:
         for key in ["doi", "pmid", "pdb_id", "uniprot_id", "ensembl_id", "chembl_id"]:

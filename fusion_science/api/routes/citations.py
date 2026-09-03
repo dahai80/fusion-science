@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from ...literature.citation import CitationManager
 from ...literature.search import Paper
+from .._owner import check_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,6 +28,12 @@ async def get_citation_graph(request: Request, session_id: str):
     mgr = CitationManager()
     session = request.app.state.session_manager.get_session(session_id)
     if session:
+        # P1 (S5): IDOR guard — only when the session exists; a missing
+        # session_id yields an empty graph (200), not a 404, matching the
+        # route's optional-session contract.
+        denied = check_owner(request, session)
+        if denied is not None:
+            return denied
         for artifact in session.artifacts:
             if artifact.type == "citation":
                 try:
@@ -70,6 +77,10 @@ async def get_bibliography(request: Request, style: str = "apa"):
     if session_id:
         session = request.app.state.session_manager.get_session(session_id)
         if session:
+            # P1 (S5): IDOR guard — same rationale as /graph.
+            denied = check_owner(request, session)
+            if denied is not None:
+                return denied
             for artifact in session.artifacts:
                 if artifact.type == "citation":
                     try:

@@ -108,6 +108,9 @@ def _execute_task(cfg: ScienceConfig, task: str, pipeline: str | None, output: s
     if pipeline:
         click.echo(f"   Pipeline: {pipeline}")
     click.echo("")
+    # F-C1: unimplemented command exits non-zero so scripts/cron do not treat
+    # an honest stub as a successful run.
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +147,45 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
     factory = PipelineFactory(engine)
     try:
         sp = factory.create_pipeline(pipeline_name)
-        click.echo(f"   Pipeline created with {len(sp.agents)} agents")
+        click.echo(f"   Pipeline created with {len(sp.agents)} agents (pattern={sp.pattern})")
     except ValueError as e:
         click.echo(f"❌ {e}", err=True)
-        click.echo(f"   Available: {', '.join(PipelineFactory.list_templates())}")
+        click.echo(f"   Available: {', '.join(t['name'] for t in PipelineFactory.list_templates())}")
         sys.exit(1)
+
+    # F-C2: actually execute the pipeline. Previously this command built the
+    # SciencePipeline object and stopped, leaving the user with "created" but
+    # no result. run() dispatches by the template's stored pattern.
+    import asyncio
+
+    try:
+        result = asyncio.run(sp.run(query))
+    except Exception as e:
+        logger.exception("Pipeline '%s' failed", pipeline_name)
+        click.echo(f"❌ Pipeline execution failed: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(f"\n✅ Pipeline finished in {result.total_duration:.1f}s")
+    if result.summary:
+        click.echo(f"   Summary: {result.summary}")
+    for ar in result.agent_results:
+        status = "ok" if not ar.error else "FAIL"
+        click.echo(f"   [{status}] {ar.agent_name}: {ar.output[:200] if ar.output else ar.error}")
+    if output:
+        import json
+
+        payload = {
+            "task": result.task,
+            "summary": result.summary,
+            "duration": result.total_duration,
+            "agents": [
+                {"name": ar.agent_name, "output": ar.output, "error": ar.error, "duration": ar.duration}
+                for ar in result.agent_results
+            ],
+        }
+        with open(output, "w") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        click.echo(f"   Results written to {output}")
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +207,7 @@ def search(ctx: click.Context, query: str, db: str, max: int, output: str | None
     click.echo("   Use the API: GET /api/v1/search?query=...&sources=...")
     click.echo(f"   Mirror mode: {'enabled' if cfg.use_mirrors else 'disabled'}")
     click.echo(f"   Max results: {max}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +235,7 @@ def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, o
     elif file:
         click.echo(f"   Data file: {file}")
     click.echo("")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +261,7 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
         click.echo(f"   Data: {data}")
     if output:
         click.echo(f"   Output: {output}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +283,7 @@ def review(ctx: click.Context, query: str, max_papers: int, output: str | None) 
     click.echo(f"   Max papers: {max_papers}")
     if output:
         click.echo(f"   Output: {output}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +302,7 @@ def audit(ctx: click.Context, output: str, format: str) -> None:
     click.echo("   ⚠️  This CLI command is not implemented yet.")
     click.echo("   Audit reports are produced through the API session audit trail.")
     click.echo(f"   Format: {format}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

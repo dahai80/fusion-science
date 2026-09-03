@@ -45,7 +45,7 @@ async def chat(session_id: str, request: Request, body: ChatRequest) -> dict[str
     # Streaming path stays raw LLM (token replay through an agent loop is unsafe).
     if body.stream:
         tokens = gateway.chat_stream(messages=messages)
-        return sse_response(tokens)
+        return sse_response(tokens, request)
 
     # Non-stream: route through the agent system so tool capability is active
     # on the primary chat path. Fall back to raw gateway only if no router.

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
-import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from pathlib import Path
 
 from .models import ResearchSession
@@ -26,23 +27,28 @@ class SessionStore(ABC):
 
 
 class MemorySessionStore(SessionStore):
+    # F-P7: O(1) LRU via OrderedDict. Insertion/access order tracks recency;
+    # eviction pops the front (oldest) instead of a linear min() scan that
+    # walked the whole session map on every save.
     def __init__(self, max_sessions: int = MAX_SESSIONS):
-        self._sessions: dict[str, ResearchSession] = {}
-        self._times: dict[str, float] = {}
+        self._sessions: OrderedDict[str, ResearchSession] = OrderedDict()
         self._max = max_sessions
 
     def save(self, session: ResearchSession) -> None:
+        if session.id in self._sessions:
+            self._sessions.move_to_end(session.id)
         self._sessions[session.id] = session
-        self._times[session.id] = time.time()
         self._evict()
 
     def load(self, session_id: str) -> ResearchSession | None:
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is not None:
+            self._sessions.move_to_end(session_id)
+        return session
 
     def delete(self, session_id: str) -> bool:
         if session_id in self._sessions:
             del self._sessions[session_id]
-            self._times.pop(session_id, None)
             return True
         return False
 
@@ -51,27 +57,27 @@ class MemorySessionStore(SessionStore):
 
     def _evict(self) -> None:
         while len(self._sessions) > self._max:
-            oldest = min(self._times, key=self._times.get)
-            self._sessions.pop(oldest, None)
-            self._times.pop(oldest, None)
-            logger.info("Evicted session: %s", oldest)
+            oldest_id, _ = self._sessions.popitem(last=False)
+            logger.info("Evicted session: %s", oldest_id)
 
 
 class SQLiteSessionStore(SessionStore):
     def __init__(self, db_path: str = "~/.cache/fusion-science/sessions.db"):
         self._db_path = str(Path(db_path).expanduser())
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        # P6: one persistent connection per store instance (check_same_thread
+        # off — guarded by SessionManager's per-session asyncio locks + the
+        # GIL) replaces a connect+PRAGMA round-trip on every save/load/delete.
+        # WAL/busy_timeout set once at construction, not per call.
+        self._conn = sqlite3.connect(self._db_path, timeout=5.0, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._init_db()
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, timeout=5.0, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
-
     def _init_db(self) -> None:
-        with self._conn() as conn:
-            conn.execute("""
+        with self._conn:
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     title TEXT DEFAULT '',
@@ -86,18 +92,18 @@ class SQLiteSessionStore(SessionStore):
                 )
             """)
             # Migrate legacy schema: add columns if missing (idempotent)
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+            cols = {row[1] for row in self._conn.execute("PRAGMA table_info(sessions)")}
             if "owner" not in cols:
-                conn.execute("ALTER TABLE sessions ADD COLUMN owner TEXT DEFAULT ''")
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN owner TEXT DEFAULT ''")
             if "version" not in cols:
-                conn.execute("ALTER TABLE sessions ADD COLUMN version INTEGER DEFAULT 0")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner)")
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN version INTEGER DEFAULT 0")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner)")
 
     def save(self, session: ResearchSession) -> bool:
         data = session.to_dict()
-        with self._conn() as conn:
+        with self._conn:
             if session.version > 0:
-                cursor = conn.execute(
+                cursor = self._conn.execute(
                     """
                     UPDATE sessions
                     SET title=?, owner=?, created_at=?, updated_at=?, version=version+1,
@@ -122,7 +128,7 @@ class SQLiteSessionStore(SessionStore):
                     return False
                 session.version += 1
                 return True
-            conn.execute(
+            self._conn.execute(
                 """
                 INSERT INTO sessions
                     (session_id, title, owner, created_at, updated_at, version,
@@ -151,11 +157,11 @@ class SQLiteSessionStore(SessionStore):
             return True
 
     def load(self, session_id: str) -> ResearchSession | None:
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT session_id, title, owner, created_at, updated_at, version, messages, context, artifacts, trace_ids FROM sessions WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
+        conn = self._conn
+        row = conn.execute(
+            "SELECT session_id, title, owner, created_at, updated_at, version, messages, context, artifacts, trace_ids FROM sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
         if not row:
             return None
         return ResearchSession.from_dict(
@@ -174,15 +180,15 @@ class SQLiteSessionStore(SessionStore):
         )
 
     def delete(self, session_id: str) -> bool:
-        with self._conn() as conn:
-            cursor = conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        with self._conn:
+            cursor = self._conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             return cursor.rowcount > 0
 
     def list_all(self) -> list[ResearchSession]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT session_id, title, owner, created_at, updated_at, version, messages, context, artifacts, trace_ids FROM sessions ORDER BY updated_at DESC"
-            ).fetchall()
+        conn = self._conn
+        rows = conn.execute(
+            "SELECT session_id, title, owner, created_at, updated_at, version, messages, context, artifacts, trace_ids FROM sessions ORDER BY updated_at DESC"
+        ).fetchall()
         return [
             ResearchSession.from_dict(
                 {
@@ -200,3 +206,30 @@ class SQLiteSessionStore(SessionStore):
             )
             for r in rows
         ]
+
+    def close(self) -> None:
+        # P6: release the persistent connection on shutdown.
+        with contextlib.suppress(Exception):
+            self._conn.close()
+
+    def backup(self, suffix: str = "") -> str | None:
+        # F-O6: crash-safe backup of the live DB to a sibling .bak file using
+        # SQLite's online backup API (consistent snapshot without blocking
+        # writes). Rotates the previous backup to .bak.1 so the last two
+        # backups survive a corruption that also damages the primary.
+        import shutil
+
+        try:
+            base = self._db_path
+            bak = f"{base}.bak{suffix}"
+            bak_prev = f"{base}.bak{suffix}.1"
+            if Path(bak_prev).exists():
+                with contextlib.suppress(Exception):
+                    shutil.move(bak, bak_prev) if Path(bak).exists() else None
+            with sqlite3.connect(bak) as dest:
+                self._conn.backup(dest)
+            logger.info("Session DB backed up to %s", bak)
+            return bak
+        except Exception as e:
+            logger.warning("Session DB backup failed: %s", e)
+            return None

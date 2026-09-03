@@ -121,14 +121,27 @@ stop() {
         return 0
     fi
     log_info "stopping fusion-science (PID ${pid})..."
+    # SIGTERM lets the FastAPI lifespan run graceful shutdown (session DB
+    # backup, connector close). Wait up to 15s for a clean exit.
     kill "$pid" 2>/dev/null || true
-    for _ in $(seq 1 20); do
+    for _ in $(seq 1 30); do
         kill -0 "$pid" 2>/dev/null || break
         sleep 0.5
     done
-    kill -9 "$pid" 2>/dev/null || true
+    # F-O9: only escalate to SIGKILL if SIGTERM did not land, then verify the
+    # process is actually gone so a zombie/reparented PID is not reported as
+    # "stopped" while still holding the port.
+    if kill -0 "$pid" 2>/dev/null; then
+        log_info "graceful stop timed out, sending SIGKILL (PID ${pid})"
+        kill -9 "$pid" 2>/dev/null || true
+        sleep 1
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+        log_info "WARNING: PID ${pid} still alive after SIGKILL — may be reparented or zombie"
+    else
+        log_info "stopped"
+    fi
     rm -f "$PID_FILE"
-    log_info "stopped"
 }
 
 status() {

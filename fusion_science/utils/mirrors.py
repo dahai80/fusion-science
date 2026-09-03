@@ -9,13 +9,36 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# F-S7: only https (and http for local mirrors) outbound fetches are allowed.
+# Blocks file://, gopher://, ftp://, etc. that an attacker-controlled mirror
+# env var could otherwise route a structure-fetch to.
+_ALLOWED_FETCH_SCHEMES = ("https", "http")
 
 
 # ---------------------------------------------------------------------------
 # Mirror configuration helpers
 # ---------------------------------------------------------------------------
+
+
+def validate_fetch_url(url: str, default: str) -> str:
+    # F-S7: reject non-http(s) schemes before any outbound fetch. An env-var
+    # mirror override set to file:///etc/passwd would otherwise let a
+    # molecule/protein fetch read local files. Falls back to the safe default
+    # on rejection and logs loudly.
+    try:
+        scheme = urlparse(url).scheme.lower()
+    except ValueError:
+        scheme = ""
+    if scheme in _ALLOWED_FETCH_SCHEMES:
+        return url
+    logger.error(
+        "Rejected fetch URL with disallowed scheme '%s' (%s); using default %s", scheme or "(none)", url, default
+    )
+    return default
 
 
 def get_mirror_config() -> dict[str, Any]:

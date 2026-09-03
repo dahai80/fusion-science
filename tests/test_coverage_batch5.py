@@ -1044,8 +1044,8 @@ class TestSystemRoute:
 
     @pytest.mark.asyncio
     async def test_mirror_latency_test(self, client):
-        with patch("fusion_science.api.routes.system.MirrorRouter") as MockRouter:
-            router = MockRouter.return_value
+        with patch("fusion_science.api.routes.system.get_shared_router") as MockFn:
+            router = MockFn.return_value
             router.test_all_latency = AsyncMock(return_value={"pubmed": {"primary": 0.5, "mirror": -1.0}})
             router._auto_switch = False
             resp = await client.get("/api/v1/system/mirrors/latency")
@@ -1053,16 +1053,16 @@ class TestSystemRoute:
 
     @pytest.mark.asyncio
     async def test_mirror_status(self, client):
-        with patch("fusion_science.api.routes.system.MirrorRouter") as MockRouter:
-            router = MockRouter.return_value
+        with patch("fusion_science.api.routes.system.get_shared_router") as MockFn:
+            router = MockFn.return_value
             router.get_status_report.return_value = {"offline_mode": False}
             resp = await client.get("/api/v1/system/mirrors/status")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_mirror_auto_switch_enable(self, client):
-        with patch("fusion_science.api.routes.system.MirrorRouter") as MockRouter:
-            router = MockRouter.return_value
+        with patch("fusion_science.api.routes.system.get_shared_router") as MockFn:
+            router = MockFn.return_value
             router.enable_auto_switch = MagicMock()
             resp = await client.post("/api/v1/system/mirrors/auto-switch?enable=true")
         assert resp.status_code == 200
@@ -1070,8 +1070,8 @@ class TestSystemRoute:
 
     @pytest.mark.asyncio
     async def test_mirror_auto_switch_disable(self, client):
-        with patch("fusion_science.api.routes.system.MirrorRouter") as MockRouter:
-            router = MockRouter.return_value
+        with patch("fusion_science.api.routes.system.get_shared_router") as MockFn:
+            router = MockFn.return_value
             router.enable_auto_switch = MagicMock()
             resp = await client.post("/api/v1/system/mirrors/auto-switch?enable=false")
         assert resp.status_code == 200

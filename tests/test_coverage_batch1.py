@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import tempfile
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -95,7 +95,8 @@ class TestCLI:
     def test_run_with_task(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["run", "analyze gene expression"])
-        assert result.exit_code == 0
+        # F-C1: run is an honest stub and exits non-zero (fail-visible).
+        assert result.exit_code != 0
         # I-10: run is an honest stub now — it reports the task was received,
         # not that it executed.
         assert "Task received" in result.output
@@ -103,12 +104,32 @@ class TestCLI:
     def test_run_with_pipeline_option(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["run", "test task", "--pipeline", "literature_review"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "Pipeline: literature_review" in result.output
 
     def test_pipeline_valid(self):
+        # F-C2: pipeline now actually executes via SciencePipeline.run(). Mock
+        # run() so the test does not need a live MLX service.
+        from fusion_science.core.agent import AgentResult, PipelineResult
+
         runner = CliRunner()
-        result = runner.invoke(cli, ["pipeline", "literature_review", "cancer therapy"])
+        fake_result = PipelineResult(
+            task="cancer therapy",
+            summary="ok literature_search | ok literature_analysis",
+            agent_results=[AgentResult(agent_name="literature_search", output="found 3 papers")],
+            total_duration=0.5,
+        )
+        mock_engine = MagicMock()
+        mock_sp = MagicMock()
+        mock_sp.agents = {"literature_search": MagicMock()}
+        mock_sp.pattern = "sequential"
+        mock_sp.run = AsyncMock(return_value=fake_result)
+        mock_factory = MagicMock()
+        mock_factory.create_pipeline.return_value = mock_sp
+        mock_factory.list_templates.return_value = [{"name": "literature_review"}]
+        with patch("fusion_science.core.engine.ScienceEngine", return_value=mock_engine):
+            with patch("fusion_science.core.pipeline.PipelineFactory", return_value=mock_factory):
+                result = runner.invoke(cli, ["pipeline", "literature_review", "cancer therapy"])
         assert result.exit_code == 0
         assert "literature_review" in result.output
 
@@ -120,80 +141,85 @@ class TestCLI:
     def test_search_pubmed(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["search", "BRCA1", "--db", "pubmed"])
-        assert result.exit_code == 0
+        # F-C1: search stub exits non-zero.
+        assert result.exit_code != 0
         assert "pubmed" in result.output.lower() or "PubMed" in result.output
 
     def test_search_unknown_db(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["search", "test", "--db", "unknowndb"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         # I-10: search is a stub; it echoes the requested db, no validation.
         assert "Search requested" in result.output
 
     def test_search_with_max(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["search", "test", "--db", "pubmed", "--max", "5"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "5" in result.output
 
     def test_analyze_with_code(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["analyze", "--code", "print('hello')"])
-        assert result.exit_code == 0
+        # F-C1: analyze stub exits non-zero.
+        assert result.exit_code != 0
         # I-10: analyze is a stub now — reports "Analyze requested".
         assert "Analyze requested" in result.output
 
     def test_analyze_with_file(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["analyze", "/tmp/data.csv"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "data.csv" in result.output
 
     def test_analyze_no_input(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["analyze"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
 
     def test_visualize_chart(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["visualize", "chart", "--data", "test.csv"])
-        assert result.exit_code == 0
+        # F-C1: visualize stub exits non-zero.
+        assert result.exit_code != 0
         assert "chart" in result.output
 
     def test_visualize_molecule(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["visualize", "molecule", "--data", "CCO"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "molecule" in result.output
 
     def test_visualize_with_output(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["visualize", "protein", "--data", "1ABC", "--output", "/tmp/viz.png"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "/tmp/viz.png" in result.output
 
     def test_review(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["review", "machine learning in drug discovery"])
-        assert result.exit_code == 0
+        # F-C1: review stub exits non-zero.
+        assert result.exit_code != 0
         assert "Literature review" in result.output
 
     def test_review_with_max_papers(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["review", "test", "--max-papers", "5"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "5" in result.output
 
     def test_audit_default(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["audit"])
-        assert result.exit_code == 0
+        # F-C1: audit stub exits non-zero.
+        assert result.exit_code != 0
         assert "audit" in result.output.lower()
 
     def test_audit_json_format(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["audit", "--format", "json"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert "json" in result.output
 
     def test_config_show(self):

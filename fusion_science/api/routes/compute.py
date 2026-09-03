@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from ...audit.compliance import ComplianceChecker
 from ...compute.code_generator import CodeGenerator
 from ...compute.jupyter_kernel import JupyterKernelManager
+from .._owner import check_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -109,6 +110,13 @@ async def check_compliance(request: Request, body: ComplianceCheckRequest):
     if body.session_id:
         session = request.app.state.session_manager.get_session(body.session_id)
         if session:
+            # P1 (S5): IDOR guard — compliance reads another session's trace
+            # data; without this any client can inspect another user's audit
+            # trail. Guard only fires when the session exists (IDOR); a missing
+            # session_id falls through to a generic "api" compliance report.
+            denied = check_owner(request, session)
+            if denied is not None:
+                return denied
             recorder = getattr(request.app.state, "recorder", None)
             if recorder:
                 trace_entries = recorder.get_traces(session_id=body.session_id)

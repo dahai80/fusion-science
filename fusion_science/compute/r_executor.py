@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -41,23 +42,40 @@ class RExecutor:
     - Common R data science packages (tidyverse, ggplot2, etc.)
     """
 
-    def __init__(self, timeout: int = 120):
+    # P0 (S3): R execution is isolated by default. The in-process rpy2 path
+    # (`use_inproc=True`) shares the host process — `system()` / file reads
+    # reach host files directly and there is no way to kill a hung rpy2 call
+    # without killing the host. The default Rscript subprocess path enforces a
+    # hard timeout (process-group kill) and runs in an empty work dir.
+    def __init__(self, timeout: int = 120, use_inproc: bool = False):
         self.timeout = timeout
         self._r_available = False
+        self.use_inproc = use_inproc
+        self._rscript_path = shutil.which("Rscript") or ""
         self._check_r()
 
     def _check_r(self) -> None:
-        """Check if R and rpy2 are available."""
-        try:
-            import rpy2.robjects as robjects  # type: ignore[import-untyped]
+        """Check if R is available.
 
-            robjects.r("version")
-            self._r_available = True
-        except ImportError:
-            self._r_available = False
-        except Exception as e:
-            logger.warning("R check failed: %s", e)
-            self._r_available = False
+        For the default isolated Rscript path we only need the `Rscript`
+        binary on PATH. The in-process rpy2 path additionally requires the
+        rpy2 Python package.
+        """
+        if self.use_inproc:
+            try:
+                import rpy2.robjects as robjects  # type: ignore[import-untyped]
+
+                robjects.r("version")
+                self._r_available = True
+            except ImportError:
+                self._r_available = False
+            except Exception as e:
+                logger.warning("R check failed: %s", e)
+                self._r_available = False
+        else:
+            self._r_available = bool(self._rscript_path)
+            if not self._r_available:
+                logger.warning("Rscript binary not found on PATH — R execution disabled")
 
     @property
     def available(self) -> bool:
@@ -82,17 +100,37 @@ class RExecutor:
                 error="R is not available. Install R and rpy2 (pip install fusion-science[r])",
             )
 
-        # rpy2 is a blocking C call that holds the GIL; running it on the event
-        # loop thread freezes every other async request for the whole R run.
-        # Offload to a worker thread so the API stays responsive.
         try:
-            output, error, plots = await asyncio.to_thread(self._execute_sync, code, capture_plots)
+            if self.use_inproc:
+                # In-process rpy2 — no hard kill possible; enforce a soft
+                # timeout by abandoning the wait (thread keeps running but the
+                # caller gets a timeout result). Default OFF for production.
+                output, error, plots = await asyncio.wait_for(
+                    asyncio.to_thread(self._execute_sync, code, capture_plots),
+                    timeout=self.timeout,
+                )
+            else:
+                # P0 (S3): isolated Rscript subprocess with hard timeout +
+                # process-group kill. Runs in a private work dir so file
+                # writes are contained; env is minimal (no inherited secrets).
+                output, error, plots = await asyncio.wait_for(
+                    self._execute_subprocess(code, capture_plots),
+                    timeout=self.timeout,
+                )
             duration = time.time() - start
             return RExecutionResult(
                 success=not bool(error),
                 output="\n".join(output),
                 error="\n".join(error),
                 plots=plots,
+                execution_time=duration,
+            )
+        except TimeoutError:
+            duration = time.time() - start
+            logger.warning("R execution timed out after %ds", self.timeout)
+            return RExecutionResult(
+                success=False,
+                error=f"R execution timed out after {self.timeout}s",
                 execution_time=duration,
             )
         except Exception as e:
@@ -102,6 +140,60 @@ class RExecutor:
                 error=str(e),
                 execution_time=duration,
             )
+
+    async def _execute_subprocess(self, code: str, capture_plots: bool) -> tuple[list[str], list[str], list[str]]:
+        """Isolated R execution via Rscript subprocess (P0 S3)."""
+        import contextlib
+
+        work_dir = tempfile.mkdtemp(prefix="fusion_r_exec_")
+        script_path = os.path.join(work_dir, "exec.R")
+        plot_dir = os.path.join(work_dir, "plots")
+        os.makedirs(plot_dir, exist_ok=True)
+
+        wrapped = code
+        if capture_plots:
+            wrapped = self._wrap_with_plot_capture(code, [])
+            wrapped = wrapped.replace('".fusion_plot_dir"', f'"{plot_dir}"')
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(wrapped)
+
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+            "HOME": work_dir,
+            "TMPDIR": os.path.join(work_dir, "tmp"),
+        }
+        os.makedirs(os.path.join(work_dir, "tmp"), exist_ok=True)
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self._rscript_path,
+                script_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=work_dir,
+                env=env,
+                start_new_session=True,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(os.getpgid(proc.pid), 9)
+                await proc.wait()
+                return [], [f"R execution timed out after {self.timeout}s"], []
+
+            output = [stdout.decode("utf-8", errors="replace")] if stdout else []
+            error = [stderr.decode("utf-8", errors="replace")] if stderr and proc.returncode != 0 else []
+            plots: list[str] = []
+            if capture_plots and os.path.isdir(plot_dir):
+                import glob
+
+                plots = sorted(glob.glob(os.path.join(plot_dir, "*.png")))
+            return output, error, plots
+        finally:
+            with contextlib.suppress(Exception):
+                shutil.rmtree(work_dir, ignore_errors=True)
 
     def _execute_sync(self, code: str, capture_plots: bool) -> tuple[list[str], list[str], list[str]]:
         """Blocking R execution — MUST run off the event loop (via to_thread)."""

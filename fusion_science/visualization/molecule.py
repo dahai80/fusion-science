@@ -379,6 +379,10 @@ class MoleculeVisualizer:
             import httpx
 
             pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
+
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
             # Normalize: if the mirror URL is an API endpoint, extract the download host
             if pdb_base.endswith("/rest/v1"):
                 pdb_base = "https://files.rcsb.org"

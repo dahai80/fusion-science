@@ -149,8 +149,11 @@ class QueryRouterAgent:
                     return await error_agent.run(
                         f"Agent '{agent_name}' failed on query: {query}\nError: {e}",
                     )
-                except Exception:
-                    pass
+                except Exception as esc_e:
+                    # F-E18: escalation failure was silently swallowed (`pass`),
+                    # hiding a second fault from operators. Log it; the original
+                    # error is still returned below.
+                    logger.error("Escalation to ErrorAnalysisAgent also failed: %s", esc_e)
             return AgentResult(
                 agent_name=agent_name,
                 output="",

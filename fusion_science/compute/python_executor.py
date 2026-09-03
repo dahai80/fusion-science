@@ -45,11 +45,20 @@ class PythonExecutor:
         timeout: int = 120,
         work_dir: str | None = None,
         extra_paths: list[str] | None = None,
+        sandbox: Any | None = None,
     ):
         self.timeout = timeout
         self.work_dir = work_dir or tempfile.mkdtemp(prefix="fusion_science_")
         self.extra_paths = extra_paths or []
         self._figure_counter = 0
+        # P0 (S2): SandboxManager AST validation. A shared instance is injected
+        # at construction; if absent a default SandboxManager is created so the
+        # dangerous-import / eval / subprocess guards always run before execution.
+        if sandbox is None:
+            from .sandbox import SandboxManager
+
+            sandbox = SandboxManager()
+        self._sandbox = sandbox
 
     async def execute(
         self,
@@ -70,6 +79,20 @@ class PythonExecutor:
             ExecutionResult with stdout, stderr, and figure paths.
         """
         start = asyncio.get_event_loop().time()
+
+        # P0 (S2): AST validation gate — reject dangerous imports / eval /
+        # subprocess / os.system BEFORE any subprocess is spawned. The rlimit
+        # layer (CPU/memory/nproc) is defense-in-depth but cannot stop a
+        # `subprocess.run("rm -rf ~")` that completes within the limits.
+        validation = self._sandbox.validate_code(code, language="python")
+        if not validation.get("valid", True):
+            issues = validation.get("issues", [])
+            logger.warning("PythonExecutor rejected code: %s", "; ".join(issues))
+            return ExecutionResult(
+                success=False,
+                error=f"Code rejected by sandbox: {'; '.join(issues)}",
+                execution_time=0.0,
+            )
 
         # Create a wrapper script that captures output and figures
         script = self._build_wrapper(code, input_data is not None, capture_figures)

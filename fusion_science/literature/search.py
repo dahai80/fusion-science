@@ -305,9 +305,11 @@ class LiteratureSearch:
             await connector.close()
 
     async def _search_arxiv(self, query: str, max_results: int) -> SearchResult:
-        import xml.etree.ElementTree as ET
-
+        # P1 (S6): use defusedxml instead of stdlib ElementTree — stdlib ET
+        # resolves external entities, enabling billion-laughs DoS and local
+        # file reads via a poisoned arXiv mirror. defusedxml blocks both.
         import httpx
+        from defusedxml.ElementTree import fromstring as _safe_fromstring
 
         arxiv_api = os.getenv("FUSION_SCI_ARXIV_MIRROR", "https://export.arxiv.org/api/query")
 
@@ -324,7 +326,7 @@ class LiteratureSearch:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(arxiv_api, params=params)
                 resp.raise_for_status()
-                root = ET.fromstring(resp.text)
+                root = _safe_fromstring(resp.text)
 
                 for entry in root.findall("atom:entry", ns):
                     title = entry.find("atom:title", ns)

@@ -278,8 +278,10 @@ class ChEMBLConnector(BaseConnector):
                 for a in activities
             ]
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — empty bioactivities look
+            # like "no activity data" vs a ChEMBL outage. Raise to surface it.
             logger.error("Failed to fetch bioactivities for %s: %s", molecule_id, e)
-            return []
+            raise RuntimeError(f"chembl_fetch_bioactivities_failed: {e}") from e
 
     async def get_drug_indications(self, molecule_id: str) -> list[dict[str, Any]]:
         """Fetch drug indications for a molecule.
@@ -307,5 +309,6 @@ class ChEMBLConnector(BaseConnector):
                 for ind in indications
             ]
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — see get_bioactivities note.
             logger.error("Failed to fetch drug indications: %s", e)
-            return []
+            raise RuntimeError(f"chembl_fetch_drug_indications_failed: {e}") from e

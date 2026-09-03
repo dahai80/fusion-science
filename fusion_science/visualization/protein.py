@@ -132,6 +132,10 @@ class ProteinVisualizer:
             import httpx
 
             pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
+
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
             if pdb_base.endswith("/rest/v1"):
                 pdb_base = "https://files.rcsb.org"
             resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
@@ -305,6 +309,10 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
         pdb_contents = []
         for pdb_id in pdb_ids:
             pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
+
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
             if pdb_base.endswith("/rest/v1"):
                 pdb_base = "https://files.rcsb.org"
             resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")

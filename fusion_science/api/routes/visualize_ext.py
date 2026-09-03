@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...visualization.molecule import MoleculeVisualizer
 from ...visualization.protein import ProteinVisualizer
@@ -13,30 +13,31 @@ router = APIRouter()
 
 
 class MoleculeFromSmilesRequest(BaseModel):
-    smiles: str
-    width: int = 400
-    height: int = 300
+    # F-S9: bound strings. SMILES can be long but cap absurd payloads.
+    smiles: str = Field(..., max_length=10000)
+    width: int = Field(default=400, ge=50, le=4096)
+    height: int = Field(default=300, ge=50, le=4096)
 
 
 class MoleculeFromPdbRequest(BaseModel):
-    pdb_id: str
-    width: int = 400
-    height: int = 300
+    pdb_id: str = Field(..., max_length=16)
+    width: int = Field(default=400, ge=50, le=4096)
+    height: int = Field(default=300, ge=50, le=4096)
 
 
 class ProteinVisualizeRequest(BaseModel):
-    pdb_id: str
-    style: str = "cartoon"
-    color: str = "spectrum"
-    width: int = 400
-    height: int = 400
+    pdb_id: str = Field(..., max_length=16)
+    style: str = Field(default="cartoon", max_length=64)
+    color: str = Field(default="spectrum", max_length=64)
+    width: int = Field(default=400, ge=50, le=4096)
+    height: int = Field(default=400, ge=50, le=4096)
 
 
 class ProteinCompareRequest(BaseModel):
-    pdb_id_1: str
-    pdb_id_2: str
-    width: int = 800
-    height: int = 400
+    pdb_id_1: str = Field(..., max_length=16)
+    pdb_id_2: str = Field(..., max_length=16)
+    width: int = Field(default=800, ge=50, le=4096)
+    height: int = Field(default=400, ge=50, le=4096)
 
 
 @router.post("/molecule/smiles")

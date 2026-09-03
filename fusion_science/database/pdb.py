@@ -234,6 +234,7 @@ class PDBConnector(BaseConnector):
 
         # Polymer entities
         polymers = []
+        parse_warnings: list[str] = []
         try:
             polymer_entities = data.get("polymer_entities", [])
             for ent in polymer_entities:
@@ -247,8 +248,11 @@ class PDBConnector(BaseConnector):
                         else 0,
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # P0 (E7): do NOT silently pass — record the parse failure so a
+            # researcher visualizing an incomplete structure knows data dropped.
+            logger.warning("PDB polymer parse failed: %s", e)
+            parse_warnings.append(f"polymer_parse_error: {e}")
 
         # Ligands
         ligands = []
@@ -262,8 +266,10 @@ class PDBConnector(BaseConnector):
                         "comp_id": ent.get("pdbx_entity_nonpoly", {}).get("comp_id", ""),
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # P0 (E7): record parse failure instead of silent drop.
+            logger.warning("PDB ligand parse failed: %s", e)
+            parse_warnings.append(f"ligand_parse_error: {e}")
 
         return {
             "pdb_id": data.get("rcsb_id", ""),
@@ -278,6 +284,7 @@ class PDBConnector(BaseConnector):
             "authors": authors,
             "polymers": polymers,
             "ligands": ligands,
+            "parse_warnings": parse_warnings,
             "deposition_date": data.get("rcsb_accession_info", {}).get("deposit_date", ""),
             "release_date": data.get("rcsb_accession_info", {}).get("initial_release_date", ""),
             "source": "PDB",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
@@ -13,6 +14,7 @@ from ..core.agents import QueryRouterAgent
 from ..core.context_manager import ContextManager
 from ..core.gateway import LLMGateway
 from ..core.tools import ToolRegistry, register_builtin_tools
+from ..mcp_server import router as mcp_router
 from ..session import MemorySessionStore, SessionManager, SQLiteSessionStore
 from ..utils.events import (
     EVENT_CODE_EXECUTION,
@@ -23,7 +25,7 @@ from ..utils.events import (
     EVENT_VISUALIZATION,
     get_event_bus,
 )
-from .middleware import APIKeyMiddleware
+from .middleware import APIKeyMiddleware, MetricsMiddleware, RateLimitMiddleware
 from .routes import (
     analysis,
     audit_route,
@@ -33,6 +35,7 @@ from .routes import (
     databases,
     health,
     math,
+    metrics,
     models,
     pipelines,
     review,
@@ -72,6 +75,27 @@ async def _audit_handler(event):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # F-A1: multi-worker guard. SessionStore/EventBus/ScienceCache/MirrorRouter
+    # are all process-local — uvicorn --workers>1 silently splits session
+    # continuity and audit events across workers. We cannot hard-fail (uvicorn
+    # forks before loading the app, so the worker count is not visible here),
+    # but we warn loudly on the common worker-count env vars so a multi-worker
+    # deploy is at least not silent.
+    _workers_env = os.getenv("WEB_CONCURRENCY") or os.getenv("UVICORN_WORKERS") or ""
+    if _workers_env.isdigit() and int(_workers_env) > 1:
+        logger.error(
+            "FUSION-SCIENCE IS SINGLE-WORKER ONLY: %s workers requested but "
+            "SessionStore/EventBus/ScienceCache are process-local. Sessions, "
+            "audit events, and mirror-latency state WILL be split across workers. "
+            "Run with --workers 1 or use a shared backing store.",
+            _workers_env,
+        )
+
+    # F-O4: optional rotating file logging for daemon deployments.
+    from ..utils.logging_setup import configure_file_logging
+
+    configure_file_logging()
+
     config: ScienceConfig = getattr(app.state, "config", None) or load_config()
     app.state.config = config
     app.state.gateway = LLMGateway(
@@ -113,6 +137,13 @@ async def lifespan(app: FastAPI):
     app.state.router_agent = router_agent
     logger.info("QueryRouterAgent ready: %d agents", len(router_agent.list_agents()))
 
+    # F-A7: shared DatabaseAggregator so connector HTTP clients are reused
+    # across searches instead of created/leaked per request. Closed on shutdown
+    # to release httpx connection pools.
+    from ..database.aggregator import DatabaseAggregator
+
+    app.state.aggregator = DatabaseAggregator()
+
     context_manager = ContextManager(
         session_manager=app.state.session_manager,
         gateway=app.state.gateway,
@@ -145,6 +176,30 @@ async def lifespan(app: FastAPI):
 
     with suppress(Exception):
         recorder.end_session()
+
+    # F-A2: close persistent store/cache/router handles so WAL files and FDs
+    # do not accumulate across `start.sh restart` cycles.
+    sm = getattr(app.state, "session_manager", None)
+    if sm:
+        # F-O6: snapshot the SQLite session DB before closing so a crash mid-run
+        # (or WAL corruption) does not lose all research sessions. No-op for the
+        # in-memory test store.
+        store = getattr(sm, "_store", None)
+        if hasattr(store, "backup"):
+            with suppress(Exception):
+                store.backup()
+        with suppress(Exception):
+            sm.close()
+    with suppress(Exception):
+        from ..database.mirror import reset_shared_cache, reset_shared_router
+
+        reset_shared_cache()
+        reset_shared_router()
+    # F-A7: close shared aggregator's connector connection pools.
+    agg = getattr(app.state, "aggregator", None)
+    if agg:
+        with suppress(Exception):
+            await agg.close_all()
     logger.info("Fusion-Science API shutdown")
 
 
@@ -164,7 +219,17 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # F-O2: request/latency/error counters feed /metrics. Added outermost so
+    # it counts every request including auth/rate-limit rejections.
+    app.add_middleware(MetricsMiddleware)
     app.add_middleware(APIKeyMiddleware)
+    # F-S8: per-IP rate limit. Disabled by default (0); enable via
+    # FUSION_SCIENCE_RATE_LIMIT (requests/window) and FUSION_SCIENCE_RATE_WINDOW.
+    _rl_limit = int(os.getenv("FUSION_SCIENCE_RATE_LIMIT", "0"))
+    _rl_window = int(os.getenv("FUSION_SCIENCE_RATE_WINDOW", "60"))
+    if _rl_limit > 0:
+        app.add_middleware(RateLimitMiddleware, limit=_rl_limit, window=_rl_window)
+        logger.info("Rate limit enabled: %d req/%ds per IP", _rl_limit, _rl_window)
 
     if config:
         app.state.config = config
@@ -182,11 +247,17 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
     app.include_router(citations.router, prefix="/api/v1/citations", tags=["citations"])
     app.include_router(math.router, prefix="/api/v1/math", tags=["math"])
+    app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
     app.include_router(visualize_ext.router, prefix="/api/v1/viz", tags=["visualization-ext"])
     app.include_router(compute.router, prefix="/api/v1/compute", tags=["compute"])
     app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
     app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
     app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
+
+    # F-S11: MCP JSON-RPC 2.0 endpoint (initialize/tools.list/tools.call) + SSE
+    # transport. Was previously declared but never mounted — dead code. Wired
+    # here at /mcp so the MCP clients the README documents actually resolve.
+    app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
 
     return app
 

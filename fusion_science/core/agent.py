@@ -116,8 +116,6 @@ class ScienceAgent:
         )
         self.tool_registry = tool_registry
         self.tools = tools or []
-        self.steps: list[AgentStep] = []
-        self._messages: list[dict] = []
 
     async def run(self, task: str, max_iterations: int = 10) -> AgentResult:
         start = time.time()
@@ -128,17 +126,45 @@ class ScienceAgent:
             {"role": "user", "content": task},
         ]
         steps: list[AgentStep] = []
+        # F-E4: track tool failures so the final result can flag that the output
+        # was produced with degraded tool support (not_found / invalid args).
+        tool_errors: list[str] = []
+        # F-P5: incremental token estimate. _estimate_tokens re-encodes the WHOLE
+        # message list with tiktoken every iteration — O(n) per iter, O(n^2)
+        # across a 10-iter run. Instead tally new messages once and carry the
+        # sum; recount from scratch only after compact rewrites the list.
+        _counted_upto = len(messages)
+        _token_sum = _estimate_tokens(messages)
+        _last_msg_snapshot: tuple | None = None
+        _last_msg_tokens = 0
 
         for i in range(max_iterations):
-            accumulated = _estimate_tokens(messages)
+            # F-P5: add only messages appended since the last tally.
+            if _counted_upto < len(messages):
+                _token_sum += _estimate_tokens(messages[_counted_upto:])
+                _counted_upto = len(messages)
+            # F-P5: _call_llm may merge content into the trailing assistant
+            # message (mutating a message already tallied as near-empty).
+            # Recount that one message so the running sum stays accurate
+            # without re-encoding the whole list.
+            if i > 0 and messages:
+                last = messages[-1]
+                last_key = (last.get("role"), last.get("content"))
+                if last_key != _last_msg_snapshot:
+                    _token_sum += _estimate_tokens([last]) - _last_msg_tokens
+                    _last_msg_tokens = _estimate_tokens([last])
+                    _last_msg_snapshot = last_key
+            accumulated = _token_sum
             if accumulated > MAX_AGENT_CONTEXT_TOKENS:
                 _compact_messages(messages)
+                _token_sum = _estimate_tokens(messages)
+                _counted_upto = len(messages)
                 logger.info(
                     "Agent %s: context compacted at iter %d (%d -> %d tokens est)",
                     self.name,
                     i,
                     accumulated,
-                    _estimate_tokens(messages),
+                    _token_sum,
                 )
 
             resp = await self._call_llm(messages)
@@ -153,6 +179,10 @@ class ScienceAgent:
             if resp.tool_calls:
                 for tc in resp.tool_calls:
                     result = await self._execute_tool(tc)
+                    # F-E4: detect tool-level failures and record them.
+                    if isinstance(result, dict) and result.get("status") in ("not_found", "invalid_arguments", "error"):
+                        tool_name = tc.get("function", {}).get("name", "unknown")
+                        tool_errors.append(f"{tool_name}:{result.get('status')}")
                     tool_content = json.dumps(result, ensure_ascii=False, default=str)
                     if len(tool_content) > 2000:
                         tool_content = tool_content[:2000] + "[...truncated...]"
@@ -173,12 +203,22 @@ class ScienceAgent:
                     )
             else:
                 duration = time.time() - start
+                output = resp.content or ""
+                # F-E4: if any tool failed during this run, annotate the output so
+                # the caller knows the result may rest on degraded tool support.
+                if tool_errors:
+                    note = f"\n\n[注意：本次分析中以下工具调用失败，结果可能不完整：{', '.join(tool_errors)}]"
+                    output = (output + note) if output else note.strip()
+                    logger.warning(
+                        "Agent %s completed with %d tool errors: %s", self.name, len(tool_errors), tool_errors
+                    )
                 return AgentResult(
                     agent_name=self.name,
-                    output=resp.content,
+                    output=output,
                     steps=steps,
                     usage=resp.usage,
                     duration=duration,
+                    error="; ".join(tool_errors) if tool_errors else "",
                 )
 
         duration = time.time() - start
@@ -247,13 +287,31 @@ class ScienceAgent:
 
 
 class SciencePipeline:
-    def __init__(self, engine: ScienceEngine, tool_registry: ToolRegistry | None = None):
+    def __init__(self, engine: ScienceEngine, tool_registry: ToolRegistry | None = None, pattern: str = "sequential"):
         self.engine = engine
         self.tool_registry = tool_registry
         self.agents: dict[str, ScienceAgent] = {}
+        # F-C2: execution pattern set by the template so run() can dispatch
+        # without the caller hard-coding sequential/parallel/master_worker.
+        self.pattern = pattern
 
     def register_agent(self, agent: ScienceAgent) -> None:
         self.agents[agent.name] = agent
+
+    async def run(self, task: str) -> PipelineResult:
+        # F-C2: single entry point that dispatches by the template's pattern,
+        # so the CLI / API actually executes the pipeline instead of building
+        # the object and stopping.
+        names = list(self.agents.keys())
+        if not names:
+            return PipelineResult(task=task, summary="no_agents_registered")
+        if self.pattern == "parallel":
+            return await self.parallel(names, task)
+        if self.pattern == "master_worker":
+            master = names[0]
+            workers = names[1:] if len(names) > 1 else names
+            return await self.master_worker(master, workers, task)
+        return await self.sequential(names, task)
 
     async def sequential(
         self,

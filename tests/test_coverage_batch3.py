@@ -987,7 +987,9 @@ class TestScienceAgent:
         )
         agent = ScienceAgent(name="agent", engine=engine)
         result = await agent.run("use unknown tool")
-        assert result.output == "no tool result"
+        # F-E4: tool-error note appended when a tool call fails, not_found here
+        assert result.output.startswith("no tool result")
+        assert "unknown_tool:not_found" in result.error
 
     @pytest.mark.asyncio
     async def test_run_max_iterations(self):
@@ -1010,7 +1012,9 @@ class TestScienceAgent:
         )
         agent = ScienceAgent(name="bad_json_agent", engine=engine)
         result = await agent.run("bad json tool")
-        assert result.output == "recovered"
+        # F-E4: tool-error note appended; bad json -> invalid_arguments status
+        assert result.output.startswith("recovered")
+        assert "invalid_arguments" in result.error
 
 
 class TestSciencePipeline:
@@ -1320,8 +1324,10 @@ class TestConfig:
         bad_path = tmp_path / "bad.yml"
         bad_path.write_text("{{{{invalid yaml")
         with patch("fusion_science.config._resolve_from_mlx"):
-            config = load_config(path=str(bad_path))
-            assert config.model_name == "qwen3.5-9b"
+            # F-E14: corrupt explicit config path fails loudly (RuntimeError)
+            # rather than silently falling back to defaults.
+            with pytest.raises(RuntimeError):
+                load_config(path=str(bad_path))
 
     def test_load_config_float_env(self):
         with patch.dict(os.environ, {"FUSION_SCIENCE_ENGINE_TEMPERATURE": "0.7"}, clear=False):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -10,10 +11,19 @@ logger = logging.getLogger(__name__)
 # Cap on a tool result before it is fed back into the agent prompt context.
 _MAX_RESULT_CHARS = 8000
 
-# I-9: shared LLMGateway bound to the literature tool handlers at registration
-# time. Without this the extract_findings / analyze_consensus tools construct
-# their own gateway-less instances and silently degrade to rule-based logic.
+# I-9 / F-A5: shared LLMGateway bound to the literature tool handlers at
+# registration time. Guarded by a lock so concurrent registrations (e.g. test +
+# app lifespan, or hot-reload) do not let one writer silently rebind the
+# gateway while an in-flight tool call reads it.
 _LITERATURE_GATEWAY: Any = None
+_LITERATURE_GATEWAY_LOCK = threading.Lock()
+
+
+def _get_literature_gateway() -> Any:
+    # F-A5: lock-protected read so a re-registration cannot interleave with an
+    # in-flight tool handler that just dereferenced the global.
+    with _LITERATURE_GATEWAY_LOCK:
+        return _LITERATURE_GATEWAY
 
 
 @dataclass
@@ -169,7 +179,10 @@ class ToolRegistry:
 
 def register_builtin_tools(registry: ToolRegistry, config: Any = None, gateway: Any = None) -> None:
     global _LITERATURE_GATEWAY
-    _LITERATURE_GATEWAY = gateway
+    # F-A5: atomic rebind under the lock; a tool handler reading via
+    # _get_literature_gateway() never observes a half-written pointer.
+    with _LITERATURE_GATEWAY_LOCK:
+        _LITERATURE_GATEWAY = gateway
     if gateway is None:
         logger.warning(
             "register_builtin_tools: no LLMGateway bound — extract_findings and "
@@ -604,7 +617,7 @@ async def _extract_findings_handler(title: str, abstract: str, paper_id: str = "
     # this handler instantiated LiteratureExtractor() with no gateway, so the
     # extract_findings tool ALWAYS fell back to rule-based extraction and never
     # invoked the LLM — the tool silently lied about using the model.
-    extractor = LiteratureExtractor(gateway=_LITERATURE_GATEWAY)
+    extractor = LiteratureExtractor(gateway=_get_literature_gateway())
     paper = Paper(title=title, abstract=abstract, pmid=paper_id)
     try:
         extraction = await extractor.extract(paper, paper_id=paper_id)
@@ -628,7 +641,7 @@ async def _analyze_consensus_handler(topic: str, findings: list[str]) -> dict:
     from ..literature.synthesizer import LiteratureSynthesizer
 
     # I-9: bind the shared LLMGateway (see _extract_findings_handler note).
-    synthesizer = LiteratureSynthesizer(gateway=_LITERATURE_GATEWAY)
+    synthesizer = LiteratureSynthesizer(gateway=_get_literature_gateway())
     papers = [Paper(title=f"Finding {i + 1}", abstract=f) for i, f in enumerate(findings)]
     try:
         consensus = await synthesizer.synthesize(papers, topic=topic)

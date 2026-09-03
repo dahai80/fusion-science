@@ -12,9 +12,10 @@ router = APIRouter()
 
 
 class VisualizeRequest(BaseModel):
-    query: str
-    chart_type: str = Field(default="scatter")
-    data_description: str = Field(default="")
+    # F-S9: bound user-supplied strings to cap memory/abuse on huge payloads.
+    query: str = Field(..., max_length=8000)
+    chart_type: str = Field(default="scatter", max_length=64)
+    data_description: str = Field(default="", max_length=20000)
     max_iterations: int = Field(default=10, ge=1, le=50)
 
 

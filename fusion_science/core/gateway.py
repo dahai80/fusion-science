@@ -79,6 +79,12 @@ class LLMGateway:
         self._memory_check_enabled: bool = True
         self._memory_soft_threshold: float = 0.85
         self._last_used_model: str = model
+        # P4 (TTL throttle): cache the last /api/status probe so 100 RPS of
+        # chat calls do not produce 100 RPS of status probes against the same
+        # MLX service. Default 15s window — memory pressure moves slowly.
+        self._mlx_status_ttl: float = float(os.getenv("FUSION_SCI_MLX_STATUS_TTL", "15"))
+        self._mlx_status_cache: dict[str, Any] | None = None
+        self._mlx_status_ts: float = 0.0
 
     def set_model(self, model: str) -> None:
         logger.info("Switching model: %s -> %s", self.model, model)
@@ -188,6 +194,16 @@ class LLMGateway:
         return self._client
 
     async def check_mlx_memory(self) -> dict[str, Any]:
+        # P4 (TTL throttle): serve the cached status within the TTL window to
+        # avoid a per-chat-call HTTP round-trip to MLX /api/status. A probe
+        # miss or an expired entry triggers exactly one fetch.
+        now = time.monotonic()
+        if (
+            self._mlx_status_cache is not None
+            and self._mlx_status_ttl > 0
+            and (now - self._mlx_status_ts) < self._mlx_status_ttl
+        ):
+            return self._mlx_status_cache
         try:
             async with httpx.AsyncClient(
                 base_url=self._engine_base_url,
@@ -198,6 +214,8 @@ class LLMGateway:
                 resp.raise_for_status()
                 data = resp.json()
                 logger.debug("MLX api/status: %s", json.dumps(data, ensure_ascii=False)[:300])
+                self._mlx_status_cache = data
+                self._mlx_status_ts = now
                 return data
         except Exception as e:
             logger.warning("check_mlx_memory failed (non-fatal): %s", e)

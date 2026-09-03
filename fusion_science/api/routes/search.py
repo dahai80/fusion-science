@@ -50,7 +50,7 @@ async def search(session_id: str, request: Request, req: SearchRequest):
         try:
             session.context.papers = papers
             session.updated_at = time.time()
-            mgr._store.save(session)
+            await mgr.save(session)
             artifact = Artifact(
                 id=f"search_{int(session.updated_at)}",
                 type="search_result",

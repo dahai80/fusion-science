@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from ...database.mirror import MirrorRouter
+from ...database.mirror import get_shared_router
 from ...utils.offline import get_connectivity, is_offline
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,10 @@ async def connectivity_check():
 
 @router.get("/mirrors/latency")
 async def mirror_latency_test():
-    router_inst = MirrorRouter()
+    # F-A3: use the process-wide shared router so latency results and the
+    # auto_switch flag persist across requests; a fresh MirrorRouter() here
+    # would silently drop any prior enable_auto_switch / cached latency.
+    router_inst = get_shared_router()
     try:
         results = await router_inst.test_all_latency()
     except Exception as e:
@@ -55,12 +58,12 @@ async def mirror_latency_test():
 
 @router.get("/mirrors/status")
 async def mirror_status():
-    router_inst = MirrorRouter()
+    router_inst = get_shared_router()
     return router_inst.get_status_report()
 
 
 @router.post("/mirrors/auto-switch")
 async def mirror_auto_switch(enable: bool = True):
-    router_inst = MirrorRouter()
+    router_inst = get_shared_router()
     router_inst.enable_auto_switch(enable)
     return {"auto_switch": enable, "message": "智能路由已启用" if enable else "智能路由已禁用"}

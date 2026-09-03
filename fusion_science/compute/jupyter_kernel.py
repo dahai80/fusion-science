@@ -45,12 +45,20 @@ class JupyterKernelManager:
     kernel lifecycle (start, execute, shutdown).
     """
 
-    def __init__(self, kernel_name: str = "python3"):
+    def __init__(self, kernel_name: str = "python3", sandbox: Any | None = None):
         self.kernel_name = kernel_name
         self._kernel_manager: Any = None
         self._kernel_client: Any = None
         self._connection_file: str = ""
         self._running = False
+        # P0 (S1): AST validation gate. Without this the Jupyter execute route
+        # runs arbitrary user code in a kernel with full host access (no rlimit,
+        # no import whitelist). The kernel language is checked before validation.
+        if sandbox is None and kernel_name in ("python3", "python"):
+            from .sandbox import SandboxManager
+
+            sandbox = SandboxManager()
+        self._sandbox = sandbox
 
     async def start_kernel(self, kernel_name: str | None = None) -> bool:
         """Start a Jupyter kernel.
@@ -101,6 +109,19 @@ class JupyterKernelManager:
                 success=False,
                 error="Kernel not running. Call start_kernel() first.",
             )
+
+        # P0 (S1): validate Python code before sending to the kernel. A running
+        # Jupyter kernel has no rlimit / import restrictions — `os.system` or
+        # `subprocess.run` would reach the host directly. Reject here.
+        if self._sandbox is not None and self.kernel_name in ("python3", "python"):
+            validation = self._sandbox.validate_code(code, language="python")
+            if not validation.get("valid", True):
+                issues = validation.get("issues", [])
+                logger.warning("Jupyter rejected code: %s", "; ".join(issues))
+                return KernelResult(
+                    success=False,
+                    error=f"Code rejected by sandbox: {'; '.join(issues)}",
+                )
 
         try:
             # Execute code

@@ -725,8 +725,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        seq = await self.conn.fetch_sequence_region("human", "17", 1, 100)
-        assert seq == ""
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_sequence_region("human", "17", 1, 100)
 
     @pytest.mark.asyncio
     async def test_fetch_variants(self):
@@ -754,8 +754,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        variants = await self.conn.fetch_variants("ENSG00000141510")
-        assert variants == []
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_variants("ENSG00000141510")
 
     @pytest.mark.asyncio
     async def test_fetch_homologues(self):
@@ -786,8 +786,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        homologues = await self.conn.fetch_homologues("ENSG00000141510")
-        assert homologues == []
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_homologues("ENSG00000141510")
 
     @pytest.mark.asyncio
     async def test_search_by_gene_name(self):
@@ -993,8 +993,8 @@ class TestChEMBLConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        activities = await self.conn.get_bioactivities("CHEMBL25")
-        assert activities == []
+        with pytest.raises(RuntimeError):
+            await self.conn.get_bioactivities("CHEMBL25")
 
     @pytest.mark.asyncio
     async def test_get_drug_indications(self):
@@ -1020,8 +1020,8 @@ class TestChEMBLConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        indications = await self.conn.get_drug_indications("CHEMBL25")
-        assert indications == []
+        with pytest.raises(RuntimeError):
+            await self.conn.get_drug_indications("CHEMBL25")
 
     def test_parse_molecule(self):
         mol = {
@@ -1352,7 +1352,7 @@ class TestRExecutor:
         from fusion_science.compute.r_executor import RExecutor
 
         with patch.dict("sys.modules", {"rpy2": None, "rpy2.robjects": None}):
-            r = RExecutor()
+            r = RExecutor(use_inproc=True)
             result = await r.execute("1 + 1")
             assert result.success is False
             assert "not available" in result.error
@@ -1372,7 +1372,7 @@ class TestRExecutor:
                 "rpy2.robjects.pandas2ri": MagicMock(activate=MagicMock()),
             },
         ):
-            r = RExecutor()
+            r = RExecutor(use_inproc=True)
             r._r_available = True
             result = await r.execute("1 + 1", capture_plots=False)
             assert result.success is True

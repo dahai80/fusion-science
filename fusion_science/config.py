@@ -125,6 +125,7 @@ def load_config(path: str | None = None) -> ScienceConfig:
     _try_load_dotenv()
 
     # Search for config files
+    explicit_path = path is not None
     if path is None:
         candidates = [
             Path.cwd() / "fusion-science.yml",
@@ -155,6 +156,13 @@ def load_config(path: str | None = None) -> ScienceConfig:
                     if hasattr(config, key):
                         setattr(config, key, value)
         except Exception as e:
+            if explicit_path:
+                # F-E14: a user-supplied config path that fails to parse is an
+                # operator error, not a silent fallback to defaults. Fail loud
+                # so the misconfiguration surfaces at startup instead of running
+                # with unintended settings.
+                logger.error("Corrupt config file %s: %s", path, e)
+                raise RuntimeError(f"Failed to load config from {path}: {e}") from e
             logger.warning("Failed to load config from %s: %s", path, e)
 
     # Environment variable overrides
@@ -170,9 +178,17 @@ def load_config(path: str | None = None) -> ScienceConfig:
                 if isinstance(current, bool):
                     setattr(config, config_key, value.lower() in ("true", "1", "yes"))
                 elif isinstance(current, int):
-                    setattr(config, config_key, int(value))
+                    try:
+                        setattr(config, config_key, int(value))
+                    except ValueError:
+                        # F-E15: unguarded int() crashed load_config on a bad env
+                        # value. Log and keep the default instead of aborting startup.
+                        logger.warning("Env %s=%r not a valid int, keeping default %r", key, value, current)
                 elif isinstance(current, float):
-                    setattr(config, config_key, float(value))
+                    try:
+                        setattr(config, config_key, float(value))
+                    except ValueError:
+                        logger.warning("Env %s=%r not a valid float, keeping default %r", key, value, current)
                 elif isinstance(current, list):
                     # I-1: comma-separated env value -> list. A raw string would
                     # otherwise be stored as a single-element list/string and

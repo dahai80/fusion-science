@@ -196,7 +196,9 @@ class PipelineFactory:
         if not template:
             raise ValueError(f"Unknown template '{template_name}'. Available: {list(self.TEMPLATES.keys())}")
 
-        pipeline = SciencePipeline(self.engine, tool_registry=self.tool_registry)
+        # F-C2: pass the template's pattern so SciencePipeline.run() dispatches
+        # to the right executor instead of always defaulting to sequential.
+        pipeline = SciencePipeline(self.engine, tool_registry=self.tool_registry, pattern=template.pattern)
 
         for agent_cfg in template.agents:
             agent = ScienceAgent(
