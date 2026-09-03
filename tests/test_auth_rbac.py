@@ -338,6 +338,13 @@ class TestKeychainSecrets:
         assert cfg.engine_api_key == _SENTINEL_ENGINE_API_KEY
 
 
+# OIDC tests need pyjwt + cryptography (the [oidc] extra). Skip the whole
+# class gracefully when the extra is absent so a minimal install never hard-
+# errors; CI installs [oidc] so the tests actually run there.
+_oidc_dep = pytest.importorskip("jwt")
+pytest.importorskip("cryptography")
+
+
 class TestOidcIdp:
     def _setup_oidc(self, monkeypatch, jwks_url="https://idp.example/.well-known/jwks.json"):
         monkeypatch.setenv("FUSION_SCIENCE_OIDC_ISSUER", "https://idp.example")
