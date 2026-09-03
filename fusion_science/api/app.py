@@ -39,6 +39,7 @@ from .routes import (
     metrics,
     models,
     pipelines,
+    privacy_route,
     review,
     search,
     security,
@@ -168,7 +169,11 @@ async def lifespan(app: FastAPI):
     # F-ENT-HA-SINK (issue #24): central audit collector URL. When set, every
     # node forwards audit entries (NDJSON) here for cross-node SIEM aggregation.
     _audit_sink = os.getenv("FUSION_SCIENCE_AUDIT_SINK_URL", "")
-    recorder = TraceRecorder(max_age_days=_audit_age, max_sessions=_audit_max, sink_url=_audit_sink)
+    # G1 encryption-at-rest: encrypt audit JSON on disk (AES-256-GCM).
+    _encrypt = os.getenv("FUSION_SCIENCE_ENCRYPT_AT_REST", "").lower() in ("true", "1", "yes")
+    recorder = TraceRecorder(
+        max_age_days=_audit_age, max_sessions=_audit_max, sink_url=_audit_sink, encrypt_at_rest=_encrypt
+    )
     recorder.start_session(metadata={"api": True})
     app.state.recorder = recorder
     _audit_handler._recorder = recorder
@@ -270,6 +275,9 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
     app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
     app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
+    # G9 DSAR / right-to-erasure (GDPR Art.15/17). Admin-only via RBAC prefix
+    # gate (data-subject not in science/viewer permission map).
+    app.include_router(privacy_route.router, prefix="/api/v1", tags=["privacy"])
 
     # F-S11: MCP JSON-RPC 2.0 endpoint (initialize/tools.list/tools.call) + SSE
     # transport. Was previously declared but never mounted — dead code. Wired

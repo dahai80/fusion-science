@@ -103,6 +103,7 @@ class TraceRecorder:
         max_age_days: int = 90,
         max_sessions: int = 1000,
         sink_url: str = "",
+        encrypt_at_rest: bool = False,
     ):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -130,8 +131,44 @@ class TraceRecorder:
         # it; a collector outage degrades to local-file-only audit (still
         # tamper-evident via the hash chain) rather than failing the operation.
         self._sink_url = sink_url
+        # G1 encryption-at-rest: audit JSON files are AES-256-GCM enveloped on
+        # write + decrypted on read (utils.crypto). Default off (local-first);
+        # enable for HIPAA/等保三级 disk-encryption control. The envelope carries
+        # a magic prefix so an existing plaintext store still reads back after
+        # toggling the flag on (new writes encrypt, old reads stay plaintext).
+        self._encrypt_at_rest = encrypt_at_rest
         with contextlib.suppress(Exception):
             self.prune()
+
+    def _read_file(self, path: Path) -> str:
+        # G1: read + decrypt when encrypt_at_rest is on. The decrypt helper is
+        # a no-op on plaintext (no magic prefix), so this also works for a store
+        # that was partly written before the flag was enabled.
+        raw = path.read_bytes()
+        if self._encrypt_at_rest:
+            from ..utils.crypto import decrypt_bytes
+
+            raw = decrypt_bytes(raw)
+        return raw.decode("utf-8")
+
+    def _write_file_atomic(self, path: Path, payload: str) -> None:
+        # G1: encrypt payload bytes when encrypt_at_rest is on, then atomic write
+        # (temp + os.replace) so a crash never leaves a half-written audit file.
+        data = payload.encode("utf-8")
+        if self._encrypt_at_rest:
+            from ..utils.crypto import encrypt_bytes
+
+            data = encrypt_bytes(data)
+        fd, tmp_path = tempfile.mkstemp(dir=str(self.storage_dir), suffix=".tmp", prefix="trace_")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp_path, path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            logger.error("Failed to persist trace session to %s", path)
+            raise
 
     @staticmethod
     def _field(entry: Any, key: str) -> Any:
@@ -565,8 +602,7 @@ class TraceRecorder:
         # Try to load from storage
         session_path = self.storage_dir / f"{session_id}.json"
         if session_path.exists():
-            with open(session_path) as f:
-                data = json.load(f)
+            data = json.loads(self._read_file(session_path))
             # Schema-tolerant deserialize: tolerate field additions/omissions
             try:
                 return TraceSession(**data)
@@ -606,20 +642,7 @@ class TraceRecorder:
 
         export_path = self.storage_dir / f"{self._session.session_id}.json"
         payload = self.export_json()
-        # Atomic write: write to temp file in same dir, then os.replace
-        fd, tmp_path = tempfile.mkstemp(dir=str(self.storage_dir), suffix=".tmp", prefix="trace_")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(payload)
-            os.replace(tmp_path, export_path)
-        except Exception:
-            # Clean up temp file on failure, then re-raise — audit persistence
-            # failures must be loud, not silently swallowed.
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-            logger.error("Failed to persist trace session %s", self._session.session_id)
-            raise
-
+        self._write_file_atomic(export_path, payload)
         logger.info("Saved trace session to %s", export_path)
 
     def verify_chain(self, session_id: str | None = None) -> bool:
@@ -744,8 +767,7 @@ class TraceRecorder:
         sessions = []
         for f in self.storage_dir.glob("trace_*.json"):
             try:
-                with open(f) as fh:
-                    data = json.load(fh)
+                data = json.loads(self._read_file(f))
                 sessions.append(
                     {
                         "session_id": data.get("session_id", ""),

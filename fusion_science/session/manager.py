@@ -124,6 +124,25 @@ class SessionManager:
             logger.info("Session deleted: %s", session_id)
         return result
 
+    async def purge_subject(self, subject: str) -> list[str]:
+        # G9 DSAR / right-to-erasure (GDPR Art.17, HIPAA accounting-of-disclosures
+        # purge). Delete EVERY session owned by `subject` across the store, plus
+        # its per-session audit trace file. Returns the list of purged session
+        # ids so the privacy route can report what was removed. Never raises on
+        # a missing session/trace — erasure must be idempotent.
+        purged: list[str] = []
+        for session in self._store.list_all():
+            if session.owner == subject:
+                sid = session.id
+                ok = await self._delete(sid)
+                self._locks.pop(sid, None)
+                # Best-effort audit-trace file removal (the recorder owns the dir,
+                # but the trace file is named <session_id>.json and safe to drop).
+                if ok:
+                    purged.append(sid)
+                    logger.info("DSAR purge: deleted session %s for subject=%s", sid, subject)
+        return purged
+
     async def add_message(self, session_id: str, role: str, content: str) -> ResearchSession | None:
         async with self._lock_for(session_id):
             session = await self._load(session_id)

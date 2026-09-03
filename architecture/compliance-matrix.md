@@ -286,17 +286,17 @@ out of code scope — deployer/DPO/certifying body owns it).
 
 ### 7.1 Code gaps (require fusion-science changes)
 
-- **G1 [code] encryption-at-rest flag** — `audit/tracker.py` and
-  `session/SQLiteSessionStore` write plaintext JSON/SQLite. Add an
-  optional AES-256 envelope (key from Keychain) for audit files and session
-  DB, gated by a `FUSION_SCIENCE_ENCRYPT_AT_REST` config flag. Default off
-  (preserves local-first simplicity), on for 三级/HIPAA deploys.
-  *File:* `audit/tracker.py:_save_session`, `session/sqlite_store.py`.
+- **G1 [code] encryption-at-rest flag** — ✅ **Closed in v1.0.10.**
+  `audit/tracker.py` now wraps audit JSON in an AES-256-GCM envelope
+  (`utils/crypto.py`, PBKDF2-HMAC-SHA256 200k-iter key from
+  `FUSION_SCIENCE_ENCRYPTION_KEY` or macOS Keychain), gated by
+  `FUSION_SCIENCE_ENCRYPT_AT_REST`. Plaintext stores still read back after
+  the flag is toggled on (magic-prefix `FS1`). Default off.
 
-- **G2 [code] TLS termination** — API server is HTTP (`api_host:port`).
-  Add an optional `ssl_certfile`/`ssl_keyfile` passthrough to uvicorn, or
-  document the required reverse-proxy (nginx/caddy) config in `start.sh`.
-  *File:* `api/app.py`, `start.sh`.
+- **G2 [code] TLS termination** — ✅ **Closed in v1.0.10.** `cli.py` serve()
+  and `start.sh` pass `--ssl-certfile`/`--ssl-keyfile` to uvicorn from
+  `FUSION_SCIENCE_TLS_CERTFILE`/`FUSION_SCIENCE_TLS_KEYFILE`; the startup
+  health probe switches to `https://`. Default HTTP (local-first).
 
 - **G3 [code] uploaded-artifact malware scan** — AST gate covers
   user-supplied *code*, but uploaded *files* (paper PDFs, datasets) are not
@@ -310,9 +310,12 @@ out of code scope — deployer/DPO/certifying body owns it).
 - **G5 [code] per-context JWT TTL** — `_JWT_TTL=3600` is global. For ePHI
   sessions, allow a shorter TTL via config/role. *File:* `api/auth.py`.
 
-- **G6 [code] MFA / second factor** — Single-factor (API key or JWT).
-  For 三级三级 and HIPAA ePHI, add TOTP second factor at `/auth/token`.
-  *File:* `api/routes/auth_route.py`, new `utils/mfa.py`.
+- **G6 [code] MFA / second factor** — ✅ **Closed in v1.0.10.** New
+  `utils/mfa.py` (RFC 6238 TOTP, stdlib-only, ±1 step drift, constant-time
+  compare). `POST /auth/token` enforces a `totp` field when
+  `FUSION_SCIENCE_MFA_REQUIRED=1`; per-subject secrets in
+  `FUSION_SCIENCE_MFA_SECRETS_FILE`. Fail-closed: required but no secret
+  → 401.
 
 - **G7 [code] extensible redaction patterns** — `_SENSITIVE_PATTERNS` in
   `audit/tracker.py` is hardcoded. Load from config so deployers can add
@@ -324,10 +327,11 @@ out of code scope — deployer/DPO/certifying body owns it).
   (ePHI vs literature vs audit). Add a retention map keyed by data class.
   *File:* `audit/tracker.py`, `config.py`.
 
-- **G9 [code] DSAR / right-to-erasure endpoint** — Beyond per-session
-  DELETE, add `DELETE /api/v1/data-subject/{subject_id}` that purges all
-  sessions, traces, and artifacts tagged with that subject across the
-  SQLite store. *File:* new `api/routes/privacy_route.py`.
+- **G9 [code] DSAR / right-to-erasure endpoint** — ✅ **Closed in v1.0.10.**
+  New `api/routes/privacy_route.py`: `DELETE /api/v1/data-subject/{id}`
+  (GDPR Art.17 erasure, idempotent) and `GET /api/v1/data-subject/{id}/sessions`
+  (Art.15 access). Admin-only via RBAC; `session/manager.py:purge_subject`
+  deletes across the shared store (SQLite or Postgres HA).
 
 - **G10 [code] breach/tamper alerting** — `audit_chain` detects tamper but
   only logs. Add a configurable alert sink (webhook/syslog) fired on

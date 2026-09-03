@@ -18,7 +18,19 @@ STDERR_LOG="${LOG_DIR}/stderr.log"
 PORT="${FUSION_SCIENCE_PORT:-11462}"
 HOST="${FUSION_SCIENCE_HOST:-127.0.0.1}"
 WORKERS="${FUSION_SCIENCE_WORKERS:-1}"
-HEALTH_URL="http://${HOST}:${PORT}/api/v1/health"
+# G2 TLS: FUSION_SCIENCE_TLS_CERTFILE/KEYFILE enable HTTPS directly (no reverse
+# proxy needed). When set, the health probe uses https:// and uvicorn gets
+# --ssl-certfile/--ssl-keyfile.
+TLS_CERT="${FUSION_SCIENCE_TLS_CERTFILE:-}"
+TLS_KEY="${FUSION_SCIENCE_TLS_KEYFILE:-}"
+if [[ -n "$TLS_CERT" && -n "$TLS_KEY" ]]; then
+    HEALTH_SCHEME="https"
+    TLS_ARGS=(--ssl-certfile "$TLS_CERT" --ssl-keyfile "$TLS_KEY")
+else
+    HEALTH_SCHEME="http"
+    TLS_ARGS=()
+fi
+HEALTH_URL="${HEALTH_SCHEME}://${HOST}:${PORT}/api/v1/health"
 HEALTH_WAIT=60
 
 log_info()  { printf "\033[0;32m[INFO]\033[0m  %s\n" "$*"; }
@@ -87,8 +99,13 @@ start() {
     fi
 
     log_info "starting fusion-science daemon (port=${PORT}, workers=${WORKERS})..."
+    if [[ -n "$TLS_CERT" && -n "$TLS_KEY" ]]; then
+        log_info "TLS enabled: cert=${TLS_CERT}"
+    else
+        log_warn "TLS disabled (HTTP) — set FUSION_SCIENCE_TLS_CERTFILE/KEYFILE for HTTPS"
+    fi
     nohup python3 -m uvicorn fusion_science.api.app:app \
-        --host "$HOST" --port "$PORT" --workers "$WORKERS" \
+        --host "$HOST" --port "$PORT" --workers "$WORKERS" "${TLS_ARGS[@]}" \
         >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
     local pid=$!
     echo "$pid" > "$PID_FILE"
