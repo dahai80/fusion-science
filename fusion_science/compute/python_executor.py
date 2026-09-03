@@ -122,6 +122,19 @@ class PythonExecutor:
                 "PYTHONPATH": ":".join(self.extra_paths),
                 "FUSION_SCIENCE_OUTPUT": output_path,
             }
+            # F-O10: pin BLAS/OpenMP threads to 1 inside the sandbox. numpy /
+            # OpenBLAS defaults to spawning one thread per CPU; on a constrained
+            # host (CI runner, container) pthread_create fails mid-import and
+            # the subprocess dies with KeyboardInterrupt before user code runs.
+            # Propagate the host's thread cap if set, else force single-threaded.
+            for _tvar in (
+                "OPENBLAS_NUM_THREADS",
+                "OMP_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+            ):
+                env[_tvar] = os.environ.get(_tvar, "1")
             if input_data is not None:
                 env["FUSION_SCIENCE_INPUT"] = input_path
             if env_vars:
