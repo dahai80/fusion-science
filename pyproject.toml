@@ -1,6 +1,6 @@
 [project]
 name = "fusion-science"
-version = "1.0.8"
+version = "1.0.9"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -62,8 +62,22 @@ molecule = [
     "rdkit>=2023.9.0,<2025.0",
     "py3Dmol>=2.0.0,<3.0",
 ]
+# F-ENT-OIDC: external OAuth2/OIDC identity-provider support (issue #22).
+# RS256 JWT verified against the IdP's JWKS; claim → local Role mapping.
+# Lazy import — default install (no [oidc] extra) keeps the built-in HS256
+# path and API-key auth working unchanged.
+oidc = [
+    "pyjwt>=2.8.0,<3.0",
+    "cryptography>=42.0.0,<60.0",
+]
+# F-ENT-HA: multi-node HA — shared Postgres session store (issue #24).
+# psycopg 3 (binary wheel) is the Postgres driver; lazy import so a default
+# install without [ha] keeps the sqlite/memory path working.
+ha = [
+    "psycopg[binary]>=3.1.0,<4.0",
+]
 all = [
-    "fusion-science[test,api,mlx,jupyter,r,molecule]",
+    "fusion-science[test,api,mlx,jupyter,r,molecule,oidc,ha]",
 ]
 
 [project.scripts]

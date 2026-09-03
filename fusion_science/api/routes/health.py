@@ -61,3 +61,41 @@ async def health_check(request: Request) -> dict:
         deps["sessions"] = {"status": "not_initialized"}
 
     return {"status": overall, "service": "fusion-science", "dependencies": deps}
+
+
+@router.get("/ready")
+async def readiness_check(request: Request) -> dict:
+    # F-ENT-HA (issue #24): readiness is DISTINCT from liveness. A load
+    # balancer / kubelet readiness probe gates traffic routing: this node is
+    # "ready" only when its hard dependencies (the shared session store) are
+    # reachable, so a node whose DB connection dropped is pulled from the
+    # pool instead of serving 500s. /health (liveness) stays permissive — a
+    # transient dep blip should NOT get the pod killed and restarted.
+    #
+    # Returns 503 when not ready so LBs/proxies honor it; 200 when ready.
+    from fastapi import Response
+
+    checks: dict[str, dict] = {}
+    ready = True
+
+    # Hard dep: session store. For Postgres HA this is a real DB ping
+    # (PostgresSessionStore.ping); sqlite/memory are always "ok" locally.
+    mgr = getattr(request.app.state, "session_manager", None)
+    store = getattr(mgr, "_store", None) if mgr else None
+    if store is None:
+        checks["session_store"] = {"status": "not_initialized"}
+        ready = False
+    elif hasattr(store, "ping"):
+        ok = store.ping()
+        checks["session_store"] = {"status": "ok" if ok else "down"}
+        if not ok:
+            ready = False
+    else:
+        # sqlite / memory stores have no external dependency to probe.
+        checks["session_store"] = {"status": "ok"}
+
+    return Response(
+        status_code=200 if ready else 503,
+        content=__import__("json").dumps({"ready": ready, "service": "fusion-science", "checks": checks}),
+        media_type="application/json",
+    )

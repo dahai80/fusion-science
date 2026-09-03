@@ -197,6 +197,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.6 | Security hardening from adversarial audit: RCE sandbox fixes (minimal env whitelist, process-group kill, temp-file data passing — no source inlining); chart-type whitelist + input-data injection closed; Jupyter `code`/`timeout` bounds; deny-by-default API auth with loopback-only default bind; fail-closed MLX memory pressure; per-session lost-update locks + WAL SQLite; IDOR-scoped audit traces; incremental audit persist; cache byte budget + Retry-After jitter; gateway `total_deadline` retry cap; HPC shell-injection guards (identifier whitelist, `shlex.quote`, `O_EXCL` script write). |
 | v1.0.7 | Enterprise audit hardening (PRs #20, #21): 4xx/5xx + `detail` error contract across all routes; IDOR owner-scoping on session/audit traces; MCP server wired at `/mcp` (10/12 tools exposed via JSON-RPC 2.0 + SSE); DatabaseAggregator extended to 8 databases with parallel dedup; defusedxml-backed XXE-safe parsing; shadowed legacy `chinese.py` removed. Product release-gate audit (0903) closed the remaining blockers. |
 | v1.0.8 | Enterprise production hardening (PRs #23, #25): OS-level sandbox isolation for user code (`sandbox-exec` on macOS / `bwrap` on Linux, rlimit fallback); built-in RBAC + JWT (3 roles: admin/science/viewer, HS256, no external IdP); multi-worker support via shared SQLite store; tamper-evident audit retention (age/count prune) + NDJSON SIEM export; runtime API-key rotation without restart; macOS Keychain-backed secret resolution. See **Enterprise Security** below. |
+| v1.0.9 | Enterprise federation + HA (closes #22, #24, #25): external OAuth2/OIDC IdP (RS256 via JWKS, claim→role mapping, HS256 fallback); pluggable session store with Postgres backend (`psycopg` 3, connection pool, optimistic locking); readiness vs liveness probes (`/api/v1/ready` 503 on store-down); central audit sink fan-out (`FUSION_SCIENCE_AUDIT_SINK_URL`); compliance control-matrix doc. See **Enterprise Federation & HA** below. |
 
 ## Enterprise Security (v1.0.8)
 
@@ -282,7 +283,60 @@ curl http://localhost:11462/api/v1/sessions/{session_id}/audit/export \
 - For multi-worker, confirm the shared SQLite store path is on fast local storage.
 - OS sandbox isolation is automatic when `sandbox-exec` (macOS) or `bwrap` (Linux) is available; rlimit-only fallback logs a warning.
 
-> **Not in scope (filed as issues):** multi-node HA deployment topology (#24), formal compliance certification roadmap (#25), external OAuth2/OIDC (#22). v1.0.8 is single-node enterprise-ready; HA and certification are tracked separately.
+> **Scope note:** #22 (external IdP), #24 (multi-node HA), and #25 (compliance roadmap) are now closed in v1.0.9 — see **Enterprise Federation & HA** below. Remaining operator-side items (TLS termination, Postgres HA replication, managed load balancer, backups) are documented in `architecture/ha-deployment.md` and are deployment, not code, concerns.
+
+## Enterprise Federation & HA (v1.0.9)
+
+v1.0.9 extends the built-in auth and storage layer for multi-node, federated deployments — still local-first by default (no external service required unless you opt in).
+
+### External OAuth2/OIDC Identity Provider (#22)
+
+When the `[oidc]` extra is installed (`pip install -e ".[oidc]"` → `pyjwt` + `cryptography`) and the `FUSION_SCIENCE_OIDC_*` env vars are set, the API accepts RS256-signed ID/access tokens from an external IdP (Keycloak, Auth0, Azure AD, …) verified against the issuer's JWKS:
+
+```bash
+pip install -e ".[oidc]"
+export FUSION_SCIENCE_OIDC_ISSUER="https://idp.example.com/realms/sci"
+export FUSION_SCIENCE_OIDC_JWKS_URL="https://idp.example.com/realms/sci/protocol/openid-connect/certs"
+export FUSION_SCIENCE_OIDC_AUDIENCE="fusion-science"        # optional; unset = skip aud check
+export FUSION_SCIENCE_OIDC_ROLE_MAP="admin:admins,science:researchers,viewer:readers"
+```
+
+`FUSION_SCIENCE_OIDC_ROLE_MAP` maps IdP group/role claims to local roles (`claim_value:local_role`). When a token carries multiple matching claims, the **highest-privilege** role wins (admin > science > viewer) — not first-match. Issuer, audience, and expiry are all enforced; a signature mismatch or expired token is rejected. Unmatched claims default to `viewer`.
+
+The built-in HS256 JWT path remains the fallback when OIDC is unconfigured, so existing local-first setups are unaffected. A Bearer token that fails **both** OIDC and HS256 verification does **not** fall through to `X-API-Key` — no auth-bypass path.
+
+### Multi-Node HA: Postgres Session Store (#24)
+
+Install the `[ha]` extra and point the session store at a shared Postgres to run multiple stateless nodes behind a load balancer:
+
+```bash
+pip install -e ".[ha]"   # psycopg 3 (binary wheel)
+export FUSION_SCIENCE_SESSION_STORE=postgres
+export FUSION_SCIENCE_SESSION_DSN="postgresql://user:pass@pg-ha:5432/fusion_science"
+```
+
+`PostgresSessionStore` uses a connection pool (`queue.Queue`, configurable `min_conn`/`max_conn`), JSONB columns for session data, and **optimistic locking** (a `version` column + `WHERE version = %s` guard) so concurrent updates from different nodes detect a conflict and refuse the stale write rather than silently clobbering. A readiness probe is provided for the load balancer.
+
+### Readiness vs Liveness
+
+| Endpoint | Purpose | Behavior |
+|---|---|---|
+| `GET /api/v1/health` | Liveness (kubelet) | Permissive `200`; reports `degraded` deps but does not 5xx. A transient blip should not restart the pod. |
+| `GET /api/v1/ready` | Readiness (LB) | `503` when a hard dependency (the session store) is down — the LB pulls the node from the pool instead of serving 500s. `200` when ready. Both probes are auth-exempt. |
+
+### Central Audit Sink
+
+Each node forwards every audit entry (NDJSON, one line per entry) to a shared collector so the full tamper-evident trail lives in one place regardless of which node handled the request:
+
+```bash
+export FUSION_SCIENCE_AUDIT_SINK_URL="https://siem.example.com/ingest"
+```
+
+Forwarding is fire-and-forget on a daemon thread — it never blocks the request path and never raises into it; a collector outage degrades to local-file-only audit (still tamper-evident via the local SHA-256 hash chain). The pull-based export (`GET /sessions/{id}/audit/export`) from v1.0.8 remains.
+
+### Compliance Roadmap (#25)
+
+`architecture/compliance-matrix.md` maps the v1.0.8/v1.0.9 control primitives to HIPAA, GDPR, and 等保 (MLPS 2.0) requirements, inventories the 25 in-repo primitives (with `file:symbol` anchors), and lists the remaining 13 code-level gaps (G1–G13) and 10 organizational gaps (O1–O10) on the path to formal certification. It is a living document for the certification effort, not a claim of certification.
 
 ## Domestic Research Environment
 
