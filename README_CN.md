@@ -183,6 +183,105 @@ fusion-science/
 
 - **374 测试通过**，ruff clean，全部阶段完成。
 
+### 补丁版本 (v1.0.1 ~ v1.0.8)
+
+| 版本 | 变更 |
+|---|---|
+| v1.0.1 | 许可证改为 Apache-2.0（#6, #7）；代码库 ruff-format 清理；CI 强制 `ruff check` + `ruff format --check`。 |
+| v1.0.2 | 推理引擎经 `fusion-gateway`（:11432）路由，不再直连 MLX（:11434）；`_MLX_STATUS_URL` 仍走 :11434 做服务发现（#5）。 |
+| v1.0.3 | 统一服务端口 8200→11462（#9, PR #10）；CI 安装 `.[test,api]` 以运行 FastAPI 测试；`GET /system/mirrors/latency` 改为并行探测，单端点 3s 上限，单镜像失败不再整体超时（#8）。 |
+| v1.0.4 | 验收通过：ToolRegistry 8→12 个 MCP 兼容工具（新增 `visualize_molecule`, `visualize_protein`, `explain_math`, `generate_citation`）；纠正连接器/文档计数（5 海外 + 3 国产）；修复无模型加载时的 MLX 自动探测测试。 |
+| v1.0.5 | 统一 API 端口 11462（`serve` + `start.sh` 单一来源）；强制 ruff `I001` 导入排序；CI 矩阵锁定 Python 3.12（fusion-core `requires-python>=3.12`）（#16, PR #17）。 |
+| v1.0.6 | 对抗审计安全加固：RCE 沙箱修复（最小环境白名单、进程组 kill、临时文件传数据——不内联源码）；图表类型白名单 + 输入注入封堵；Jupyter `code`/`timeout` 边界；默认拒绝的 API 认证 + 仅回环默认绑定；MLX 内存压力 fail-closed；每会话丢失更新锁 + WAL SQLite；IDOR 范围审计追踪；增量审计持久化；缓存字节预算 + Retry-After 抖动；网关 `total_deadline` 重试上限；HPC shell 注入防护（标识符白名单、`shlex.quote`、`O_EXCL` 脚本写入）。 |
+| v1.0.7 | 企业审计加固（PR #20, #21）：全路由 4xx/5xx + `detail` 错误契约；会话/审计追踪 IDOR 属主范围；MCP 服务挂载到 `/mcp`（10/12 工具经 JSON-RPC 2.0 + SSE 暴露）；DatabaseAggregator 扩展到 8 库并行去重；defusedxml 防 XXE 解析；删除被遮蔽的遗留 `chinese.py`。产品发布门审计（0903）关闭剩余阻塞项。 |
+| v1.0.8 | 企业生产加固（PR #23, #25）：用户代码 OS 级沙箱隔离（macOS `sandbox-exec` / Linux `bwrap`，rlimit 降级）；内置 RBAC + JWT（3 角色：admin/science/viewer，HS256，无外部 IdP）；基于共享 SQLite 存储的多 worker 支持；防篡改审计留存（按年龄/数量裁剪）+ NDJSON SIEM 导出；无需重启的运行时 API key 轮换；macOS Keychain 密钥解析。详见下方**企业安全**。 |
+
+## 企业安全 (v1.0.8)
+
+v1.0.8 关闭代码级企业生产缺口。配置通过环境变量驱动，无需外部身份提供商（本地优先）。
+
+### RBAC + JWT
+
+三个内置角色按"路由前缀 × HTTP 方法"管控所有 `/api/v1/*` 路由：
+
+| 角色 | 权限 |
+|---|---|
+| `admin` | 所有路由、所有方法（向后兼容遗留单 key 的默认角色）。 |
+| `science` | 读 + 科研流程：search, databases, citations, math, compute, chat, analysis, visualize, review, audit, pipelines, sessions, tools（只读）。无 system/security/model 变更。 |
+| `viewer` | 只读：search, databases, citations, math, 可视化, models（列表）, health, metrics。无 compute、无 chat、无变更。 |
+
+通过环境变量或 key 文件配置 key：
+
+```bash
+# 多角色 key（逗号或换行分隔的 "role:key" 对）
+export FUSION_SCIENCE_API_KEYS="admin:admin-secret,science:sci-secret,viewer:viewer-secret"
+
+# 遗留单 key（仍为 admin，向后兼容）
+export FUSION_SCIENCE_API_KEY="admin-secret"
+```
+
+在 `POST /api/v1/auth/token` 用 key 换取短时 JWT（1 小时，HS256，含角色声明），作为 `Authorization: Bearer <jwt>` 发送。key 只能铸造同级或更低权限的 token——不可提权。`GET /api/v1/auth/whoami` 返回解析后的主体。
+
+JWT 签名密钥默认取 `FUSION_SCIENCE_JWT_SECRET`；未设置则从遗留 API key 派生。
+
+### 运行时密钥轮换
+
+```bash
+# 指向一个运维可重写的 key 文件，无需重启进程
+export FUSION_SCIENCE_API_KEYS_FILE="/etc/fusion-science/api-keys.txt"
+```
+
+中间件每次请求重新读取已配置 key，因此重写文件即实时轮换——无需重启。确认重载并审计触发者：
+
+```bash
+curl -X POST http://localhost:11462/api/v1/security/rotate-keys \
+  -H "X-API-Key: admin-secret"
+# {"rotated": true, "actor": "apikey:admin-s", "total": 3, "by_role": {...}, "keys": [{"role":"admin","key":"****cret"}]}
+```
+
+密钥绝不入站过线——端点仅返回掩码确认，绝不经 HTTP 修改环境变量。
+
+### 多 Worker
+
+```bash
+export FUSION_SCIENCE_WORKERS=4
+./start.sh start   # uvicorn --workers 4
+```
+
+会话经共享 SQLite 存储（WAL 模式 + `busy_timeout=5000`）跨 worker 安全。EventBus/ScienceCache/MirrorRouter 仍每 worker 独立（读多写少，可接受）。需严格单进程语义时用 `--workers 1`。
+
+### 密钥存储（macOS Keychain）
+
+设置 `FUSION_SCIENCE_KEYCHAIN=1` 启用：从 macOS Keychain（服务名 `fusion-science`）解析推理引擎 API key 与 JWT 签名密钥，而非明文环境变量/配置文件。Keychain 优先级高于 MLX `settings.json` 文件；显式环境变量始终优先。通过 `POST/GET/DELETE /api/v1/security/keys` 管理已存密钥。
+
+### 审计留存与 SIEM 导出
+
+防篡改追踪记录器（SHA-256 哈希链、增量原子持久化）现在按年龄和数量在启动时裁剪：
+
+```bash
+export FUSION_SCIENCE_AUDIT_MAX_AGE_DAYS=180   # 默认 90
+export FUSION_SCIENCE_AUDIT_MAX_SESSIONS=2000  # 默认 1000
+```
+
+导出会话审计追踪为 NDJSON（每行一条）供 SIEM/ELK/Splunk 接入：
+
+```bash
+curl http://localhost:11462/api/v1/sessions/{session_id}/audit/export \
+  -H "X-API-Key: admin-secret"
+# Content-Type: application/x-ndjson
+```
+
+### 生产部署清单
+
+- 默认绑定回环（`127.0.0.1`）。要暴露到局域网须设 `FUSION_SCIENCE_API_HOST=0.0.0.0` **并**配置 API key。
+- 通过 `FUSION_SCIENCE_API_KEYS` 或轮换 key 文件配置角色范围 key。
+- 设置强 `FUSION_SCIENCE_JWT_SECRET`（或用 Keychain）。
+- 启用审计留存以限制磁盘增长。
+- 多 worker 时确认共享 SQLite 存储路径在快速本地存储上。
+- 当 `sandbox-exec`（macOS）或 `bwrap`（Linux）可用时，OS 沙箱隔离自动启用；仅 rlimit 降级会记录警告。
+
+> **不在范围（已提 issue）：** 多节点 HA 部署拓扑（#24）、正式合规认证路线图（#25）、外部 OAuth2/OIDC（#22）。v1.0.8 为单节点企业就绪；HA 与认证单独跟踪。
+
 ## 国内研究环境适配
 
 Fusion-Science 专门针对国内科研环境进行了优化：

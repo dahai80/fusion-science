@@ -210,9 +210,33 @@ def load_config(path: str | None = None) -> ScienceConfig:
     # Env vars / config files have already overridden above; this only fills
     # in values that are still the sentinel defaults.
     if config.engine_api_key == _SENTINEL_ENGINE_API_KEY or config.model_name == _SENTINEL_MODEL_NAME:
+        # F-ENT-KC: macOS Keychain takes priority over the MLX settings file —
+        # a secret in Keychain is never written to disk as plaintext. Opt-in via
+        # FUSION_SCIENCE_KEYCHAIN=1; no-op (returns None) on non-macOS.
+        _resolve_from_keychain(config)
         _resolve_from_mlx(config)
 
     return config
+
+
+def _resolve_from_keychain(config: ScienceConfig) -> None:
+    # Resolve the engine API key from the macOS Keychain (opt-in via
+    # FUSION_SCIENCE_KEYCHAIN). Only acts when the key is still the sentinel —
+    # an explicit env/file value always wins. Failures are non-fatal: log and
+    # fall through to the MLX settings-file resolver.
+    if os.getenv("FUSION_SCIENCE_KEYCHAIN", "").lower() not in ("true", "1", "yes"):
+        return
+    if config.engine_api_key != _SENTINEL_ENGINE_API_KEY:
+        return
+    try:
+        from .utils.keychain import retrieve_key
+
+        val = retrieve_key("engine_api_key")
+        if val:
+            config.engine_api_key = val
+            logger.info("Resolved engine_api_key from macOS Keychain")
+    except Exception as e:
+        logger.warning("Keychain resolution failed (non-fatal): %s", e)
 
 
 def _resolve_from_mlx(config: ScienceConfig) -> None:

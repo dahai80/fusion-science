@@ -4,8 +4,15 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from fusion_science.api.app import create_app
-from fusion_science.api.auth import Role, decode_jwt, issue_jwt, load_api_keys, role_allows
-from fusion_science.config import ScienceConfig
+from fusion_science.api.auth import (
+    Role,
+    decode_jwt,
+    describe_api_keys,
+    issue_jwt,
+    load_api_keys,
+    role_allows,
+)
+from fusion_science.config import _SENTINEL_ENGINE_API_KEY, ScienceConfig, load_config
 from fusion_science.core.gateway import LLMGateway
 from fusion_science.session import MemorySessionStore, SessionManager
 from fusion_science.utils.events import reset_event_bus
@@ -69,6 +76,34 @@ class TestApiKeyLoad:
         assert "ok" in keys
         assert "bad" not in keys
         assert "good" in keys
+
+    def test_key_file_newline_separated(self, monkeypatch, tmp_path):
+        kf = tmp_path / "keys.txt"
+        kf.write_text("science:abc\nviewer:def\n")
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS_FILE", str(kf))
+        monkeypatch.delenv("FUSION_SCIENCE_API_KEYS", raising=False)
+        keys = load_api_keys()
+        assert keys["abc"] == Role.SCIENCE
+        assert keys["def"] == Role.VIEWER
+
+    def test_key_file_wins_over_env(self, monkeypatch, tmp_path):
+        # file entries override env — rotation: rewrite file, new key live
+        kf = tmp_path / "keys.txt"
+        kf.write_text("science:env-key\n")
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS", "science:env-key")
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS_FILE", str(kf))
+        assert "env-key" in load_api_keys()
+        # operator rewrites the file to rotate the science key
+        kf.write_text("science:new-rotated-key\n")
+        keys = load_api_keys()
+        assert "new-rotated-key" in keys
+        assert "env-key" not in keys
+
+    def test_missing_key_file_warns(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS_FILE", str(tmp_path / "nope.txt"))
+        monkeypatch.delenv("FUSION_SCIENCE_API_KEYS", raising=False)
+        # no crash, empty result
+        assert load_api_keys() == {}
 
 
 class TestJwt:
@@ -190,3 +225,111 @@ class TestRbacEnforcement:
         body = resp.json()
         assert body["role"] == "viewer"
         assert "who" in body["subject"]
+
+
+class TestKeyRotation:
+    def test_describe_masks_keys(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS", "science:abcdefghijklmnop,viewer:vwxyz12345")
+        keys = load_api_keys()
+        summary = describe_api_keys(keys)
+        assert summary["total"] == 2
+        assert summary["by_role"]["science"] == 1
+        assert summary["by_role"]["viewer"] == 1
+        # keys masked — no full secret
+        joined = " ".join(k["key"] for k in summary["keys"])
+        assert "abcdefghijklmnop" not in joined
+
+    @pytest.mark.asyncio
+    async def test_rotate_endpoint_admin_ok(self, client):
+        resp = await client.post(
+            "/api/v1/security/rotate-keys",
+            headers={"X-API-Key": "admin-key"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["rotated"] is True
+        assert body["by_role"]["admin"] == 1
+        assert body["by_role"]["science"] == 1
+        assert body["by_role"]["viewer"] == 1
+
+    @pytest.mark.asyncio
+    async def test_rotate_endpoint_viewer_blocked(self, client):
+        # viewer has no security permission → 403
+        resp = await client.post(
+            "/api/v1/security/rotate-keys",
+            headers={"X-API-Key": "view-key"},
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_rotate_reflects_file_rewrite(self, app, tmp_path, monkeypatch):
+        # live rotation: rewrite key file, rotate endpoint sees the new key
+        kf = tmp_path / "keys.txt"
+        kf.write_text("admin:admin-key\n")
+        monkeypatch.setenv("FUSION_SCIENCE_API_KEYS_FILE", str(kf))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            # initially only admin-key
+            r1 = await c.post("/api/v1/security/rotate-keys", headers={"X-API-Key": "admin-key"})
+            assert r1.json()["total"] == 1
+            # operator rotates in a science key
+            kf.write_text("admin:admin-key\nscience:fresh-key\n")
+            r2 = await c.post("/api/v1/security/rotate-keys", headers={"X-API-Key": "admin-key"})
+            body = r2.json()
+            assert body["total"] == 2
+            assert body["by_role"]["science"] == 1
+            # fresh key now works on a science route
+            r3 = await c.post("/api/v1/sessions", json={"title": "T"}, headers={"X-API-Key": "fresh-key"})
+            assert r3.status_code == 200
+
+
+class TestKeychainSecrets:
+    def test_jwt_secret_from_keychain(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_KEYCHAIN", "1")
+        monkeypatch.delenv("FUSION_SCIENCE_JWT_SECRET", raising=False)
+        monkeypatch.setattr(
+            "fusion_science.utils.keychain.retrieve_key",
+            lambda name: "kc-jwt-secret" if name == "jwt_secret" else None,
+        )
+        tok = issue_jwt(Role.ADMIN, "kc")
+        p = decode_jwt(tok)
+        assert p is not None and p.role == Role.ADMIN
+
+    def test_jwt_secret_env_beats_keychain(self, monkeypatch):
+        monkeypatch.setenv("FUSION_SCIENCE_KEYCHAIN", "1")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "env-secret")
+        monkeypatch.setattr(
+            "fusion_science.utils.keychain.retrieve_key",
+            lambda name: "kc-secret",
+        )
+        # env wins
+        tok = issue_jwt(Role.ADMIN, "x")
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "env-secret")
+        assert decode_jwt(tok) is not None
+        # different secret should fail
+        monkeypatch.setenv("FUSION_SCIENCE_JWT_SECRET", "kc-secret")
+        assert decode_jwt(tok) is None
+
+    def test_config_engine_key_from_keychain(self, monkeypatch, tmp_path):
+        # FUSION_SCIENCE_KEYCHAIN=1, sentinel key → keychain resolves it
+        monkeypatch.setenv("FUSION_SCIENCE_KEYCHAIN", "1")
+        monkeypatch.delenv("FUSION_SCIENCE_ENGINE_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "fusion_science.utils.keychain.retrieve_key",
+            lambda name: "kc-engine-key" if name == "engine_api_key" else None,
+        )
+        # block the MLX resolver so the test doesn't hit the network
+        monkeypatch.setattr("fusion_science.config._resolve_from_mlx", lambda c: None)
+        cfg = load_config()
+        assert cfg.engine_api_key == "kc-engine-key"
+
+    def test_keychain_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("FUSION_SCIENCE_KEYCHAIN", raising=False)
+        monkeypatch.setattr(
+            "fusion_science.utils.keychain.retrieve_key",
+            lambda name: "should-not-be-used",
+        )
+        monkeypatch.setattr("fusion_science.config._resolve_from_mlx", lambda c: None)
+        cfg = load_config()
+        # keychain not consulted; MLX blocked; stays sentinel
+        assert cfg.engine_api_key == _SENTINEL_ENGINE_API_KEY
