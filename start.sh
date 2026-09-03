@@ -17,6 +17,7 @@ STDOUT_LOG="${LOG_DIR}/stdout.log"
 STDERR_LOG="${LOG_DIR}/stderr.log"
 PORT="${FUSION_SCIENCE_PORT:-11462}"
 HOST="${FUSION_SCIENCE_HOST:-127.0.0.1}"
+WORKERS="${FUSION_SCIENCE_WORKERS:-1}"
 HEALTH_URL="http://${HOST}:${PORT}/api/v1/health"
 HEALTH_WAIT=60
 
@@ -85,9 +86,9 @@ start() {
         fi
     fi
 
-    log_info "starting fusion-science daemon (port=${PORT})..."
+    log_info "starting fusion-science daemon (port=${PORT}, workers=${WORKERS})..."
     nohup python3 -m uvicorn fusion_science.api.app:app \
-        --host "$HOST" --port "$PORT" \
+        --host "$HOST" --port "$PORT" --workers "$WORKERS" \
         >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
     local pid=$!
     echo "$pid" > "$PID_FILE"
