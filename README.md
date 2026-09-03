@@ -198,6 +198,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.7 | Enterprise audit hardening (PRs #20, #21): 4xx/5xx + `detail` error contract across all routes; IDOR owner-scoping on session/audit traces; MCP server wired at `/mcp` (10/12 tools exposed via JSON-RPC 2.0 + SSE); DatabaseAggregator extended to 8 databases with parallel dedup; defusedxml-backed XXE-safe parsing; shadowed legacy `chinese.py` removed. Product release-gate audit (0903) closed the remaining blockers. |
 | v1.0.8 | Enterprise production hardening (PRs #23, #25): OS-level sandbox isolation for user code (`sandbox-exec` on macOS / `bwrap` on Linux, rlimit fallback); built-in RBAC + JWT (3 roles: admin/science/viewer, HS256, no external IdP); multi-worker support via shared SQLite store; tamper-evident audit retention (age/count prune) + NDJSON SIEM export; runtime API-key rotation without restart; macOS Keychain-backed secret resolution. See **Enterprise Security** below. |
 | v1.0.9 | Enterprise federation + HA (closes #22, #24, #25): external OAuth2/OIDC IdP (RS256 via JWKS, claim→role mapping, HS256 fallback); pluggable session store with Postgres backend (`psycopg` 3, connection pool, optimistic locking); readiness vs liveness probes (`/api/v1/ready` 503 on store-down); central audit sink fan-out (`FUSION_SCIENCE_AUDIT_SINK_URL`); compliance control-matrix doc. See **Enterprise Federation & HA** below. |
+| v1.0.10 | Enterprise compliance hardening (compliance gaps G1/G2/G6/G9): TLS termination in the API server (`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`, HTTPS health check); encryption-at-rest for audit JSON (AES-256-GCM envelope, PBKDF2 key, `FUSION_SCIENCE_ENCRYPT_AT_REST`); TOTP MFA second factor on `/auth/token` (RFC 6238, stdlib-only, `FUSION_SCIENCE_MFA_REQUIRED`); DSAR / right-to-erasure + right-of-access endpoints (`/api/v1/data-subject/{id}`, admin-only). See **Enterprise Compliance Hardening** below. |
 
 ## Enterprise Security (v1.0.8)
 
@@ -337,6 +338,64 @@ Forwarding is fire-and-forget on a daemon thread — it never blocks the request
 ### Compliance Roadmap (#25)
 
 `architecture/compliance-matrix.md` maps the v1.0.8/v1.0.9 control primitives to HIPAA, GDPR, and 等保 (MLPS 2.0) requirements, inventories the 25 in-repo primitives (with `file:symbol` anchors), and lists the remaining 13 code-level gaps (G1–G13) and 10 organizational gaps (O1–O10) on the path to formal certification. It is a living document for the certification effort, not a claim of certification.
+
+## Enterprise Compliance Hardening (v1.0.10)
+
+v1.0.10 closes four code-level compliance gaps (G1, G2, G6, G9) identified in `architecture/compliance-matrix.md` — the controls a HIPAA / 等保三级 reviewer looks for before signing off. All are opt-in and env-var driven; a local-first deploy is unaffected until enabled.
+
+### TLS Termination (G2)
+
+The API server terminates TLS directly when a cert/key pair is provided, so the `Authorization` header and LLM payloads are never plaintext on the wire — no reverse proxy required for a single-node production deploy:
+
+```bash
+export FUSION_SCIENCE_TLS_CERTFILE="/etc/fusion-science/server.crt"
+export FUSION_SCIENCE_TLS_KEYFILE="/etc/fusion-science/server.key"
+./start.sh start   # binds https://, health check uses https://
+```
+
+Both `fusion-science serve` and `start.sh` pass `--ssl-certfile` / `--ssl-keyfile` to uvicorn and switch the startup health probe to `https://`. Unset → plain HTTP (dev default).
+
+### Encryption-at-Rest (G1)
+
+Audit JSON files are written under an AES-256-GCM envelope and decrypted transparently on read, satisfying the HIPAA §164.312 / 等保三级 disk-encryption control for the audit store:
+
+```bash
+pip install -e ".[security]"   # provides cryptography
+export FUSION_SCIENCE_ENCRYPT_AT_REST=1
+export FUSION_SCIENCE_ENCRYPTION_KEY="passphrase-derived-via-PBKDF2"   # or omit → macOS Keychain auto-generate
+```
+
+The 256-bit key is PBKDF2-HMAC-SHA256 derived (200k iterations) from `FUSION_SCIENCE_ENCRYPTION_KEY`, or auto-generated and stored in the macOS Keychain. The envelope carries a magic prefix (`FS1`), so an existing plaintext audit store still reads back after the flag is toggled on — old files stay plaintext, new writes encrypt. If neither an env key nor Keychain is available, the recorder degrades to plaintext with a loud warning rather than crashing startup.
+
+### TOTP MFA Second Factor (G6)
+
+`POST /api/v1/auth/token` requires an additional TOTP (RFC 6238) code when MFA is mandated, so a stolen API key alone cannot mint a JWT — stdlib-only (no dependency), so MFA works on a default install:
+
+```bash
+export FUSION_SCIENCE_MFA_REQUIRED=1
+export FUSION_SCIENCE_MFA_SECRETS_FILE="/etc/fusion-science/mfa-secrets.txt"
+# mfa-secrets.txt: one "subject:base32secret" per line (# comments). The secret
+# is the segment after the LAST colon, so a subject like "apikey:admin-s" is valid.
+#   apikey:admin-s:JBSWY3DPEHPK3PXP
+```
+
+Verification allows ±1 step (30s) clock drift with a constant-time compare. MFA is **fail-closed**: when required but no secret is provisioned for the subject (missing file / unknown subject), the token request is rejected — never a single-factor token. Callers pass the 6-digit code in the `totp` field of the token request.
+
+### DSAR / Right-to-Erasure + Right-of-Access (G9)
+
+Two admin-only endpoints let a Data Protection Officer respond to a GDPR data-subject access / erasure request, mapping a data subject to the `owner` of their research sessions:
+
+```bash
+# Right of access (GDPR Art.15): list a subject's sessions (metadata only)
+curl http://localhost:11462/api/v1/data-subject/alice/sessions -H "Authorization: Bearer <admin-jwt>"
+# {"subject":"alice","count":2,"sessions":[{...}]}
+
+# Right to erasure (GDPR Art.17): delete every session owned by the subject
+curl -X DELETE http://localhost:11462/api/v1/data-subject/alice -H "Authorization: Bearer <admin-jwt>"
+# {"subject":"alice","purged_sessions":["<id>",...],"count":2}
+```
+
+Erasure is idempotent (re-invoking returns `count: 0`, not an error), deletes across the shared store (single-node SQLite or Postgres HA), and the `data-subject` route prefix is admin-only by RBAC (not in the science/viewer permission map).
 
 ## Domestic Research Environment
 

@@ -401,10 +401,18 @@ def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) 
     host = host or cfg.api_host
     port = port or cfg.api_port
 
-    click.echo(f"🚀 Starting Fusion-Science API at http://{host}:{port}")
-    click.echo(f"   Docs: http://{host}:{port}/docs")
+    # G2 TLS: serve HTTPS directly when cert+key configured. Required for any
+    # non-loopback production deploy (HIPAA §164.312(e), 等保三级).
+    use_tls = bool(cfg.tls_certfile and cfg.tls_keyfile)
+    scheme = "https" if use_tls else "http"
+    click.echo(f"🚀 Starting Fusion-Science API at {scheme}://{host}:{port}")
+    click.echo(f"   Docs: {scheme}://{host}:{port}/docs")
     click.echo(f"   Model: {cfg.model_name}")
     click.echo(f"   Engine: {cfg.engine_base_url}")
+    if use_tls:
+        click.echo(f"   TLS: cert={cfg.tls_certfile}")
+    else:
+        click.echo("   TLS: disabled (HTTP) — set FUSION_SCIENCE_TLS_CERTFILE/KEYFILE for HTTPS")
     if reload:
         click.echo("   Auto-reload: enabled")
 
@@ -417,6 +425,8 @@ def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) 
             port=port,
             reload=reload,
             log_level="info",
+            ssl_certfile=cfg.tls_certfile or None,
+            ssl_keyfile=cfg.tls_keyfile or None,
         )
     except ImportError:
         click.echo("❌ uvicorn not installed. Install with: pip install 'fusion-science[api]'")

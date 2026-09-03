@@ -110,6 +110,20 @@ class ScienceConfig:
     trace_dir: str = "~/.cache/fusion-science/traces"
     provenance_dir: str = "~/.cache/fusion-science/provenance"
 
+    # --- Enterprise production controls (v1.0.9, issues #22/#24 + G1/G2/G6/G9) ---
+    # G2 TLS termination: pass ssl_certfile/ssl_keyfile to uvicorn so the API can
+    # serve HTTPS directly without a reverse proxy. Empty = plain HTTP (local/dev).
+    # For any non-loopback deploy this MUST be set (HIPAA §164.312(e), 等保三级).
+    tls_certfile: str = ""
+    tls_keyfile: str = ""
+    # G1 encryption-at-rest: optional AES-256 envelope for audit JSON + session DB.
+    # Key from FUSION_SCIENCE_ENCRYPTION_KEY env or macOS Keychain. Off by default
+    # (local-first simplicity); enable for HIPAA/等保三级 disk-encryption control.
+    encrypt_at_rest: bool = False
+    # G6 MFA: require a TOTP second factor at /auth/token when True. Per-key TOTP
+    # secrets provisioned via FUSION_SCIENCE_MFA_SECRETS_FILE (subject:base32secret).
+    mfa_required: bool = False
+
 
 def load_config(path: str | None = None) -> ScienceConfig:
     """Load configuration from a file, with environment variable overrides.

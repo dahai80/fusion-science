@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ...api.auth import Role, issue_jwt, load_api_keys
+from ...utils.mfa import verify_subject_mfa
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,9 @@ class TokenRequest(BaseModel):
     api_key: str
     subject: str | None = None
     role: str | None = None
+    # G6 MFA: TOTP code required when FUSION_SCIENCE_MFA_REQUIRED=1. The subject
+    # must have a provisioned secret in FUSION_SCIENCE_MFA_SECRETS_FILE.
+    totp: str | None = None
 
 
 @router.post("/auth/token")
@@ -43,6 +47,10 @@ async def issue_token(request: Request, body: TokenRequest) -> JSONResponse:
             return JSONResponse(status_code=403, content={"detail": "Cannot escalate role above key's role"})
         role = requested
     sub = body.subject or f"apikey:{body.api_key[:8]}"
+    # G6: enforce TOTP second factor when MFA is mandated. Fail-closed: a
+    # missing/secret-less/wrong code is 401, never a single-factor token.
+    if not verify_subject_mfa(sub, body.totp):
+        return JSONResponse(status_code=401, content={"detail": "MFA required: provide a valid TOTP code"})
     token = issue_jwt(role, sub)
     logger.info("Auth: issued %s JWT for subject=%s", role.value, sub)
     return JSONResponse(

@@ -1,6 +1,6 @@
 [project]
 name = "fusion-science"
-version = "1.0.9"
+version = "1.0.10"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -76,8 +76,14 @@ oidc = [
 ha = [
     "psycopg[binary]>=3.1.0,<4.0",
 ]
+# G1 encryption-at-rest — AES-256-GCM envelope for audit JSON. Reuses
+# cryptography (also pulled by [oidc]); lazy import so a default install
+# without the extra degrades to plaintext with a warning, never crashes.
+security = [
+    "cryptography>=42.0.0,<60.0",
+]
 all = [
-    "fusion-science[test,api,mlx,jupyter,r,molecule,oidc,ha]",
+    "fusion-science[test,api,mlx,jupyter,r,molecule,oidc,ha,security]",
 ]
 
 [project.scripts]

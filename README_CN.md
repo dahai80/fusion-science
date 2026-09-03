@@ -196,6 +196,7 @@ fusion-science/
 | v1.0.7 | 企业审计加固（PR #20, #21）：全路由 4xx/5xx + `detail` 错误契约；会话/审计追踪 IDOR 属主范围；MCP 服务挂载到 `/mcp`（10/12 工具经 JSON-RPC 2.0 + SSE 暴露）；DatabaseAggregator 扩展到 8 库并行去重；defusedxml 防 XXE 解析；删除被遮蔽的遗留 `chinese.py`。产品发布门审计（0903）关闭剩余阻塞项。 |
 | v1.0.8 | 企业生产加固（PR #23, #25）：用户代码 OS 级沙箱隔离（macOS `sandbox-exec` / Linux `bwrap`，rlimit 降级）；内置 RBAC + JWT（3 角色：admin/science/viewer，HS256，无外部 IdP）；基于共享 SQLite 存储的多 worker 支持；防篡改审计留存（按年龄/数量裁剪）+ NDJSON SIEM 导出；无需重启的运行时 API key 轮换；macOS Keychain 密钥解析。详见下方**企业安全**。 |
 | v1.0.9 | 企业联邦 + HA（关闭 #22、#24、#25）：外部 OAuth2/OIDC IdP（RS256 经 JWKS、claim→角色映射、HS256 回退）；可插拔会话存储 + Postgres 后端（`psycopg` 3、连接池、乐观锁）；就绪 vs 存活探针（`/api/v1/ready` 存储故障时 503）；中央审计汇 fan-out（`FUSION_SCIENCE_AUDIT_SINK_URL`）；合规控制矩阵文档。详见下方**企业联邦与 HA**。 |
+| v1.0.10 | 企业合规加固（合规缺口 G1/G2/G6/G9）：API 服务 TLS 终止（`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`，HTTPS 健康检查）；审计 JSON 静态加密（AES-256-GCM 信封、PBKDF2 派生密钥、`FUSION_SCIENCE_ENCRYPT_AT_REST`）；`/auth/token` 的 TOTP MFA 第二因子（RFC 6238、纯标准库、`FUSION_SCIENCE_MFA_REQUIRED`）；DSAR 删除权 + 访问权端点（`/api/v1/data-subject/{id}`，仅 admin）。详见下方**企业合规加固**。 |
 
 ## 企业安全 (v1.0.8)
 
@@ -335,6 +336,64 @@ export FUSION_SCIENCE_AUDIT_SINK_URL="https://siem.example.com/ingest"
 ### 合规路线图 (#25)
 
 `architecture/compliance-matrix.md` 把 v1.0.8/v1.0.9 的控制基元映射到 HIPAA、GDPR、等保（MLPS 2.0）要求，盘点 25 个库内基元（附 `file:symbol` 锚点），并列出通向正式认证剩余的 13 个代码级缺口（G1–G13）与 10 个组织级缺口（O1–O10）。该文档为认证工作的活文档，而非认证声明。
+
+## 企业合规加固 (v1.0.10)
+
+v1.0.10 关闭 `architecture/compliance-matrix.md` 中 4 个代码级合规缺口（G1、G2、G6、G9）——这是 HIPAA / 等保三级评审签字前会核查的控制项。全部为可选、环境变量驱动；启用前本地优先部署不受影响。
+
+### TLS 终止 (G2)
+
+提供证书/私钥对时 API 服务直接终止 TLS，使 `Authorization` 头与 LLM 负载在网络上不再明文——单节点生产部署无需反向代理：
+
+```bash
+export FUSION_SCIENCE_TLS_CERTFILE="/etc/fusion-science/server.crt"
+export FUSION_SCIENCE_TLS_KEYFILE="/etc/fusion-science/server.key"
+./start.sh start   # 绑定 https://，健康检查用 https://
+```
+
+`fusion-science serve` 与 `start.sh` 均把 `--ssl-certfile` / `--ssl-keyfile` 传给 uvicorn，并将启动健康探针切到 `https://`。未设置则保持明文 HTTP（开发默认）。
+
+### 静态加密 (G1)
+
+审计 JSON 文件以 AES-256-GCM 信封写入、读取时透明解密，满足审计存储的 HIPAA §164.312 / 等保三级磁盘加密控制项：
+
+```bash
+pip install -e ".[security]"   # 提供 cryptography
+export FUSION_SCIENCE_ENCRYPT_AT_REST=1
+export FUSION_SCIENCE_ENCRYPTION_KEY="经 PBKDF2 派生的口令"   # 或省略 → macOS Keychain 自动生成
+```
+
+256 位密钥经 PBKDF2-HMAC-SHA256（20 万次迭代）从 `FUSION_SCIENCE_ENCRYPTION_KEY` 派生，或在 macOS Keychain 中自动生成并存储。信封带魔数前缀（`FS1`），故启用该开关后既有明文审计存储仍可读——旧文件保持明文，新写入加密。若环境变量密钥与 Keychain 均不可用，记录器降级为明文并大声告警，而非崩溃启动。
+
+### TOTP MFA 第二因子 (G6)
+
+MFA 强制时 `POST /api/v1/auth/token` 需额外 TOTP（RFC 6238）验证码，使单独窃取的 API key 无法签发 JWT——纯标准库（无依赖），默认安装即可用 MFA：
+
+```bash
+export FUSION_SCIENCE_MFA_REQUIRED=1
+export FUSION_SCIENCE_MFA_SECRETS_FILE="/etc/fusion-science/mfa-secrets.txt"
+# mfa-secrets.txt：每行一个 "subject:base32secret"（# 为注释）。密钥为最后一个
+# 冒号之后的段，故形如 "apikey:admin-s" 的 subject 合法。
+#   apikey:admin-s:JBSWY3DPEHPK3PXP
+```
+
+校验允许 ±1 步（30s）时钟漂移，常量时间比较。MFA **失败即关闭**：强制但该 subject 未配置密钥（文件缺失 / 未知 subject）时拒绝令牌请求——绝不签发单因子令牌。调用方在令牌请求的 `totp` 字段传入 6 位验证码。
+
+### DSAR / 删除权 + 访问权 (G9)
+
+两个仅 admin 可用的端点让数据保护官（DPO）响应 GDPR 数据主体访问/删除请求，把数据主体映射到其研究会话的 `owner`：
+
+```bash
+# 访问权（GDPR Art.15）：列出该 subject 的会话（仅元数据）
+curl http://localhost:11462/api/v1/data-subject/alice/sessions -H "Authorization: Bearer <admin-jwt>"
+# {"subject":"alice","count":2,"sessions":[{...}]}
+
+# 删除权（GDPR Art.17）：删除该 subject 拥有的所有会话
+curl -X DELETE http://localhost:11462/api/v1/data-subject/alice -H "Authorization: Bearer <admin-jwt>"
+# {"subject":"alice","purged_sessions":["<id>",...],"count":2}
+```
+
+删除幂等（重复调用返回 `count: 0` 而非报错），跨共享存储删除（单节点 SQLite 或 Postgres HA），且 `data-subject` 路由前缀经 RBAC 仅 admin 可用（不在 science/viewer 权限表中）。
 
 ## 国内研究环境适配
 
