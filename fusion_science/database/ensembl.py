@@ -225,8 +225,12 @@ class EnsemblConnector(BaseConnector):
             )
             return resp.text.strip()
         except Exception as e:
+            # P0 (E6): do NOT return "" on failure — an empty sequence is
+            # indistinguishable from "no sequence found" and a scientist could
+            # publish a negative finding that was really a network outage.
+            # Raise so callers distinguish upstream failure from empty data.
             logger.error("Failed to fetch sequence region: %s", e)
-            return ""
+            raise RuntimeError(f"ensembl_fetch_sequence_region_failed: {e}") from e
 
     async def fetch_variants(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
         """Fetch variants for a gene.
@@ -259,8 +263,10 @@ class EnsemblConnector(BaseConnector):
                 )
             return variants
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — empty variants look like
+            # "no variants exist" vs an Ensembl outage. Raise to surface it.
             logger.error("Failed to fetch variants for %s: %s", gene_id, e)
-            return []
+            raise RuntimeError(f"ensembl_fetch_variants_failed: {e}") from e
 
     async def fetch_homologues(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
         """Fetch homologous genes across species.
@@ -296,8 +302,9 @@ class EnsemblConnector(BaseConnector):
                     )
             return results
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — see fetch_variants note.
             logger.error("Failed to fetch homologues for %s: %s", gene_id, e)
-            return []
+            raise RuntimeError(f"ensembl_fetch_homologues_failed: {e}") from e
 
     async def search_by_gene_name(self, gene_name: str, species: str = "human") -> DatabaseResult:
         """Search for a gene by its common name.

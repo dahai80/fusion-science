@@ -97,12 +97,20 @@ def run(ctx: click.Context, task: str | None, pipeline: str | None, output: str 
 
 def _execute_task(cfg: ScienceConfig, task: str, pipeline: str | None, output: str | None) -> None:
     """Execute a single task."""
-    click.echo(f"\n🚀 Executing: {task}")
-    click.echo("   (Engine integration pending — connect to fusion-mlx server for full capability)")
-    click.echo(f"   Model: {cfg.model_name}")
+    # I-10: honest status — this path is not wired to the engine. Previously it
+    # echoed "Executing:" which made the user believe the task ran. Say plainly
+    # it is a stub and point at the working entry point.
+    click.echo(f"\n⚠️  Task received: {task}")
+    click.echo("   This CLI command is not implemented yet.")
+    click.echo("   To actually run a task, start the API server (`fusion-science serve`)")
+    click.echo("   and POST to /api/v1/chat, or use the pipeline command.")
+    click.echo(f"   Configured model: {cfg.model_name}")
     if pipeline:
         click.echo(f"   Pipeline: {pipeline}")
     click.echo("")
+    # F-C1: unimplemented command exits non-zero so scripts/cron do not treat
+    # an honest stub as a successful run.
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +147,45 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
     factory = PipelineFactory(engine)
     try:
         sp = factory.create_pipeline(pipeline_name)
-        click.echo(f"   Pipeline created with {len(sp.agents)} agents")
+        click.echo(f"   Pipeline created with {len(sp.agents)} agents (pattern={sp.pattern})")
     except ValueError as e:
         click.echo(f"❌ {e}", err=True)
-        click.echo(f"   Available: {', '.join(PipelineFactory.list_templates())}")
+        click.echo(f"   Available: {', '.join(t['name'] for t in PipelineFactory.list_templates())}")
         sys.exit(1)
+
+    # F-C2: actually execute the pipeline. Previously this command built the
+    # SciencePipeline object and stopped, leaving the user with "created" but
+    # no result. run() dispatches by the template's stored pattern.
+    import asyncio
+
+    try:
+        result = asyncio.run(sp.run(query))
+    except Exception as e:
+        logger.exception("Pipeline '%s' failed", pipeline_name)
+        click.echo(f"❌ Pipeline execution failed: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(f"\n✅ Pipeline finished in {result.total_duration:.1f}s")
+    if result.summary:
+        click.echo(f"   Summary: {result.summary}")
+    for ar in result.agent_results:
+        status = "ok" if not ar.error else "FAIL"
+        click.echo(f"   [{status}] {ar.agent_name}: {ar.output[:200] if ar.output else ar.error}")
+    if output:
+        import json
+
+        payload = {
+            "task": result.task,
+            "summary": result.summary,
+            "duration": result.total_duration,
+            "agents": [
+                {"name": ar.agent_name, "output": ar.output, "error": ar.error, "duration": ar.duration}
+                for ar in result.agent_results
+            ],
+        }
+        with open(output, "w") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        click.echo(f"   Results written to {output}")
 
 
 # ---------------------------------------------------------------------------
@@ -160,24 +202,12 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
 def search(ctx: click.Context, query: str, db: str, max: int, output: str | None) -> None:
     """Search scientific databases."""
     cfg: ScienceConfig = ctx.obj["config"]
-    click.echo(f"🔍 Searching {db} for: {query}")
-
-    # Database dispatcher
-    db_map = {
-        "pubmed": ("PubMedConnector", "PubMed"),
-        "arxiv": ("LiteratureSearch", "arXiv"),
-        "uniprot": ("UniProtConnector", "UniProt"),
-        "pdb": ("PDBConnector", "PDB"),
-    }
-
-    db_info = db_map.get(db)
-    if not db_info:
-        click.echo(f"❌ Unknown database: {db}. Available: {', '.join(db_map.keys())}")
-        return
-
-    click.echo(f"   {db_info[1]} connector available (requires network access)")
+    click.echo(f"🔍 Search requested: {db} for: {query}")
+    click.echo("   ⚠️  This CLI command is not implemented yet.")
+    click.echo("   Use the API: GET /api/v1/search?query=...&sources=...")
     click.echo(f"   Mirror mode: {'enabled' if cfg.use_mirrors else 'disabled'}")
     click.echo(f"   Max results: {max}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -197,22 +227,15 @@ def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, o
     Provide a data file or use --code to pass code directly.
     """
     ctx.obj["config"]
-    click.echo(f"📊 Analyzing data ({lang})")
-
+    click.echo(f"📊 Analyze requested ({lang})")
+    click.echo("   ⚠️  This CLI command is not implemented yet.")
+    click.echo("   Use the API: POST /api/v1/compute/codegen")
     if code:
-        click.echo(f"   Executing provided code ({len(code)} chars)")
+        click.echo(f"   Provided code: {len(code)} chars")
     elif file:
-        click.echo(f"   Reading data from: {file}")
-    else:
-        click.echo("   Interactive mode — enter code below (Ctrl+D to execute):")
-        code = click.get_text_stream("stdin").read()
-        if code.strip():
-            click.echo(f"   Executing code ({len(code)} chars)")
-        else:
-            click.echo("   No code provided.")
-            return
-
-    click.echo("   Python executor available (requires sandbox configuration)")
+        click.echo(f"   Data file: {file}")
+    click.echo("")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -231,11 +254,14 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
     Types: chart, molecule (from SMILES), protein (from PDB ID).
     """
     ctx.obj["config"]
-    click.echo(f"🎨 Generating {type} visualization")
+    click.echo(f"🎨 Visualize requested: {type}")
+    click.echo("   ⚠️  This CLI command is not implemented yet.")
+    click.echo("   Use the API: POST /api/v1/viz/chart or /mcp tools/call")
     if data:
         click.echo(f"   Data: {data}")
     if output:
         click.echo(f"   Output: {output}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +277,13 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
 def review(ctx: click.Context, query: str, max_papers: int, output: str | None) -> None:
     """Conduct a literature review on a research topic."""
     ctx.obj["config"]
-    click.echo(f"📚 Literature review: {query}")
+    click.echo(f"📚 Literature review requested: {query}")
+    click.echo("   ⚠️  This CLI command is not implemented yet.")
+    click.echo('   Use: fusion-science pipeline literature_review "<query>"')
     click.echo(f"   Max papers: {max_papers}")
     if output:
         click.echo(f"   Output: {output}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +298,11 @@ def review(ctx: click.Context, query: str, max_papers: int, output: str | None) 
 def audit(ctx: click.Context, output: str, format: str) -> None:
     """Generate an audit/reproducibility report for the current session."""
     ctx.obj["config"]
-    click.echo(f"📋 Generating audit report: {output}")
+    click.echo(f"📋 Audit report requested: {output}")
+    click.echo("   ⚠️  This CLI command is not implemented yet.")
+    click.echo("   Audit reports are produced through the API session audit trail.")
     click.echo(f"   Format: {format}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

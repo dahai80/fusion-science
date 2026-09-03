@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Cap on a tool result before it is fed back into the agent prompt context.
+_MAX_RESULT_CHARS = 8000
+
+# I-9 / F-A5: shared LLMGateway bound to the literature tool handlers at
+# registration time. Guarded by a lock so concurrent registrations (e.g. test +
+# app lifespan, or hot-reload) do not let one writer silently rebind the
+# gateway while an in-flight tool call reads it.
+_LITERATURE_GATEWAY: Any = None
+_LITERATURE_GATEWAY_LOCK = threading.Lock()
+
+
+def _get_literature_gateway() -> Any:
+    # F-A5: lock-protected read so a re-registration cannot interleave with an
+    # in-flight tool handler that just dereferenced the global.
+    with _LITERATURE_GATEWAY_LOCK:
+        return _LITERATURE_GATEWAY
 
 
 @dataclass
@@ -51,13 +69,74 @@ class ToolRegistry:
         if not tool.handler:
             logger.error("Tool has no handler: %s", name)
             return {"error": f"Tool '{name}' has no handler registered"}
+        # R-6: validate arguments against the tool's declared schema before
+        # dispatching. A malformed LLM tool_call (missing required arg, wrong
+        # type) otherwise reaches the handler as a confusing TypeError that
+        # looks like an internal bug. Reject early with a clear contract error.
+        if not isinstance(arguments, dict):
+            return {"error": f"Tool '{name}' expects an object, got {type(arguments).__name__}"}
+        missing = self._missing_required(tool, arguments)
+        if missing:
+            logger.warning("Tool %s rejected: missing required args %s", name, missing)
+            return {"error": f"Tool '{name}' missing required arguments: {missing}"}
+        type_error = self._check_types(tool, arguments)
+        if type_error:
+            logger.warning("Tool %s rejected: %s", name, type_error)
+            return {"error": f"Tool '{name}' argument type error: {type_error}"}
         try:
             result = await tool.handler(**arguments)
             logger.debug("Tool executed: %s", name)
-            return result
+            return self._cap_result(name, result)
         except Exception as e:
             logger.error("Tool execution failed: %s — %s", name, e)
             return {"error": str(e)}
+
+    @staticmethod
+    def _missing_required(tool: ToolDefinition, arguments: dict[str, Any]) -> list[str]:
+        required = tool.parameters.get("required") if tool.parameters else None
+        if not required:
+            return []
+        return [r for r in required if r not in arguments or arguments[r] is None]
+
+    @staticmethod
+    def _check_types(tool: ToolDefinition, arguments: dict[str, Any]) -> str:
+        props = tool.parameters.get("properties") if tool.parameters else None
+        if not props:
+            return ""
+        _PY = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
+        for key, value in arguments.items():
+            schema = props.get(key)
+            if not schema or not isinstance(schema, dict):
+                continue
+            expected = schema.get("type")
+            if not expected:
+                continue
+            allowed = _PY.get(expected)
+            if allowed is None:
+                continue
+            # bool is a subclass of int in Python; only accept bool for boolean,
+            # not for integer/number, so "true" doesn't satisfy an int param.
+            if expected in ("integer", "number") and isinstance(value, bool):
+                return f"'{key}' expected {expected}, got boolean"
+            if not isinstance(value, allowed):
+                return f"'{key}' expected {expected}, got {type(value).__name__}"
+        return ""
+
+    @staticmethod
+    def _cap_result(name: str, result: Any) -> Any:
+        # Bound the size of a tool result fed back into the agent context so a
+        # single huge DB dump cannot blow the prompt budget. Agent.run also
+        # truncates, but capping here avoids serializing megabytes first.
+        try:
+            import json
+
+            encoded = json.dumps(result, default=str, ensure_ascii=False)
+            if len(encoded) > _MAX_RESULT_CHARS:
+                logger.warning("Tool %s result capped: %d -> %d chars", name, len(encoded), _MAX_RESULT_CHARS)
+                return {"_truncated": True, "preview": encoded[:_MAX_RESULT_CHARS] + "...[truncated]"}
+        except (TypeError, ValueError):
+            pass
+        return result
 
     def get_openai_tools(self) -> list[dict]:
         result = []
@@ -98,7 +177,17 @@ class ToolRegistry:
         return name in self._tools
 
 
-def register_builtin_tools(registry: ToolRegistry, config: Any = None) -> None:
+def register_builtin_tools(registry: ToolRegistry, config: Any = None, gateway: Any = None) -> None:
+    global _LITERATURE_GATEWAY
+    # F-A5: atomic rebind under the lock; a tool handler reading via
+    # _get_literature_gateway() never observes a half-written pointer.
+    with _LITERATURE_GATEWAY_LOCK:
+        _LITERATURE_GATEWAY = gateway
+    if gateway is None:
+        logger.warning(
+            "register_builtin_tools: no LLMGateway bound — extract_findings and "
+            "analyze_consensus will run in rule-based/offline mode, not LLM mode."
+        )
     registry.register(
         name="search_literature",
         description="Search academic databases for scientific literature (PubMed, arXiv)",
@@ -154,7 +243,9 @@ def register_builtin_tools(registry: ToolRegistry, config: Any = None) -> None:
             "required": ["code"],
         },
         handler=_execute_python_handler,
-        mcp_exposed=True,
+        # R-6: arbitrary code execution must NOT be exposed over MCP — an MCP
+        # caller could run unbounded code on the host. Internal agent loop only.
+        mcp_exposed=False,
     )
 
     registry.register(
@@ -242,7 +333,9 @@ def register_builtin_tools(registry: ToolRegistry, config: Any = None) -> None:
             "required": ["code"],
         },
         handler=_execute_r_handler,
-        mcp_exposed=True,
+        # R-6: arbitrary R code execution — not exposed over MCP (same RCE risk
+        # as execute_python). Internal agent loop only.
+        mcp_exposed=False,
     )
 
     registry.register(
@@ -520,7 +613,11 @@ async def _extract_findings_handler(title: str, abstract: str, paper_id: str = "
     from ..literature.extractor import LiteratureExtractor
     from ..literature.search import Paper
 
-    extractor = LiteratureExtractor()
+    # I-9: bind the shared LLMGateway captured at register time. Previously
+    # this handler instantiated LiteratureExtractor() with no gateway, so the
+    # extract_findings tool ALWAYS fell back to rule-based extraction and never
+    # invoked the LLM — the tool silently lied about using the model.
+    extractor = LiteratureExtractor(gateway=_get_literature_gateway())
     paper = Paper(title=title, abstract=abstract, pmid=paper_id)
     try:
         extraction = await extractor.extract(paper, paper_id=paper_id)
@@ -543,7 +640,8 @@ async def _analyze_consensus_handler(topic: str, findings: list[str]) -> dict:
     from ..literature.search import Paper
     from ..literature.synthesizer import LiteratureSynthesizer
 
-    synthesizer = LiteratureSynthesizer()
+    # I-9: bind the shared LLMGateway (see _extract_findings_handler note).
+    synthesizer = LiteratureSynthesizer(gateway=_get_literature_gateway())
     papers = [Paper(title=f"Finding {i + 1}", abstract=f) for i, f in enumerate(findings)]
     try:
         consensus = await synthesizer.synthesize(papers, topic=topic)

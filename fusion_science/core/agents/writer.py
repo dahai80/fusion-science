@@ -41,11 +41,18 @@ class WriterAgent(ScienceAgent):
 
     @staticmethod
     def _load_tools(tool_registry: ToolRegistry | None) -> list[dict]:
+        # F-C2: write_section / manage_citations are not registered in the
+        # ToolRegistry (the 12 built-in tools cover search/compute/viz/citation).
+        # Rather than declare tools the agent cannot actually call, WriterAgent
+        # is a prompt-only writing agent. It relies on generate_citation (which
+        # IS registered) when the model needs citation formatting. Log the gap
+        # so it is not silent.
         if not tool_registry:
+            logger.info("WriterAgent: no tool_registry, running prompt-only")
             return []
-        tool_names = ["write_section", "manage_citations"]
+        wanted = ["write_section", "manage_citations", "generate_citation"]
         result = []
-        for name in tool_names:
+        for name in wanted:
             td = tool_registry.get_tool(name)
             if td:
                 result.append(
@@ -58,4 +65,6 @@ class WriterAgent(ScienceAgent):
                         },
                     }
                 )
+            else:
+                logger.info("WriterAgent: tool '%s' not registered, running without it", name)
         return result

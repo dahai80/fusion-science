@@ -6,6 +6,7 @@ PDB search API (https://search.rcsb.org/).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -50,8 +51,14 @@ class PDBConnector(BaseConnector):
 
     @property
     def search_client(self) -> httpx.AsyncClient:
-        import httpx
-
+        # R-10: honor offline mode for the secondary search client too. Without
+        # this, a PDB search would bypass the base client's offline guard and
+        # still hit search.rcsb.org when FUSION_OFFLINE_MODE=true.
+        if self.config.offline_mode:
+            raise RuntimeError(
+                f"离线模式已启用: {self.__class__.__name__} 无法发起网络请求。"
+                "请设置 FUSION_OFFLINE_MODE=false 或直接传入离线数据。"
+            )
         if self._search_client is None:
             self._search_client = httpx.AsyncClient(
                 base_url=self.SEARCH_URL,
@@ -107,11 +114,21 @@ class PDBConnector(BaseConnector):
                 client_override=self.search_client,
             )
             data = resp.json()
-            pdb_ids = [r.get("identifier", "") for r in data.get("result_set", [])]
+            pdb_ids = [r.get("identifier", "") for r in data.get("result_set", []) if r.get("identifier")]
 
+            # I-13: fetch all matched entries concurrently instead of serially.
+            # The prior loop issued one self.fetch per ID sequentially, each
+            # paying the rate-limit delay — 20 results took 20*0.2s ~= 4s of
+            # pure wait. gather collapses that to one round-trip window.
+            detail_results = await asyncio.gather(
+                *(self.fetch(pid) for pid in pdb_ids),
+                return_exceptions=True,
+            )
             items = []
-            for pdb_id in pdb_ids:
-                detail = await self.fetch(pdb_id)
+            for detail in detail_results:
+                if isinstance(detail, Exception):
+                    logger.warning("PDB detail fetch failed: %s", detail)
+                    continue
                 if detail.items:
                     items.append(detail.items[0])
 
@@ -217,6 +234,7 @@ class PDBConnector(BaseConnector):
 
         # Polymer entities
         polymers = []
+        parse_warnings: list[str] = []
         try:
             polymer_entities = data.get("polymer_entities", [])
             for ent in polymer_entities:
@@ -230,8 +248,11 @@ class PDBConnector(BaseConnector):
                         else 0,
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # P0 (E7): do NOT silently pass — record the parse failure so a
+            # researcher visualizing an incomplete structure knows data dropped.
+            logger.warning("PDB polymer parse failed: %s", e)
+            parse_warnings.append(f"polymer_parse_error: {e}")
 
         # Ligands
         ligands = []
@@ -245,8 +266,10 @@ class PDBConnector(BaseConnector):
                         "comp_id": ent.get("pdbx_entity_nonpoly", {}).get("comp_id", ""),
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # P0 (E7): record parse failure instead of silent drop.
+            logger.warning("PDB ligand parse failed: %s", e)
+            parse_warnings.append(f"ligand_parse_error: {e}")
 
         return {
             "pdb_id": data.get("rcsb_id", ""),
@@ -261,6 +284,7 @@ class PDBConnector(BaseConnector):
             "authors": authors,
             "polymers": polymers,
             "ligands": ligands,
+            "parse_warnings": parse_warnings,
             "deposition_date": data.get("rcsb_accession_info", {}).get("deposit_date", ""),
             "release_date": data.get("rcsb_accession_info", {}).get("initial_release_date", ""),
             "source": "PDB",
@@ -319,12 +343,29 @@ class PDBConnector(BaseConnector):
             )
             data = resp.json()
             result_set = data.get("result_set", [])
-            # Extract unique PDB IDs
-            pdb_ids = list(set(r.get("identifier", "").split("_")[0] for r in result_set if r.get("identifier")))
+            # Extract unique PDB IDs, preserving first-seen order
+            seen_ids: set[str] = set()
+            pdb_ids: list[str] = []
+            for r in result_set:
+                ident = r.get("identifier", "")
+                if not ident:
+                    continue
+                pid = ident.split("_")[0]
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    pdb_ids.append(pid)
+            pdb_ids = pdb_ids[:max_results]
 
+            # I-13: concurrent detail fetch (same N+1 as text search).
+            detail_results = await asyncio.gather(
+                *(self.fetch(pid) for pid in pdb_ids),
+                return_exceptions=True,
+            )
             items = []
-            for pdb_id in pdb_ids[:max_results]:
-                detail = await self.fetch(pdb_id)
+            for detail in detail_results:
+                if isinstance(detail, Exception):
+                    logger.warning("PDB sequence-search detail fetch failed: %s", detail)
+                    continue
                 if detail.items:
                     items.append(detail.items[0])
 

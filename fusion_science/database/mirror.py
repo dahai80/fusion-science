@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -244,6 +245,11 @@ class ScienceCache:
         self.config = config or CacheConfig()
         self._conn: sqlite3.Connection | None = None
         self._approx_count: int = 0  # Approximate entry count (avoids COUNT query)
+        # sqlite3 connections are NOT thread-safe by default; async executors
+        # and concurrent requests share this one connection, so every access is
+        # serialized through this lock and the connection is opened
+        # check_same_thread=False with WAL + busy_timeout for durability.
+        self._lock = threading.Lock()
         self._init_db()
 
     def _get_cache_dir(self) -> Path:
@@ -258,7 +264,9 @@ class ScienceCache:
         if not self.config.enabled:
             return
         try:
-            self._conn = sqlite3.connect(self._get_db_path())
+            self._conn = sqlite3.connect(self._get_db_path(), check_same_thread=False, timeout=5.0)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS science_cache (
                     key TEXT PRIMARY KEY,
@@ -276,7 +284,9 @@ class ScienceCache:
             """)
             self._conn.commit()
         except Exception as e:
-            logger.warning("Failed to init cache database: %s", e)
+            # Fail loud: a disabled cache silently degrades to no-caching, which
+            # masks misconfiguration. Log at error level so it surfaces.
+            logger.error("Failed to init cache database: %s", e)
             self._conn = None
 
     def get(self, key: str) -> Any | None:
@@ -284,23 +294,24 @@ class ScienceCache:
         if not self.config.enabled or self._conn is None:
             return None
         try:
-            cur = self._conn.execute(
-                "SELECT data, expires_at FROM science_cache WHERE key = ?",
-                (key,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            data_str, expires_at = row
-            if time.time() > expires_at:
-                self._conn.execute("DELETE FROM science_cache WHERE key = ?", (key,))
+            with self._lock:
+                cur = self._conn.execute(
+                    "SELECT data, expires_at FROM science_cache WHERE key = ?",
+                    (key,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                data_str, expires_at = row
+                if time.time() > expires_at:
+                    self._conn.execute("DELETE FROM science_cache WHERE key = ?", (key,))
+                    self._conn.commit()
+                    return None
+                self._conn.execute(
+                    "UPDATE science_cache SET access_count = access_count + 1, last_accessed = ? WHERE key = ?",
+                    (time.time(), key),
+                )
                 self._conn.commit()
-                return None
-            self._conn.execute(
-                "UPDATE science_cache SET access_count = access_count + 1, last_accessed = ? WHERE key = ?",
-                (time.time(), key),
-            )
-            self._conn.commit()
             return json.loads(data_str)
         except Exception as e:
             logger.warning("Cache read error: %s", e)
@@ -311,17 +322,18 @@ class ScienceCache:
         if not self.config.enabled or self._conn is None:
             return
         try:
-            self._evict_if_needed()
-            now = time.time()
-            ttl = ttl or self.config.default_ttl
-            self._conn.execute(
-                """INSERT OR REPLACE INTO science_cache
-                   (key, data, source, created_at, expires_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, 0, ?)""",
-                (key, json.dumps(data, ensure_ascii=False), source, now, now + ttl, now),
-            )
-            self._conn.commit()
-            self._approx_count += 1
+            with self._lock:
+                self._evict_if_needed()
+                now = time.time()
+                ttl = ttl or self.config.default_ttl
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO science_cache
+                       (key, data, source, created_at, expires_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, 0, ?)""",
+                    (key, json.dumps(data, ensure_ascii=False), source, now, now + ttl, now),
+                )
+                self._conn.commit()
+                self._approx_count += 1
         except Exception as e:
             logger.warning("Cache write error: %s", e)
 
@@ -329,9 +341,10 @@ class ScienceCache:
         if self._conn is None:
             return
         try:
-            self._conn.execute("DELETE FROM science_cache WHERE key = ?", (key,))
-            self._conn.commit()
-            self._approx_count = max(0, self._approx_count - 1)
+            with self._lock:
+                self._conn.execute("DELETE FROM science_cache WHERE key = ?", (key,))
+                self._conn.commit()
+                self._approx_count = max(0, self._approx_count - 1)
         except Exception as e:
             logger.warning("Cache delete error: %s", e)
 
@@ -339,12 +352,13 @@ class ScienceCache:
         if self._conn is None:
             return
         try:
-            if source:
-                self._conn.execute("DELETE FROM science_cache WHERE source = ?", (source,))
-            else:
-                self._conn.execute("DELETE FROM science_cache")
-            self._conn.commit()
-            self._approx_count = 0
+            with self._lock:
+                if source:
+                    self._conn.execute("DELETE FROM science_cache WHERE source = ?", (source,))
+                else:
+                    self._conn.execute("DELETE FROM science_cache")
+                self._conn.commit()
+                self._approx_count = 0
         except Exception as e:
             logger.warning("Cache clear error: %s", e)
 
@@ -352,14 +366,17 @@ class ScienceCache:
         if self._conn is None:
             return {"enabled": False}
         try:
-            cur = self._conn.execute("SELECT COUNT(*) as total, SUM(LENGTH(data)) as total_bytes FROM science_cache")
-            row = cur.fetchone()
-            count = row[0] or 0
-            total_bytes = row[1] or 0
-            cur = self._conn.execute(
-                "SELECT source, COUNT(*) as cnt FROM science_cache GROUP BY source ORDER BY cnt DESC"
-            )
-            by_source = {row[0]: row[1] for row in cur.fetchall()}
+            with self._lock:
+                cur = self._conn.execute(
+                    "SELECT COUNT(*) as total, SUM(LENGTH(data)) as total_bytes FROM science_cache"
+                )
+                row = cur.fetchone()
+                count = row[0] or 0
+                total_bytes = row[1] or 0
+                cur = self._conn.execute(
+                    "SELECT source, COUNT(*) as cnt FROM science_cache GROUP BY source ORDER BY cnt DESC"
+                )
+                by_source = {row[0]: row[1] for row in cur.fetchall()}
             return {
                 "enabled": True,
                 "total_entries": count,
@@ -371,6 +388,7 @@ class ScienceCache:
             return {"enabled": True, "error": str(e)}
 
     def _evict_if_needed(self) -> None:
+        # Caller already holds self._lock.
         if self._conn is None:
             return
         try:
@@ -387,9 +405,10 @@ class ScienceCache:
             logger.warning("Cache eviction error: %s", e)
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn:
+                self._conn.close()
+                self._conn = None
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +429,10 @@ class MirrorRouter:
     """
 
     def __init__(self, cache: ScienceCache | None = None):
-        self.cache = cache or ScienceCache()
+        # Reuse the process-wide shared cache by default. Constructing a new
+        # ScienceCache per request opens a fresh SQLite connection each time —
+        # under concurrent load that leaks file descriptors and thrashes WAL.
+        self.cache = cache or get_shared_cache()
         self.mirrors = dict(DOMESTIC_MIRRORS)
         self.alternatives = dict(DOMESTIC_ALTERNATIVES)
         self._use_mirrors: bool = False
@@ -597,6 +619,14 @@ class MirrorRouter:
 
         endpoint = self.get_endpoint(db_name)
         results: dict[str, float] = {}
+        # R-12: offline mode must NEVER issue real network probes — a latency
+        # test is a live HTTP GET and violates the offline contract.
+        if self._offline_mode:
+            logger.info("Latency test skipped for %s (offline mode)", db_name)
+            results = {"primary": -1.0, "mirror": -1.0}
+            self._latency_cache[db_name] = results
+            self._last_latency_test = time.time()
+            return results
 
         for key, url in [("primary", endpoint.primary_url), ("mirror", endpoint.mirror_url)]:
             if not url:
@@ -712,3 +742,47 @@ class MirrorRouter:
                 return endpoint.primary_url
 
         return self.get_url(db_name)
+
+
+# ---------------------------------------------------------------------------
+# Process-wide singletons: one ScienceCache + one MirrorRouter.
+# Per-request construction leaked SQLite connections (one open per request) and
+# duplicated mirror state. Getters lazy-init and reuse the same instance.
+# ---------------------------------------------------------------------------
+
+_shared_cache: ScienceCache | None = None
+_shared_cache_lock = threading.Lock()
+
+
+def get_shared_cache() -> ScienceCache:
+    global _shared_cache
+    with _shared_cache_lock:
+        if _shared_cache is None:
+            _shared_cache = ScienceCache()
+        return _shared_cache
+
+
+def reset_shared_cache() -> None:
+    global _shared_cache
+    with _shared_cache_lock:
+        if _shared_cache is not None:
+            _shared_cache.close()
+        _shared_cache = None
+
+
+_shared_router: MirrorRouter | None = None
+_shared_router_lock = threading.Lock()
+
+
+def get_shared_router() -> MirrorRouter:
+    global _shared_router
+    with _shared_router_lock:
+        if _shared_router is None:
+            _shared_router = MirrorRouter()
+        return _shared_router
+
+
+def reset_shared_router() -> None:
+    global _shared_router
+    with _shared_router_lock:
+        _shared_router = None

@@ -176,12 +176,15 @@ class TestPubMedConnector:
         assert result.error != ""
 
     def test_parse_publications_empty(self):
-        result = self.conn._parse_publications("")
-        assert result == []
+        # I-12: malformed/empty XML must surface as error, not silent [].
+        with pytest.raises(ValueError):
+            self.conn._parse_publications("")
 
     def test_parse_publications_invalid_xml(self):
-        result = self.conn._parse_publications("not xml at all")
-        assert result == []
+        # I-12: non-XML 200 response (rate-limit/captcha page) must raise,
+        # not silently return [] which masks a data-loss event as "no results".
+        with pytest.raises(ValueError):
+            self.conn._parse_publications("not xml at all")
 
     def test_parse_publications_valid_xml(self):
         xml = """<?xml version="1.0"?>
@@ -722,8 +725,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        seq = await self.conn.fetch_sequence_region("human", "17", 1, 100)
-        assert seq == ""
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_sequence_region("human", "17", 1, 100)
 
     @pytest.mark.asyncio
     async def test_fetch_variants(self):
@@ -751,8 +754,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        variants = await self.conn.fetch_variants("ENSG00000141510")
-        assert variants == []
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_variants("ENSG00000141510")
 
     @pytest.mark.asyncio
     async def test_fetch_homologues(self):
@@ -783,8 +786,8 @@ class TestEnsemblConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        homologues = await self.conn.fetch_homologues("ENSG00000141510")
-        assert homologues == []
+        with pytest.raises(RuntimeError):
+            await self.conn.fetch_homologues("ENSG00000141510")
 
     @pytest.mark.asyncio
     async def test_search_by_gene_name(self):
@@ -990,8 +993,8 @@ class TestChEMBLConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        activities = await self.conn.get_bioactivities("CHEMBL25")
-        assert activities == []
+        with pytest.raises(RuntimeError):
+            await self.conn.get_bioactivities("CHEMBL25")
 
     @pytest.mark.asyncio
     async def test_get_drug_indications(self):
@@ -1017,8 +1020,8 @@ class TestChEMBLConnector:
             raise RuntimeError("fail")
 
         self.conn._request_with_retry = _retry
-        indications = await self.conn.get_drug_indications("CHEMBL25")
-        assert indications == []
+        with pytest.raises(RuntimeError):
+            await self.conn.get_drug_indications("CHEMBL25")
 
     def test_parse_molecule(self):
         mol = {
@@ -1349,7 +1352,7 @@ class TestRExecutor:
         from fusion_science.compute.r_executor import RExecutor
 
         with patch.dict("sys.modules", {"rpy2": None, "rpy2.robjects": None}):
-            r = RExecutor()
+            r = RExecutor(use_inproc=True)
             result = await r.execute("1 + 1")
             assert result.success is False
             assert "not available" in result.error
@@ -1369,7 +1372,7 @@ class TestRExecutor:
                 "rpy2.robjects.pandas2ri": MagicMock(activate=MagicMock()),
             },
         ):
-            r = RExecutor()
+            r = RExecutor(use_inproc=True)
             r._r_available = True
             result = await r.execute("1 + 1", capture_plots=False)
             assert result.success is True
@@ -2307,30 +2310,30 @@ class TestAvailableDatabases:
 
 class TestCacheStats:
     def test_get_cache_stats(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"enabled": True, "total_entries": 5}
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             stats = get_cache_stats()
             assert stats["total_entries"] == 5
 
 
 class TestClearCache:
     def test_clear_cache(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"total_entries": 10}
             mock_cache.clear.return_value = None
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             count = clear_cache()
             assert count == 10
 
     def test_clear_cache_with_source(self):
-        with patch("fusion_science.database.mirror.ScienceCache") as mock_cache_cls:
+        with patch("fusion_science.database.mirror.get_shared_cache") as mock_get:
             mock_cache = MagicMock()
             mock_cache.stats.return_value = {"total_entries": 3}
             mock_cache.clear.return_value = None
-            mock_cache_cls.return_value = mock_cache
+            mock_get.return_value = mock_cache
             count = clear_cache(source="pubmed")
             assert count == 3
             mock_cache.clear.assert_called_with(source="pubmed")

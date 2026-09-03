@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import logging
 import random
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -68,9 +69,13 @@ class BaseConnector(ABC):
         # Semaphore(1) serialized every DB call across the connector.
         self._rate_lock = asyncio.Lock()
         self._last_request_time: float = 0.0
-        # LRU-limited cache: OrderedDict for O(1) move-to-end eviction
+        # LRU-limited cache: OrderedDict for O(1) move-to-end eviction.
+        # A threading lock guards mutations because cached values can be written
+        # from sync code paths (e.g. executors); without it, a reinsert overwriting
+        # an existing key would double-count the byte budget.
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._cache_bytes: int = 0
+        self._cache_lock = threading.Lock()
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -111,17 +116,26 @@ class BaseConnector(ABC):
         ...
 
     async def _rate_limit(self) -> None:
-        """Apply rate limiting between requests (timestamp guarded by a lock)."""
+        """Apply rate limiting between requests.
+
+        The wait happens OUTSIDE the lock: holding the lock across sleep would
+        serialize every request behind the slowest wait, turning a per-request
+        spacing into a global queue. We only guard the timestamp read/advance.
+        """
         async with self._rate_lock:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < self.config.rate_limit:
-                await asyncio.sleep(self.config.rate_limit - elapsed)
-            self._last_request_time = time.time()
+            now = time.time()
+            elapsed = now - self._last_request_time
+            wait = max(0.0, self.config.rate_limit - elapsed)
+            self._last_request_time = now + wait
+        if wait > 0:
+            await asyncio.sleep(wait)
 
     async def _request_with_retry(
         self,
         method: str,
         url: str,
+        *,
+        client_override: httpx.AsyncClient | None = None,
         **kwargs,
     ) -> httpx.Response:
         """Make an HTTP request with retry logic.
@@ -129,6 +143,10 @@ class BaseConnector(ABC):
         Args:
             method: HTTP method (GET, POST, etc.).
             url: Request URL (relative to base_url).
+            client_override: Use a specific client instead of self.client. Needed
+                when a connector hits a second base URL (e.g. PDB's search API
+                at search.rcsb.org vs data.rcsb.org). Offline-mode guard still
+                applies — passing a client does NOT bypass it.
             **kwargs: Additional request parameters.
 
         Returns:
@@ -138,15 +156,17 @@ class BaseConnector(ABC):
             RuntimeError: If offline_mode is enabled.
             httpx.HTTPError: After all retries are exhausted.
         """
-        # Fail fast in offline mode
+        # Fail fast in offline mode — applies even with client_override so a
+        # connector cannot bypass the offline guard by using its own client.
         if self.config.offline_mode:
             raise RuntimeError(f"离线模式已启用: 无法请求 {url}。请设置 FUSION_OFFLINE_MODE=false 以启用网络请求。")
 
+        use_client = client_override if client_override is not None else self.client
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
                 await self._rate_limit()
-                resp = await self.client.request(method, url, **kwargs)
+                resp = await use_client.request(method, url, **kwargs)
                 resp.raise_for_status()
                 return resp
             except httpx.HTTPStatusError as e:
@@ -188,32 +208,35 @@ class BaseConnector(ABC):
 
     @staticmethod
     def _approx_size(data: Any) -> int:
-        """Approximate byte size of a cached value."""
-        try:
-            return len(data)
-        except TypeError:
-            import sys
+        # Measure serialized byte length: len(DatabaseResult) raises TypeError and
+        # sys.getsizeof reports ~48 bytes for a dataclass regardless of payload,
+        # which silently defeats the byte budget and lets the cache grow unbounded.
+        import json
 
-            return sys.getsizeof(data, 0)
+        try:
+            return len(json.dumps(data, default=str, ensure_ascii=False).encode("utf-8"))
+        except (TypeError, ValueError):
+            return 0
 
     def _check_cache(self, key: str) -> Any | None:
         """Check if a cached result exists and is still valid (LRU-aware)."""
         if not self.config.cache_enabled:
             return None
         ckey = self._cache_key(key)
-        entry = self._cache.get(ckey)
-        if entry:
-            timestamp, data = entry
-            if time.time() - timestamp < self.config.cache_ttl:
-                # Move to end (most recently used) for LRU tracking
-                self._cache.move_to_end(ckey)
-                return data
-            # Expired — evict and account for freed bytes
-            self._cache_bytes -= self._approx_size(data)
-            if self._cache_bytes < 0:
-                self._cache_bytes = 0
-            del self._cache[ckey]
-        return None
+        with self._cache_lock:
+            entry = self._cache.get(ckey)
+            if entry:
+                timestamp, data = entry
+                if time.time() - timestamp < self.config.cache_ttl:
+                    # Move to end (most recently used) for LRU tracking
+                    self._cache.move_to_end(ckey)
+                    return data
+                # Expired — evict and account for freed bytes
+                self._cache_bytes -= self._approx_size(data)
+                if self._cache_bytes < 0:
+                    self._cache_bytes = 0
+                del self._cache[ckey]
+            return None
 
     def _set_cache(self, key: str, data: Any) -> None:
         """Cache a result with LRU eviction (entry + byte budget)."""
@@ -221,27 +244,39 @@ class BaseConnector(ABC):
             return
         ckey = self._cache_key(key)
         size = self._approx_size(data)
-        # Evict by entry count
-        while len(self._cache) >= _MAX_CACHE_SIZE and self._cache:
-            _evict_key, (_ts, evict_data) = self._cache.popitem(last=False)
-            self._cache_bytes -= self._approx_size(evict_data)
-        # Evict by byte budget
-        while self._cache_bytes + size > _MAX_CACHE_BYTES and self._cache:
-            _evict_key, (_ts, evict_data) = self._cache.popitem(last=False)
-            self._cache_bytes -= self._approx_size(evict_data)
-        # If a single value exceeds the byte cap, skip caching it rather than
-        # storing an oversized entry.
-        if size > _MAX_CACHE_BYTES:
-            logger.debug("Skipping cache: value size %d exceeds cap %d", size, _MAX_CACHE_BYTES)
-            return
-        self._cache[ckey] = (time.time(), data)
-        self._cache_bytes += size
-        self._cache.move_to_end(ckey)  # Mark as most recently used
+        with self._cache_lock:
+            # Overwriting an existing key must subtract the old entry's bytes
+            # first, otherwise the budget double-counts and drifts upward forever.
+            old = self._cache.get(ckey)
+            if old is not None:
+                self._cache_bytes -= self._approx_size(old[1])
+                if self._cache_bytes < 0:
+                    self._cache_bytes = 0
+                del self._cache[ckey]
+            # Evict by entry count
+            while len(self._cache) >= _MAX_CACHE_SIZE and self._cache:
+                _evict_key, (_ts, evict_data) = self._cache.popitem(last=False)
+                self._cache_bytes -= self._approx_size(evict_data)
+            # Evict by byte budget
+            while self._cache_bytes + size > _MAX_CACHE_BYTES and self._cache:
+                _evict_key, (_ts, evict_data) = self._cache.popitem(last=False)
+                self._cache_bytes -= self._approx_size(evict_data)
+            if self._cache_bytes < 0:
+                self._cache_bytes = 0
+            # If a single value exceeds the byte cap, skip caching it rather than
+            # storing an oversized entry.
+            if size > _MAX_CACHE_BYTES:
+                logger.debug("Skipping cache: value size %d exceeds cap %d", size, _MAX_CACHE_BYTES)
+                return
+            self._cache[ckey] = (time.time(), data)
+            self._cache_bytes += size
+            self._cache.move_to_end(ckey)  # Mark as most recently used
 
     def clear_cache(self) -> None:
         """Clear all cached results."""
-        self._cache.clear()
-        self._cache_bytes = 0
+        with self._cache_lock:
+            self._cache.clear()
+            self._cache_bytes = 0
 
     @staticmethod
     def safe_text(value: Any) -> str:

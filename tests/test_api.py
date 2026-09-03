@@ -67,8 +67,8 @@ class TestSessionRoutes:
     @pytest.mark.asyncio
     async def test_get_missing_session(self, client):
         resp = await client.get("/api/v1/sessions/nope")
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_delete_session(self, client):
@@ -81,8 +81,8 @@ class TestSessionRoutes:
     @pytest.mark.asyncio
     async def test_delete_missing_session(self, client):
         resp = await client.delete("/api/v1/sessions/nope")
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "session_not_found"
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "session_not_found"
 
     @pytest.mark.asyncio
     async def test_update_session_title(self, client):

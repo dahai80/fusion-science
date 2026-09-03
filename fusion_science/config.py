@@ -52,7 +52,10 @@ class ScienceConfig:
     # to expose on LAN, but then MUST set FUSION_SCIENCE_API_KEY for auth.
     api_host: str = "127.0.0.1"
     api_port: int = 11462
-    api_cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    # I-1: default CORS is loopback-only, not "*". A wildcard CORS policy on a
+    # server bound to 0.0.0.0 lets any origin read API responses cross-site.
+    # Widen explicitly via FUSION_SCIENCE_API_CORS_ORIGINS (comma-separated).
+    api_cors_origins: list[str] = field(default_factory=lambda: ["http://127.0.0.1", "http://localhost"])
 
     # Database
     use_mirrors: bool = False
@@ -86,6 +89,17 @@ class ScienceConfig:
     chart_height: int = 6
     chart_format: str = "png"
 
+    # Session persistence — "sqlite" (default, crash-safe) or "memory" (tests only).
+    # Production MUST use sqlite: memory store loses all sessions on restart and has
+    # no per-session byte bound, so a long conversation can OOM the process.
+    session_store: str = "sqlite"
+    session_db_path: str = "~/.cache/fusion-science/sessions.db"
+    # Per-session safety bound: cap stored messages + total byte size so one runaway
+    # conversation cannot exhaust process memory (MemorySessionStore) or bloat the
+    # SQLite row (SQLiteSessionStore). 0 = unlimited (tests).
+    session_max_messages: int = 500
+    session_max_bytes: int = 8 * 1024 * 1024
+
     # Audit
     tracing_enabled: bool = True
     trace_dir: str = "~/.cache/fusion-science/traces"
@@ -111,6 +125,7 @@ def load_config(path: str | None = None) -> ScienceConfig:
     _try_load_dotenv()
 
     # Search for config files
+    explicit_path = path is not None
     if path is None:
         candidates = [
             Path.cwd() / "fusion-science.yml",
@@ -141,6 +156,13 @@ def load_config(path: str | None = None) -> ScienceConfig:
                     if hasattr(config, key):
                         setattr(config, key, value)
         except Exception as e:
+            if explicit_path:
+                # F-E14: a user-supplied config path that fails to parse is an
+                # operator error, not a silent fallback to defaults. Fail loud
+                # so the misconfiguration surfaces at startup instead of running
+                # with unintended settings.
+                logger.error("Corrupt config file %s: %s", path, e)
+                raise RuntimeError(f"Failed to load config from {path}: {e}") from e
             logger.warning("Failed to load config from %s: %s", path, e)
 
     # Environment variable overrides
@@ -156,9 +178,26 @@ def load_config(path: str | None = None) -> ScienceConfig:
                 if isinstance(current, bool):
                     setattr(config, config_key, value.lower() in ("true", "1", "yes"))
                 elif isinstance(current, int):
-                    setattr(config, config_key, int(value))
+                    try:
+                        setattr(config, config_key, int(value))
+                    except ValueError:
+                        # F-E15: unguarded int() crashed load_config on a bad env
+                        # value. Log and keep the default instead of aborting startup.
+                        logger.warning("Env %s=%r not a valid int, keeping default %r", key, value, current)
                 elif isinstance(current, float):
-                    setattr(config, config_key, float(value))
+                    try:
+                        setattr(config, config_key, float(value))
+                    except ValueError:
+                        logger.warning("Env %s=%r not a valid float, keeping default %r", key, value, current)
+                elif isinstance(current, list):
+                    # I-1: comma-separated env value -> list. A raw string would
+                    # otherwise be stored as a single-element list/string and
+                    # silently break CORSMiddleware origin matching.
+                    setattr(
+                        config,
+                        config_key,
+                        [item.strip() for item in value.split(",") if item.strip()],
+                    )
                 else:
                     setattr(config, config_key, value)
         elif key.startswith("FUSION_SCI_"):

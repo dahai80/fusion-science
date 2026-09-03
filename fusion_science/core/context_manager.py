@@ -219,6 +219,10 @@ class ContextManager:
             return fallback
 
     async def maybe_compress(self, session_id: str) -> bool:
+        # Pre-check outside the lock (cheap) to avoid taking the lock when no
+        # compression is needed. The authoritative decision + mutate happens
+        # atomically inside atomic_compress, so this pre-check racing with an
+        # add_message only causes a redundant attempt (harmless).
         messages = self.session_manager.get_messages(session_id)
         if len(messages) < MAX_MESSAGES_BEFORE_COMPRESS:
             return False
@@ -239,42 +243,37 @@ class ContextManager:
             total,
         )
 
-        system_msgs = [m for m in messages if m.get("role") == "system"]
-        non_system = [m for m in messages if m.get("role") != "system"]
-        if not non_system:
+        async def _compress(current: list[dict]) -> list[dict] | None:
+            system_msgs = [m for m in current if m.get("role") == "system"]
+            non_system = [m for m in current if m.get("role") != "system"]
+            if not non_system:
+                return None
+
+            system_tokens = count_message_tokens(system_msgs, self.model)
+            remaining_budget = budget - system_tokens
+            if remaining_budget < 100:
+                return None
+
+            recent: list[dict] = []
+            recent_tokens = 0
+            for msg in reversed(non_system):
+                msg_tokens = count_message_tokens([msg], self.model)
+                if recent_tokens + msg_tokens > remaining_budget and recent:
+                    break
+                recent.insert(0, msg)
+                recent_tokens += msg_tokens
+
+            older = non_system[: len(non_system) - len(recent)]
+            if not older:
+                return None
+
+            summary = await self._summarize_older_async(older)
+            return system_msgs + [{"role": "system", "content": f"[Earlier conversation summary]: {summary}"}] + recent
+
+        new_messages = await self.session_manager.atomic_compress(session_id, _compress)
+        if new_messages is None:
             return False
-
-        system_tokens = count_message_tokens(system_msgs, self.model)
-        remaining_budget = budget - system_tokens
-        if remaining_budget < 100:
-            return False
-
-        recent: list[dict] = []
-        recent_tokens = 0
-        for msg in reversed(non_system):
-            msg_tokens = count_message_tokens([msg], self.model)
-            if recent_tokens + msg_tokens > remaining_budget and recent:
-                break
-            recent.insert(0, msg)
-            recent_tokens += msg_tokens
-
-        older = non_system[: len(non_system) - len(recent)]
-        if not older:
-            return False
-
-        summary = await self._summarize_older_async(older)
-        new_messages = (
-            system_msgs + [{"role": "system", "content": f"[Earlier conversation summary]: {summary}"}] + recent
-        )
-
-        await self.session_manager.replace_messages(session_id, new_messages)
         self._last_compressed_count[session_id] = len(new_messages)
-        logger.info(
-            "ContextManager: compressed session=%s %d->%d msgs",
-            session_id[:8],
-            len(messages),
-            len(new_messages),
-        )
         return True
 
     def get_stats(self, session_id: str) -> dict:

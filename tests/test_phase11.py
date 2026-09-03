@@ -538,7 +538,9 @@ class TestAPIRoutesPhase11:
 
     @pytest.mark.asyncio
     async def test_audit_integrity_endpoint(self, client):
-        resp = await client.get("/api/v1/sessions/test-session/audit/integrity")
+        create = await client.post("/api/v1/sessions", json={"title": "audit"})
+        sid = create.json()["session_id"]
+        resp = await client.get(f"/api/v1/sessions/{sid}/audit/integrity")
         assert resp.status_code == 200
         data = resp.json()
         assert "passed" in data

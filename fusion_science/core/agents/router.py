@@ -102,6 +102,10 @@ class QueryRouterAgent:
         )
         logger.info("QueryRouterAgent initialized with %d agents", len(self._agents))
 
+    # Deterministic tie-break priority: more specific domains win over the
+    # generic literature fallback. Avoids "run"/"find" ties misrouting to literature.
+    _TIE_BREAK = ["data", "visualize", "writer", "error", "literature"]
+
     def route(self, query: str) -> str:
         query_lower = query.lower()
         scores: dict[str, int] = {}
@@ -109,12 +113,18 @@ class QueryRouterAgent:
             score = sum(1 for kw in keywords if kw in query_lower)
             scores[agent_name] = score
 
-        best = max(scores, key=scores.get)  # type: ignore[arg-type]
-        if scores[best] == 0:
+        max_score = max(scores.values()) if scores else 0
+        if max_score == 0:
             best = "literature"
+        else:
+            tied = [name for name, sc in scores.items() if sc == max_score]
+            best = min(tied, key=lambda n: self._TIE_BREAK.index(n) if n in self._TIE_BREAK else len(self._TIE_BREAK))
 
         logger.info("Routed query to '%s' (scores: %s)", best, scores)
         return best
+
+    async def run(self, query: str, max_iterations: int = 10) -> AgentResult:
+        return await self.dispatch(query, max_iterations=max_iterations)
 
     async def dispatch(self, query: str, max_iterations: int = 10) -> AgentResult:
         agent_name = self.route(query)
@@ -139,8 +149,11 @@ class QueryRouterAgent:
                     return await error_agent.run(
                         f"Agent '{agent_name}' failed on query: {query}\nError: {e}",
                     )
-                except Exception:
-                    pass
+                except Exception as esc_e:
+                    # F-E18: escalation failure was silently swallowed (`pass`),
+                    # hiding a second fault from operators. Log it; the original
+                    # error is still returned below.
+                    logger.error("Escalation to ErrorAnalysisAgent also failed: %s", esc_e)
             return AgentResult(
                 agent_name=agent_name,
                 output="",

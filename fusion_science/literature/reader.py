@@ -113,11 +113,19 @@ class LiteratureReader:
 
         sections = getattr(paper, "sections", None)
         if sections:
-            for section_name, content in sections.items():
-                if not content.strip():
-                    continue
-                summary = await self._summarize_section(section_name, content)
-                reading.section_summaries.append(summary)
+            # F-P3: summarize sections concurrently instead of serially awaiting
+            # each one — N sections were N serial LLM round-trips per paper.
+            non_empty = [(name, content) for name, content in sections.items() if content.strip()]
+            if non_empty:
+                summaries = await asyncio.gather(
+                    *(self._summarize_section(name, content) for name, content in non_empty),
+                    return_exceptions=True,
+                )
+                for s in summaries:
+                    if isinstance(s, Exception):
+                        logger.warning("Section summary failed: %s", s)
+                    else:
+                        reading.section_summaries.append(s)
         elif paper.abstract:
             summary = await self._summarize_section("abstract", paper.abstract)
             reading.section_summaries.append(summary)

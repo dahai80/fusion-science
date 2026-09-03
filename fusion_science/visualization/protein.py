@@ -7,13 +7,23 @@ generating publication-quality structural figures.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Strip any character that is not safe in a filename. A caller-supplied
+# pdb_id containing "/" or ".." can write outside the temp dir.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _safe_name(name: str) -> str:
+    return _SAFE_NAME_RE.sub("_", name) or "protein"
 
 
 @dataclass
@@ -73,65 +83,30 @@ class ProteinVisualizer:
             ProteinVisualization with generated files.
         """
         output_dir = tempfile.gettempdir()
-        html_path = os.path.join(output_dir, f"{pdb_id}_protein.html")
-        os.path.join(output_dir, f"{pdb_id}_protein.png")
-        pdb_path = os.path.join(output_dir, f"{pdb_id}.pdb")
+        safe_id = _safe_name(pdb_id)
+        html_path = os.path.join(output_dir, f"{safe_id}_protein.html")
+        os.path.join(output_dir, f"{safe_id}_protein.png")
+        pdb_path = os.path.join(output_dir, f"{safe_id}.pdb")
 
         try:
-            if not pdb_content:
-                import httpx
-
-                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
-                if pdb_base.endswith("/rest/v1"):
-                    pdb_base = "https://files.rcsb.org"
-                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
-                if resp.status_code != 200:
-                    return ProteinVisualization(
-                        success=False,
-                        error=f"Failed to fetch PDB: {pdb_id}",
-                        pdb_id=pdb_id,
-                    )
-                pdb_content = resp.text
-
-            # Save PDB
-            with open(pdb_path, "w") as f:
-                f.write(pdb_content)
-
-            # Count chains and residues (basic parsing)
-            chains = set()
-            residues = set()
-            for line in pdb_content.split("\n"):
-                if line.startswith("ATOM") or line.startswith("HETATM"):
-                    chain = line[21:22].strip()
-                    if chain:
-                        chains.add(chain)
-                    try:
-                        resi = int(line[22:26].strip())
-                        residues.add(resi)
-                    except ValueError:
-                        pass
-
-            # Generate interactive 3D HTML
-            if self._py3dmol_available:
-                self._generate_protein_html(
-                    pdb_content,
-                    html_path,
-                    pdb_id,
-                    style,
-                    highlights or [],
-                    show_ligands,
-                )
-            else:
-                html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"
-                if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
-                    html_path = f"file://{pdb_path}"
-
+            # httpx.get (sync) + file write + HTML gen are blocking; offload.
+            html_out, chain_n, res_n = await asyncio.to_thread(
+                self._render_protein,
+                pdb_id,
+                safe_id,
+                pdb_content,
+                html_path,
+                pdb_path,
+                style,
+                highlights or [],
+                show_ligands,
+            )
             return ProteinVisualization(
                 success=True,
-                html_path=html_path,
+                html_path=html_out,
                 pdb_id=pdb_id,
-                chain_count=len(chains),
-                residue_count=len(residues),
+                chain_count=chain_n,
+                residue_count=res_n,
             )
 
         except Exception as e:
@@ -141,6 +116,68 @@ class ProteinVisualizer:
                 error=str(e),
                 pdb_id=pdb_id,
             )
+
+    def _render_protein(
+        self,
+        pdb_id: str,
+        safe_id: str,
+        pdb_content: str,
+        html_path: str,
+        pdb_path: str,
+        style: str,
+        highlights: list[dict[str, Any]],
+        show_ligands: bool,
+    ) -> tuple[str, int, int]:
+        if not pdb_content:
+            import httpx
+
+            pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
+
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
+            if pdb_base.endswith("/rest/v1"):
+                pdb_base = "https://files.rcsb.org"
+            resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
+            if resp.status_code != 200:
+                raise RuntimeError(f"Failed to fetch PDB: {pdb_id}")
+            pdb_content = resp.text
+
+        # Save PDB
+        with open(pdb_path, "w") as f:
+            f.write(pdb_content)
+
+        # Count chains and residues (basic parsing)
+        chains = set()
+        residues = set()
+        for line in pdb_content.split("\n"):
+            if line.startswith("ATOM") or line.startswith("HETATM"):
+                chain = line[21:22].strip()
+                if chain:
+                    chains.add(chain)
+                try:
+                    resi = int(line[22:26].strip())
+                    residues.add(resi)
+                except ValueError:
+                    pass
+
+        # Generate interactive 3D HTML
+        out_html = html_path
+        if self._py3dmol_available:
+            self._generate_protein_html(
+                pdb_content,
+                html_path,
+                safe_id,
+                style,
+                highlights,
+                show_ligands,
+            )
+        else:
+            out_html = f"https://www.rcsb.org/3d/view/{pdb_id}"
+            if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
+                out_html = f"file://{pdb_path}"
+
+        return out_html, len(chains), len(residues)
 
     def _generate_protein_html(
         self,
@@ -254,37 +291,49 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
             HTML file path with the comparative viewer.
         """
         output_dir = tempfile.gettempdir()
-        html_path = os.path.join(output_dir, f"comparison_{'_'.join(pdb_ids)}.html")
+        safe_name = "_".join(_safe_name(pid) for pid in pdb_ids)
+        html_path = os.path.join(output_dir, f"comparison_{safe_name}.html")
 
         try:
-            import base64
+            # Multiple sync httpx.get + file write are blocking; offload.
+            return await asyncio.to_thread(self._render_comparison, pdb_ids, html_path)
+        except Exception as e:
+            logger.error("Structure comparison failed: %s", e)
+            return ""
 
-            import httpx
+    def _render_comparison(self, pdb_ids: list[str], html_path: str) -> str:
+        import base64
 
-            pdb_contents = []
-            for pdb_id in pdb_ids:
-                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
-                if pdb_base.endswith("/rest/v1"):
-                    pdb_base = "https://files.rcsb.org"
-                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
-                if resp.status_code == 200:
-                    pdb_contents.append((pdb_id, resp.text))
+        import httpx
 
-            if not pdb_contents:
-                return ""
+        pdb_contents = []
+        for pdb_id in pdb_ids:
+            pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
 
-            # Generate comparison HTML
-            colors = ["blue", "red", "green", "orange", "purple", "cyan"]
-            model_js = ""
-            for i, (_pid, content) in enumerate(pdb_contents):
-                b64 = base64.b64encode(content.encode()).decode()
-                color = colors[i % len(colors)]
-                model_js += f"""
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
+            if pdb_base.endswith("/rest/v1"):
+                pdb_base = "https://files.rcsb.org"
+            resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
+            if resp.status_code == 200:
+                pdb_contents.append((pdb_id, resp.text))
+
+        if not pdb_contents:
+            return ""
+
+        # Generate comparison HTML
+        colors = ["blue", "red", "green", "orange", "purple", "cyan"]
+        model_js = ""
+        for i, (_pid, content) in enumerate(pdb_contents):
+            b64 = base64.b64encode(content.encode()).decode()
+            color = colors[i % len(colors)]
+            model_js += f"""
 viewer.addModel(atob("{b64}"), "pdb", {{keepH:true}});
 viewer.setStyle({{model:{i}}}, {{cartoon:{{color:'{color}',opacity:0.7}}}});
 """
 
-            html = f"""<!DOCTYPE html>
+        html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -316,14 +365,10 @@ viewer.setStyle({{model:{i}}}, {{cartoon:{{color:'{color}',opacity:0.7}}}});
 </body>
 </html>"""
 
-            with open(html_path, "w") as f:
-                f.write(html)
+        with open(html_path, "w") as f:
+            f.write(html)
 
-            return html_path
-
-        except Exception as e:
-            logger.error("Structure comparison failed: %s", e)
-            return ""
+        return html_path
 
     @staticmethod
     def notable_proteins() -> list[dict[str, str]]:

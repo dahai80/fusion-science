@@ -10,32 +10,36 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ...core.tools import ToolRegistry
 from ...session.models import Artifact
+from .._owner import check_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 class SearchRequest(BaseModel):
-    query: str
+    # R-7: cap query length; bound sources list size.
+    query: str = Field(..., max_length=8000)
     max_results: int = Field(default=20, ge=1, le=100)
-    sources: list[str] | None = None
+    sources: list[str] | None = Field(default=None, max_length=20)
 
 
 @router.post("/search")
 async def search(session_id: str, request: Request, req: SearchRequest):
     mgr = request.app.state.session_manager
     session = mgr.get_session(session_id)
-    if not session:
-        return {"error": "session_not_found", "session_id": session_id}
+    denied = check_owner(request, session)
+    if denied:
+        return denied
 
     tool_registry: ToolRegistry | None = getattr(request.app.state, "tool_registry", None)
     if not tool_registry or not tool_registry.has_tool("search_literature"):
-        return {"error": "search_literature tool not available"}
+        # R-8: tool absent is a server misconfiguration, not a 200 error body.
+        raise HTTPException(status_code=503, detail="search_literature tool not available")
     args = {"query": req.query, "max_results": req.max_results}
     if req.sources:
         args["sources"] = req.sources
@@ -46,7 +50,7 @@ async def search(session_id: str, request: Request, req: SearchRequest):
         try:
             session.context.papers = papers
             session.updated_at = time.time()
-            mgr._store.save(session)
+            await mgr.save(session)
             artifact = Artifact(
                 id=f"search_{int(session.updated_at)}",
                 type="search_result",

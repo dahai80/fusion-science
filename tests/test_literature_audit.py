@@ -620,7 +620,8 @@ class TestAggregatedResult:
 class TestDatabaseAggregator:
     def test_init_defaults(self):
         agg = DatabaseAggregator()
-        assert len(agg._databases) == 5
+        # I-15: 5 international + 3 Chinese domestic databases
+        assert len(agg._databases) == 8
         assert agg._max_concurrent == 5
 
     def test_init_custom_dbs(self):

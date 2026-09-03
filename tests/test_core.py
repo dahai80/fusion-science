@@ -72,7 +72,7 @@ class TestScienceConfig:
         assert config.engine_base_url == "http://localhost:11432/v1"
         assert config.api_host == "127.0.0.1"
         assert config.api_port == 11462
-        assert config.api_cors_origins == ["*"]
+        assert config.api_cors_origins == ["http://127.0.0.1", "http://localhost"]
 
     def test_custom_config(self):
         config = ScienceConfig(model_name="test-model", api_port=9000)

@@ -8,6 +8,8 @@ unified ranking.
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import logging
 from dataclasses import dataclass, field
 
@@ -42,6 +44,13 @@ _CONNECTOR_MAP = {
     "pdb": ("fusion_science.database.pdb", "PDBConnector"),
     "ensembl": ("fusion_science.database.ensembl", "EnsemblConnector"),
     "chembl": ("fusion_science.database.chembl", "ChEMBLConnector"),
+    # I-15: include the Chinese domestic databases so DatabaseAggregator can
+    # fan out across them; previously search(databases=["ngdc"]) returned
+    # "Unknown database" and the Chinese sources were unreachable via the
+    # aggregator.
+    "ngdc": ("fusion_science.database.chinese.ngdc", "NGDCConnector"),
+    "cnki": ("fusion_science.database.chinese.cnki", "CNKIConnector"),
+    "scidb": ("fusion_science.database.chinese.scidb", "ScienceDBConnector"),
 }
 
 
@@ -161,7 +170,15 @@ class DatabaseAggregator:
         self,
         results_by_db: dict[str, DatabaseResult],
     ) -> list[dict]:
-        all_items: list[dict] = []
+        # R-14: deep-copy each item before tagging _source_db/_relevance. The
+        # connector's LRU cache holds the original dict; mutating it in place
+        # would leak aggregator-internal keys into cached results returned to
+        # other callers (a silent cross-request contamination).
+        # F-P8: precompute the dedup key + sort tiebreak hash ONCE per item.
+        # The old sort key recomputed sha256 on every comparison (O(n log n)
+        # hash calls) and recomputed the dedup key a second time after already
+        # computing it for dedup. Now each item pays one hash + one key build.
+        all_items: list[tuple[tuple[float, str], dict]] = []
         seen: set[str] = set()
 
         for db_name, db_result in results_by_db.items():
@@ -170,11 +187,19 @@ class DatabaseAggregator:
                 if dedup_key in seen:
                     continue
                 seen.add(dedup_key)
-                item["_source_db"] = db_name
-                all_items.append(item)
+                merged = copy.deepcopy(item)
+                merged["_source_db"] = db_name
+                # R-15: give every merged item a relevance score so the sort is
+                # deterministic instead of leaving 0.0 defaults that make the
+                # final order depend on dict insertion order across DBs.
+                merged["_relevance"] = float(item.get("_relevance") or item.get("relevance_score") or 0.0)
+                tiebreak = hashlib.sha256(dedup_key.encode()).hexdigest()
+                all_items.append(((-merged["_relevance"], tiebreak), merged))
 
-        all_items.sort(key=lambda x: x.get("_relevance", 0.0), reverse=True)
-        return all_items
+        # Stable tiebreak: relevance desc, then source-stable hash of the dedup
+        # key so two equal-relevance items keep a fixed order across runs.
+        all_items.sort(key=lambda pair: pair[0])
+        return [merged for _, merged in all_items]
 
     def _item_dedup_key(self, item: dict, db_name: str) -> str:
         for key in ["doi", "pmid", "pdb_id", "uniprot_id", "ensembl_id", "chembl_id"]:
@@ -184,4 +209,13 @@ class DatabaseAggregator:
         title = item.get("title", item.get("name", ""))
         if title:
             return f"title:{title.lower().strip()[:80]}"
-        return f"db:{db_name}:id:{id(item)}"
+        # I-11: stable fallback hash of the item content — id(item) is a memory
+        # address that changes across runs, so dedup across a restart or a
+        # cross-process aggregator would treat the same item as distinct.
+        import json
+
+        try:
+            payload = json.dumps(item, sort_keys=True, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            payload = str(item)
+        return f"db:{db_name}:{hashlib.sha256(payload.encode()).hexdigest()[:16]}"

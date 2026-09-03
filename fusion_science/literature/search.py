@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,15 @@ from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# R-7: hard cap on query length and result set so a single request cannot
+# exhaust memory or fan out unbounded HTTP calls.
+_MAX_QUERY_CHARS = 8000
+_MAX_RESULTS_CAP = 200
+
+
+def _is_offline_mode() -> bool:
+    return os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
 
 
 class SearchPreset(Enum):
@@ -150,6 +160,18 @@ class LiteratureSearch:
         sources: list[str] | None = None,
         preset: SearchPreset | None = None,
     ) -> SearchResult:
+        # R-7: bound inputs deterministically — a query longer than the cap is a
+        # caller error, not a silent memory sink.
+        if not query or len(query) > _MAX_QUERY_CHARS:
+            return SearchResult(query=query or "", error="invalid_query_length")
+        max_results = max(1, min(int(max_results), _MAX_RESULTS_CAP))
+
+        # R-8: in offline mode, no source can serve; return a clear error instead
+        # of dispatching network tasks that will all raise.
+        if _is_offline_mode():
+            logger.info("Literature search blocked in offline mode (query=%s)", query[:60])
+            return SearchResult(query=query, error="offline_mode")
+
         if preset is not None:
             cfg = PRESET_CONFIG[preset]
             max_results = cfg["max_results"]
@@ -283,10 +305,11 @@ class LiteratureSearch:
             await connector.close()
 
     async def _search_arxiv(self, query: str, max_results: int) -> SearchResult:
-        import os
-        import xml.etree.ElementTree as ET
-
+        # P1 (S6): use defusedxml instead of stdlib ElementTree — stdlib ET
+        # resolves external entities, enabling billion-laughs DoS and local
+        # file reads via a poisoned arXiv mirror. defusedxml blocks both.
         import httpx
+        from defusedxml.ElementTree import fromstring as _safe_fromstring
 
         arxiv_api = os.getenv("FUSION_SCI_ARXIV_MIRROR", "https://export.arxiv.org/api/query")
 
@@ -303,7 +326,7 @@ class LiteratureSearch:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(arxiv_api, params=params)
                 resp.raise_for_status()
-                root = ET.fromstring(resp.text)
+                root = _safe_fromstring(resp.text)
 
                 for entry in root.findall("atom:entry", ns):
                     title = entry.find("atom:title", ns)

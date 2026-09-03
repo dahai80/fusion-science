@@ -5,14 +5,17 @@ import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from .._owner import check_owner
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 class VisualizeRequest(BaseModel):
-    query: str
-    chart_type: str = Field(default="scatter")
-    data_description: str = Field(default="")
+    # F-S9: bound user-supplied strings to cap memory/abuse on huge payloads.
+    query: str = Field(..., max_length=8000)
+    chart_type: str = Field(default="scatter", max_length=64)
+    data_description: str = Field(default="", max_length=20000)
     max_iterations: int = Field(default=10, ge=1, le=50)
 
 
@@ -20,8 +23,9 @@ class VisualizeRequest(BaseModel):
 async def visualize(session_id: str, request: Request, req: VisualizeRequest):
     mgr = request.app.state.session_manager
     session = mgr.get_session(session_id)
-    if not session:
-        return {"error": "session_not_found", "session_id": session_id}
+    denied = check_owner(request, session)
+    if denied:
+        return denied
 
     router_agent = getattr(request.app.state, "router_agent", None)
     if not router_agent:

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import logging
-from collections import defaultdict
+import time
+from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# NOTE: EventBus is process-local. In a multi-node MLX cluster, events emitted
+# on one node are NOT visible to others. Cross-node audit/session coordination
+# requires an external shared bus (Redis pub/sub, persistent queue). This class
+# intentionally documents that limit rather than silently pretending to span nodes.
 
 
 @dataclass
@@ -23,8 +31,8 @@ EventHandler = Callable[[Event], Awaitable[None]]
 class EventBus:
     def __init__(self):
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)
-        self._history: list[Event] = []
-        self._max_history: int = 1000
+        # deque with maxlen gives O(1) bounded history (no slice reassign).
+        self._history: deque[Event] = deque(maxlen=1000)
 
     def on(self, event_type: str, handler: EventHandler) -> None:
         self._handlers[event_type].append(handler)
@@ -37,8 +45,6 @@ class EventBus:
             logger.debug("EventBus: removed handler for '%s'", event_type)
 
     async def emit(self, event_type: str, data: dict[str, Any] | None = None, source: str = "") -> None:
-        import time
-
         event = Event(
             type=event_type,
             data=data or {},
@@ -46,20 +52,16 @@ class EventBus:
             timestamp=time.time(),
         )
         self._history.append(event)
-        if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history :]
 
         handlers = self._handlers.get(event_type, [])
         if not handlers:
             logger.debug("EventBus: no handlers for '%s'", event_type)
             return
 
-        for handler in handlers:
+        async def _run(handler: EventHandler) -> None:
             try:
                 # Give each handler its own data copy so one handler mutating
                 # event.data cannot corrupt another handler's view.
-                import copy
-
                 handler_event = Event(
                     type=event.type,
                     data=copy.deepcopy(event.data),
@@ -70,11 +72,15 @@ class EventBus:
             except Exception as e:
                 logger.error("EventBus handler error for '%s': %s", event_type, e)
 
+        # Dispatch concurrently so one slow handler cannot block the others.
+        await asyncio.gather(*(_run(h) for h in handlers))
+
     def get_history(self, event_type: str | None = None, limit: int = 100) -> list[Event]:
-        events = self._history
+        # deque does not support slice indexing; materialize to list first.
+        events = list(self._history)
         if event_type:
             events = [e for e in events if e.type == event_type]
-        return events[-limit:]
+        return events[-limit:] if limit else events
 
     def clear_history(self) -> None:
         self._history.clear()

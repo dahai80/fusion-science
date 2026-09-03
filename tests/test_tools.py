@@ -149,7 +149,9 @@ class TestBuiltinTools:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         mcp_tools = reg.get_mcp_tools()
-        assert len(mcp_tools) == len(reg.list_tools())
+        # execute_python/execute_r excluded from MCP (RCE risk, R-6)
+        assert len(reg.list_tools()) == 12
+        assert len(mcp_tools) == 10
         for t in mcp_tools:
             assert "name" in t
             assert "inputSchema" in t

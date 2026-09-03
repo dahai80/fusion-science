@@ -1,6 +1,6 @@
 [project]
 name = "fusion-science"
-version = "1.0.6"
+version = "1.0.7"
 description = "Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,51 +10,54 @@ authors = [
 ]
 
 dependencies = [
-    "httpx>=0.27.0",
-    "pydantic>=2.0.0",
-    "aiofiles>=23.0.0",
-    "rich>=13.0.0",
-    "click>=8.1.0",
-    "pyyaml>=6.0",
-    "biopython>=1.83",
-    "numpy>=1.26.0",
-    "pandas>=2.0.0",
-    "matplotlib>=3.8.0",
-    "seaborn>=0.13.0",
-    "requests>=2.31.0",
-    "xmltodict>=0.13.0",
-    "beautifulsoup4>=4.12.0",
-    "lxml>=4.9.0",
+    # F-O8: pin upper bounds (next major) so an unattended `pip install -U`
+    # cannot pull a breaking major release. The root requirements.lock holds
+    # the exact resolved versions for reproducible multi-node installs.
+    "httpx>=0.27.0,<1.0",
+    "pydantic>=2.0.0,<3.0",
+    "aiofiles>=23.0.0,<25.0",
+    "rich>=13.0.0,<15.0",
+    "click>=8.1.0,<9.0",
+    "pyyaml>=6.0,<7.0",
+    "biopython>=1.83,<2.0",
+    "numpy>=1.26.0,<3.0",
+    "pandas>=2.0.0,<3.0",
+    "matplotlib>=3.8.0,<4.0",
+    "seaborn>=0.13.0,<2.0",
+    "requests>=2.31.0,<3.0",
+    "xmltodict>=0.13.0,<1.0",
+    "beautifulsoup4>=4.12.0,<5.0",
+    "lxml>=4.9.0,<6.0",
     "fusion-core",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=5.0.0",
-    "pytest-mock>=3.14.0",
+    "pytest>=8.0.0,<9.0",
+    "pytest-asyncio>=0.23.0,<2.0",
+    "pytest-cov>=5.0.0,<7.0",
+    "pytest-mock>=3.14.0,<4.0",
 ]
 api = [
-    "fastapi>=0.110.0",
-    "uvicorn>=0.29.0",
-    "sse-starlette>=2.0.0",
+    "fastapi>=0.110.0,<1.0",
+    "uvicorn>=0.29.0,<1.0",
+    "sse-starlette>=2.0.0,<3.0",
 ]
 mlx = [
-    "mlx>=0.20.0",
-    "mlx-lm>=0.20.0",
+    "mlx>=0.20.0,<1.0",
+    "mlx-lm>=0.20.0,<1.0",
 ]
 jupyter = [
-    "jupyter-client>=8.0.0",
-    "jupyter-core>=5.0.0",
-    "ipykernel>=6.0.0",
+    "jupyter-client>=8.0.0,<9.0",
+    "jupyter-core>=5.0.0,<6.0",
+    "ipykernel>=6.0.0,<7.0",
 ]
 r = [
-    "rpy2>=3.5.0",
+    "rpy2>=3.5.0,<4.0",
 ]
 molecule = [
-    "rdkit>=2023.9.0",
-    "py3Dmol>=2.0.0",
+    "rdkit>=2023.9.0,<2025.0",
+    "py3Dmol>=2.0.0,<3.0",
 ]
 all = [
     "fusion-science[test,api,mlx,jupyter,r,molecule]",
@@ -72,7 +75,7 @@ testpaths = ["tests"]
 source = ["fusion_science"]
 branch = true
 relative_files = true
-omit = ["fusion_science/database/chinese.py"]
+omit = []
 
 [tool.coverage.report]
 exclude_lines = [

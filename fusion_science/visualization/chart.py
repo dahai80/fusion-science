@@ -7,13 +7,20 @@ life sciences and bioinformatics publications.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Strip any character that is not safe in a filename. Without this, a caller-
+# supplied name containing "/" or ".." can write outside the temp dir (path
+# traversal) or produce an invalid path.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 @dataclass
@@ -79,9 +86,10 @@ class ChartGenerator:
         """Get an output file path."""
         output_dir = tempfile.gettempdir()
         self._figure_counter += 1
+        safe_name = _SAFE_NAME_RE.sub("_", name) or "chart"
         return os.path.join(
             output_dir,
-            f"fusion_chart_{name}_{self._figure_counter}.{self.config.output_format}",
+            f"fusion_chart_{safe_name}_{self._figure_counter}.{self.config.output_format}",
         )
 
     async def bar_chart(
@@ -109,31 +117,34 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("bar")
 
         try:
-            import matplotlib.pyplot as plt
-            import numpy as np
-
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-            x = np.arange(len(categories))
-            ax.bar(x, values, yerr=errors, capsize=5, alpha=0.8)
-
-            ax.set_xticks(x)
-            ax.set_xticklabels(categories, rotation=45, ha="right")
-            if cfg.title:
-                ax.set_title(cfg.title)
-            if cfg.xlabel:
-                ax.set_xlabel(cfg.xlabel)
-            if cfg.ylabel:
-                ax.set_ylabel(cfg.ylabel)
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
+            # matplotlib rendering is blocking + holds the GIL; offload so the
+            # event loop stays responsive during a savefig.
+            return await asyncio.to_thread(self._render_bar, cfg, categories, values, errors, output_path)
         except Exception as e:
             logger.error("Bar chart generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_bar(self, cfg, categories, values, errors, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+        x = np.arange(len(categories))
+        ax.bar(x, values, yerr=errors, capsize=5, alpha=0.8)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(categories, rotation=45, ha="right")
+        if cfg.title:
+            ax.set_title(cfg.title)
+        if cfg.xlabel:
+            ax.set_xlabel(cfg.xlabel)
+        if cfg.ylabel:
+            ax.set_ylabel(cfg.ylabel)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)
 
     async def scatter_plot(
         self,
@@ -160,35 +171,36 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("scatter")
 
         try:
-            import matplotlib.pyplot as plt
-            import seaborn as sns
-
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-
-            if groups:
-                import pandas as pd
-
-                data = pd.DataFrame({"x": x, "y": y, "group": groups})
-                sns.scatterplot(data=data, x="x", y="y", hue="group", ax=ax)
-            else:
-                ax.scatter(x, y, alpha=0.7)
-
-            if cfg.title:
-                ax.set_title(cfg.title)
-            if cfg.xlabel:
-                ax.set_xlabel(cfg.xlabel)
-            if cfg.ylabel:
-                ax.set_ylabel(cfg.ylabel)
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
+            return await asyncio.to_thread(self._render_scatter, cfg, x, y, groups, output_path)
         except Exception as e:
             logger.error("Scatter plot generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_scatter(self, cfg, x, y, groups, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+
+        if groups:
+            import pandas as pd
+
+            data = pd.DataFrame({"x": x, "y": y, "group": groups})
+            sns.scatterplot(data=data, x="x", y="y", hue="group", ax=ax)
+        else:
+            ax.scatter(x, y, alpha=0.7)
+
+        if cfg.title:
+            ax.set_title(cfg.title)
+        if cfg.xlabel:
+            ax.set_xlabel(cfg.xlabel)
+        if cfg.ylabel:
+            ax.set_ylabel(cfg.ylabel)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)
 
     async def heatmap(
         self,
@@ -215,38 +227,39 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("heatmap")
 
         try:
-            import matplotlib.pyplot as plt
-            import numpy as np
-            import seaborn as sns
-
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-            data_arr = np.array(data)
-
-            sns.heatmap(
-                data_arr,
-                xticklabels=col_labels,
-                yticklabels=row_labels,
-                cmap="viridis",
-                annot=False,
-                ax=ax,
-            )
-
-            if cfg.title:
-                ax.set_title(cfg.title)
-            if cfg.xlabel:
-                ax.set_xlabel(cfg.xlabel)
-            if cfg.ylabel:
-                ax.set_ylabel(cfg.ylabel)
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
+            return await asyncio.to_thread(self._render_heatmap, cfg, data, row_labels, col_labels, output_path)
         except Exception as e:
             logger.error("Heatmap generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_heatmap(self, cfg, data, row_labels, col_labels, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import seaborn as sns
+
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+        data_arr = np.array(data)
+
+        sns.heatmap(
+            data_arr,
+            xticklabels=col_labels,
+            yticklabels=row_labels,
+            cmap="viridis",
+            annot=False,
+            ax=ax,
+        )
+
+        if cfg.title:
+            ax.set_title(cfg.title)
+        if cfg.xlabel:
+            ax.set_xlabel(cfg.xlabel)
+        if cfg.ylabel:
+            ax.set_ylabel(cfg.ylabel)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)
 
     async def volcano_plot(
         self,
@@ -277,50 +290,47 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("volcano")
 
         try:
-            import matplotlib.pyplot as plt
-            import numpy as np
-
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-            neg_log_p = [-np.log10(p) if p > 0 else 10 for p in pvalues]
-
-            # Classify points
-            up = [i for i in range(len(log2fc)) if log2fc[i] > fc_threshold and neg_log_p[i] > -np.log10(p_threshold)]
-            down = [
-                i for i in range(len(log2fc)) if log2fc[i] < -fc_threshold and neg_log_p[i] > -np.log10(p_threshold)
-            ]
-            ns = [i for i in range(len(log2fc)) if i not in up and i not in down]
-
-            ax.scatter([log2fc[i] for i in ns], [neg_log_p[i] for i in ns], alpha=0.5, s=10, label="NS")
-            ax.scatter([log2fc[i] for i in up], [neg_log_p[i] for i in up], alpha=0.7, s=15, color="red", label="Up")
-            ax.scatter(
-                [log2fc[i] for i in down], [neg_log_p[i] for i in down], alpha=0.7, s=15, color="blue", label="Down"
+            return await asyncio.to_thread(
+                self._render_volcano, cfg, log2fc, pvalues, labels, fc_threshold, p_threshold, output_path
             )
-
-            # Threshold lines
-            ax.axhline(-np.log10(p_threshold), color="grey", linestyle="--", alpha=0.5)
-            ax.axvline(fc_threshold, color="grey", linestyle="--", alpha=0.5)
-            ax.axvline(-fc_threshold, color="grey", linestyle="--", alpha=0.5)
-
-            if labels:
-                for i in up + down:
-                    if i < len(labels):
-                        ax.annotate(labels[i], (log2fc[i], neg_log_p[i]), fontsize=8, alpha=0.8)
-
-            ax.set_xlabel("Log2 Fold Change")
-            ax.set_ylabel("-Log10 P-value")
-            if cfg.title:
-                ax.set_title(cfg.title)
-            ax.legend()
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
         except Exception as e:
             logger.error("Volcano plot generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_volcano(self, cfg, log2fc, pvalues, labels, fc_threshold, p_threshold, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+        neg_log_p = [-np.log10(p) if p > 0 else 10 for p in pvalues]
+
+        up = [i for i in range(len(log2fc)) if log2fc[i] > fc_threshold and neg_log_p[i] > -np.log10(p_threshold)]
+        down = [i for i in range(len(log2fc)) if log2fc[i] < -fc_threshold and neg_log_p[i] > -np.log10(p_threshold)]
+        ns = [i for i in range(len(log2fc)) if i not in up and i not in down]
+
+        ax.scatter([log2fc[i] for i in ns], [neg_log_p[i] for i in ns], alpha=0.5, s=10, label="NS")
+        ax.scatter([log2fc[i] for i in up], [neg_log_p[i] for i in up], alpha=0.7, s=15, color="red", label="Up")
+        ax.scatter([log2fc[i] for i in down], [neg_log_p[i] for i in down], alpha=0.7, s=15, color="blue", label="Down")
+
+        ax.axhline(-np.log10(p_threshold), color="grey", linestyle="--", alpha=0.5)
+        ax.axvline(fc_threshold, color="grey", linestyle="--", alpha=0.5)
+        ax.axvline(-fc_threshold, color="grey", linestyle="--", alpha=0.5)
+
+        if labels:
+            for i in up + down:
+                if i < len(labels):
+                    ax.annotate(labels[i], (log2fc[i], neg_log_p[i]), fontsize=8, alpha=0.8)
+
+        ax.set_xlabel("Log2 Fold Change")
+        ax.set_ylabel("-Log10 P-value")
+        if cfg.title:
+            ax.set_title(cfg.title)
+        ax.legend()
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)
 
     async def line_chart(
         self,
@@ -345,31 +355,32 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("line")
 
         try:
-            import matplotlib.pyplot as plt
-
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-
-            for y_set in y_sets:
-                ax.plot(x, y_set["values"], label=y_set.get("label", ""), marker="o", linewidth=2)
-
-            if cfg.title:
-                ax.set_title(cfg.title)
-            if cfg.xlabel:
-                ax.set_xlabel(cfg.xlabel)
-            if cfg.ylabel:
-                ax.set_ylabel(cfg.ylabel)
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
+            return await asyncio.to_thread(self._render_line, cfg, x, y_sets, output_path)
         except Exception as e:
             logger.error("Line chart generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_line(self, cfg, x, y_sets, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+
+        for y_set in y_sets:
+            ax.plot(x, y_set["values"], label=y_set.get("label", ""), marker="o", linewidth=2)
+
+        if cfg.title:
+            ax.set_title(cfg.title)
+        if cfg.xlabel:
+            ax.set_xlabel(cfg.xlabel)
+        if cfg.ylabel:
+            ax.set_ylabel(cfg.ylabel)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)
 
     async def box_plot(
         self,
@@ -392,33 +403,33 @@ class ChartGenerator:
         output_path = output_path or self._get_output_path("box")
 
         try:
-            import matplotlib.pyplot as plt
-            import pandas as pd
-            import seaborn as sns
-
-            # Convert to long format
-            long_data = []
-            for group, values in data.items():
-                for v in values:
-                    long_data.append({"group": group, "value": v})
-
-            df = pd.DataFrame(long_data)
-            fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
-            sns.boxplot(data=df, x="group", y="value", ax=ax)
-
-            if cfg.title:
-                ax.set_title(cfg.title)
-            if cfg.xlabel:
-                ax.set_xlabel(cfg.xlabel)
-            if cfg.ylabel:
-                ax.set_ylabel(cfg.ylabel)
-
-            plt.tight_layout()
-            plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
-            plt.close()
-
-            return ChartResult(success=True, file_path=output_path)
-
+            return await asyncio.to_thread(self._render_box, cfg, data, output_path)
         except Exception as e:
             logger.error("Box plot generation failed: %s", e)
             return ChartResult(success=False, error=str(e))
+
+    def _render_box(self, cfg, data, output_path) -> ChartResult:
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import seaborn as sns
+
+        long_data = []
+        for group, values in data.items():
+            for v in values:
+                long_data.append({"group": group, "value": v})
+
+        df = pd.DataFrame(long_data)
+        fig, ax = plt.subplots(figsize=(cfg.width, cfg.height))
+        sns.boxplot(data=df, x="group", y="value", ax=ax)
+
+        if cfg.title:
+            ax.set_title(cfg.title)
+        if cfg.xlabel:
+            ax.set_xlabel(cfg.xlabel)
+        if cfg.ylabel:
+            ax.set_ylabel(cfg.ylabel)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=cfg.dpi, bbox_inches="tight")
+        plt.close()
+        return ChartResult(success=True, file_path=output_path)

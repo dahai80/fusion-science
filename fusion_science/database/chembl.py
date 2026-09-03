@@ -99,13 +99,17 @@ class ChEMBLConnector(BaseConnector):
             return cached
 
         try:
-            # Determine entity type from ID prefix
-            if identifier.upper().startswith("CHEMBL"):
-                data = await self._get_molecule(identifier)
-            elif identifier.upper().startswith("CHEMBL_TARGET"):
+            # R-13: longest-prefix-first. "CHEMBL" is a prefix of "CHEMBL_TARGET"
+            # and "CHEMBL_ASSAY"; checking the generic CHEMBL branch first would
+            # misroute target/assay IDs (e.g. CHEMBL_TARGET1234) to _get_molecule,
+            # hitting the wrong endpoint and returning a confusing 404.
+            up = identifier.upper()
+            if up.startswith("CHEMBL_TARGET"):
                 data = await self._get_target(identifier)
-            elif identifier.upper().startswith("CHEMBL_ASSAY"):
+            elif up.startswith("CHEMBL_ASSAY"):
                 data = await self._get_assay(identifier)
+            elif up.startswith("CHEMBL"):
+                data = await self._get_molecule(identifier)
             else:
                 # Try molecule first
                 data = await self._get_molecule(identifier)
@@ -274,8 +278,10 @@ class ChEMBLConnector(BaseConnector):
                 for a in activities
             ]
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — empty bioactivities look
+            # like "no activity data" vs a ChEMBL outage. Raise to surface it.
             logger.error("Failed to fetch bioactivities for %s: %s", molecule_id, e)
-            return []
+            raise RuntimeError(f"chembl_fetch_bioactivities_failed: {e}") from e
 
     async def get_drug_indications(self, molecule_id: str) -> list[dict[str, Any]]:
         """Fetch drug indications for a molecule.
@@ -303,5 +309,6 @@ class ChEMBLConnector(BaseConnector):
                 for ind in indications
             ]
         except Exception as e:
+            # P0 (E6): do NOT return [] on failure — see get_bioactivities note.
             logger.error("Failed to fetch drug indications: %s", e)
-            return []
+            raise RuntimeError(f"chembl_fetch_drug_indications_failed: {e}") from e

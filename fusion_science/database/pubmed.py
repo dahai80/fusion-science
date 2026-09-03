@@ -174,7 +174,12 @@ class PubMedConnector(BaseConnector):
             List of parsed publication dicts.
         """
         try:
-            import xml.etree.ElementTree as ET
+            # Security: prefer defusedxml to block XXE / billion-laughs on the
+            # NCBI XML response; fall back to stdlib if defusedxml is absent.
+            try:
+                from defusedxml import ElementTree as ET
+            except ImportError:
+                import xml.etree.ElementTree as ET
 
             root = ET.fromstring(xml_text)
             articles = []
@@ -184,8 +189,13 @@ class PubMedConnector(BaseConnector):
                     articles.append(pub)
             return articles
         except Exception as e:
-            logger.error("Failed to parse PubMed XML: %s", e)
-            return []
+            # I-12: NCBI sometimes returns an HTML 200 page (rate-limit/captcha)
+            # instead of XML. Swallowing this as [] made a data-loss event look
+            # like "no results" with no signal. Re-raise a typed error so the
+            # search caller records it in DatabaseResult.error and the operator
+            # can see it (and tests can assert the specific exception type).
+            logger.error("Failed to parse PubMed XML (likely non-XML 200 response): %s", e)
+            raise ValueError(f"pubmed_xml_parse_failed: {e}") from e
 
     def _parse_single_article(self, article: Any) -> dict[str, Any] | None:
         """Parse a single PubmedArticle XML element."""

@@ -197,8 +197,12 @@ class TestRegisterBuiltinTools:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         mcp = reg.get_mcp_tools()
-        assert len(mcp) == len(reg.list_tools())
-        assert len(mcp) >= 12
+        # execute_python/execute_r intentionally NOT exposed over MCP (RCE risk)
+        assert len(reg.list_tools()) == 12
+        assert len(mcp) == 10
+        mcp_names = {t["name"] for t in mcp}
+        assert "execute_python" not in mcp_names
+        assert "execute_r" not in mcp_names
 
     @pytest.mark.asyncio
     async def test_search_literature_handler_success(self):

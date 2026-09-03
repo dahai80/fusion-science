@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request
 
 from ...audit.compliance import ComplianceChecker
 from ...audit.integrity import AuditIntegrityChecker
+from .._owner import check_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -18,6 +19,11 @@ router = APIRouter()
 
 @router.get("")
 async def get_audit(session_id: str, request: Request):
+    mgr = request.app.state.session_manager
+    session = mgr.get_session(session_id)
+    denied = check_owner(request, session)
+    if denied:
+        return denied
     recorder = getattr(request.app.state, "recorder", None)
     trace_entries = []
     if recorder:
@@ -33,6 +39,11 @@ async def get_audit(session_id: str, request: Request):
 
 @router.get("/integrity")
 async def check_audit_integrity(session_id: str, request: Request):
+    mgr = request.app.state.session_manager
+    session = mgr.get_session(session_id)
+    denied = check_owner(request, session)
+    if denied:
+        return denied
     recorder = getattr(request.app.state, "recorder", None)
     session = recorder.get_session() if recorder else None
     integrity_checker = AuditIntegrityChecker()

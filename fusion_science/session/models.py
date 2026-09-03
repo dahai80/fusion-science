@@ -41,19 +41,23 @@ class ResearchContext:
 class ResearchSession:
     id: str = ""
     title: str = ""
+    owner: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     messages: list[dict] = field(default_factory=list)
     context: ResearchContext = field(default_factory=ResearchContext)
     artifacts: list[Artifact] = field(default_factory=list)
     trace_ids: list[str] = field(default_factory=list)
+    version: int = 0
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "title": self.title,
+            "owner": self.owner,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "version": self.version,
             "messages": self.messages,
             "context": {
                 "papers": self.context.papers,
@@ -100,10 +104,12 @@ class ResearchSession:
         return cls(
             id=data.get("id", ""),
             title=data.get("title", ""),
+            owner=data.get("owner", ""),
             created_at=data.get("created_at", 0.0),
             updated_at=data.get("updated_at", 0.0),
             messages=data.get("messages", []),
             context=context,
             artifacts=artifacts,
             trace_ids=data.get("trace_ids", []),
+            version=data.get("version", 0),
         )

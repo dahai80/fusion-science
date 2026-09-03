@@ -7,12 +7,22 @@ parsing, PDB structure rendering, and molecular property display.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# Strip any character that is not safe in a filename. A caller-supplied
+# name/pdb_id containing "/" or ".." can write outside the temp dir.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _safe_name(name: str) -> str:
+    return _SAFE_NAME_RE.sub("_", name) or "molecule"
 
 
 @dataclass
@@ -82,78 +92,80 @@ class MoleculeVisualizer:
             logger.info("RDKit unavailable, using 2D fallback for SMILES: %s", smiles)
             return await self.from_smiles_2d_fallback(smiles, name)
 
+        safe = _safe_name(name)
         try:
-            from rdkit import Chem  # type: ignore[import-untyped]
-            from rdkit.Chem import AllChem, Descriptors, Draw  # type: ignore[import-untyped]
-
-            mol = Chem.MolFromSmiles(smiles)
-            if mol is None:
-                return MoleculeVisualization(
-                    success=False,
-                    error=f"Invalid SMILES: {smiles}",
-                    smiles=smiles,
-                )
-
-            # Generate 2D coordinates
-            AllChem.Compute2DCoords(mol)
-
-            # Calculate properties
-            mw = Descriptors.MolWt(mol)
-            formula = Chem.rdMolDescriptors.CalcMolFormula(mol)
-
-            # Output paths
-            output_dir = tempfile.gettempdir()
-            image_path = os.path.join(output_dir, f"{name}_2d.png")
-            html_path = os.path.join(output_dir, f"{name}_3d.html")
-
-            # 2D rendering
-            if render_2d:
-                img = Draw.MolToImage(mol, size=(600, 400))
-                img.save(image_path)
-
-            # 3D structure generation and visualization
-            if show_3d:
-                mol_3d = Chem.MolFromSmiles(smiles)
-                mol_3d = Chem.AddHs(mol_3d)
-                AllChem.EmbedMolecule(mol_3d, AllChem.ETKDG())
-                AllChem.MMFFOptimizeMolecule(mol_3d)
-
-                # Generate PDB (for py3Dmol)
-                pdb_path = os.path.join(output_dir, f"{name}.pdb")
-                pdb_block = Chem.MolToPDBBlock(mol_3d)
-                with open(pdb_path, "w") as f:
-                    f.write(pdb_block)
-
-                # Generate interactive 3D HTML
-                if self._py3dmol_available:
-                    self._generate_3d_html(pdb_block, html_path, name)
-                else:
-                    html_path = ""
-
-            return MoleculeVisualization(
-                success=True,
-                html_path=html_path,
-                image_path=image_path if render_2d else "",
-                smiles=smiles,
-                formula=formula,
-                molecular_weight=mw,
-            )
-
+            # RDKit (2D Draw + 3D embed/optimize) are blocking C calls that hold
+            # the GIL; offload so the event loop stays responsive.
+            return await asyncio.to_thread(self._render_smiles, smiles, safe, show_3d, render_2d)
         except Exception as e:
             logger.error("Molecule visualization failed: %s", e)
+            return MoleculeVisualization(success=False, error=str(e), smiles=smiles)
+
+    def _render_smiles(self, smiles: str, safe: str, show_3d: bool, render_2d: bool) -> MoleculeVisualization:
+        from rdkit import Chem  # type: ignore[import-untyped]
+        from rdkit.Chem import AllChem, Descriptors, Draw  # type: ignore[import-untyped]
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
             return MoleculeVisualization(
                 success=False,
-                error=str(e),
+                error=f"Invalid SMILES: {smiles}",
                 smiles=smiles,
             )
+
+        # Generate 2D coordinates
+        AllChem.Compute2DCoords(mol)
+
+        # Calculate properties
+        mw = Descriptors.MolWt(mol)
+        formula = Chem.rdMolDescriptors.CalcMolFormula(mol)
+
+        # Output paths
+        output_dir = tempfile.gettempdir()
+        image_path = os.path.join(output_dir, f"{safe}_2d.png")
+        html_path = os.path.join(output_dir, f"{safe}_3d.html")
+
+        # 2D rendering
+        if render_2d:
+            img = Draw.MolToImage(mol, size=(600, 400))
+            img.save(image_path)
+
+        # 3D structure generation and visualization
+        if show_3d:
+            mol_3d = Chem.MolFromSmiles(smiles)
+            mol_3d = Chem.AddHs(mol_3d)
+            AllChem.EmbedMolecule(mol_3d, AllChem.ETKDG())
+            AllChem.MMFFOptimizeMolecule(mol_3d)
+
+            # Generate PDB (for py3Dmol)
+            pdb_path = os.path.join(output_dir, f"{safe}.pdb")
+            pdb_block = Chem.MolToPDBBlock(mol_3d)
+            with open(pdb_path, "w") as f:
+                f.write(pdb_block)
+
+            # Generate interactive 3D HTML
+            if self._py3dmol_available:
+                self._generate_3d_html(pdb_block, html_path, safe)
+            else:
+                html_path = ""
+
+        return MoleculeVisualization(
+            success=True,
+            html_path=html_path,
+            image_path=image_path if render_2d else "",
+            smiles=smiles,
+            formula=formula,
+            molecular_weight=mw,
+        )
 
     async def from_smiles_2d_fallback(
         self,
         smiles: str,
         name: str = "molecule",
     ) -> MoleculeVisualization:
+        safe = _safe_name(name)
         output_dir = tempfile.gettempdir()
-        html_path = os.path.join(output_dir, f"{name}_2d_fallback.html")
+        html_path = os.path.join(output_dir, f"{safe}_2d_fallback.html")
 
         logger.info("Generating 2D fallback HTML for SMILES: %s", smiles)
 
@@ -188,7 +200,7 @@ class MoleculeVisualizer:
 <html>
 <head>
     <meta charset="utf-8">
-    <title>{name} - SMILES Visualization</title>
+    <title>{safe} - SMILES Visualization</title>
     <style>
         body {{
             margin: 0;
@@ -270,7 +282,7 @@ class MoleculeVisualizer:
 </head>
 <body>
     <div class="card">
-        <h1>{name}</h1>
+        <h1>{safe}</h1>
         <div class="subtitle">SMILES Notation Visualization (Fallback Mode)</div>
         <div class="smiles-display">{smiles_escaped}</div>
         {features_html}
@@ -291,8 +303,7 @@ class MoleculeVisualizer:
 </html>"""
 
         try:
-            with open(html_path, "w") as f:
-                f.write(html)
+            await asyncio.to_thread(self._write_fallback_html, html_path, html)
             logger.info("2D fallback HTML written to %s", html_path)
         except Exception as e:
             logger.error("Failed to write fallback HTML: %s", e)
@@ -307,6 +318,11 @@ class MoleculeVisualizer:
             html_path=html_path,
             smiles=smiles,
         )
+
+    @staticmethod
+    def _write_fallback_html(html_path: str, html: str) -> None:
+        with open(html_path, "w") as f:
+            f.write(html)
 
     async def from_pdb(
         self,
@@ -325,44 +341,20 @@ class MoleculeVisualizer:
             MoleculeVisualization with generated HTML.
         """
         output_dir = tempfile.gettempdir()
-        html_path = os.path.join(output_dir, f"{pdb_id}_3d.html")
-        pdb_path = os.path.join(output_dir, f"{pdb_id}.pdb")
+        safe_id = _safe_name(pdb_id)
+        html_path = os.path.join(output_dir, f"{safe_id}_3d.html")
+        pdb_path = os.path.join(output_dir, f"{safe_id}.pdb")
 
         try:
-            if not pdb_content:
-                # Fetch from RCSB with configurable mirror URL
-
-                import httpx
-
-                pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
-                # Normalize: if the mirror URL is an API endpoint, extract the download host
-                if pdb_base.endswith("/rest/v1"):
-                    pdb_base = "https://files.rcsb.org"
-                resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
-                if resp.status_code != 200:
-                    return MoleculeVisualization(
-                        success=False,
-                        error=f"Failed to fetch PDB: {pdb_id}",
-                    )
-                pdb_content = resp.text
-
-            # Save PDB file
-            with open(pdb_path, "w") as f:
-                f.write(pdb_content)
-
-            # Generate 3D HTML
-            if self._py3dmol_available:
-                self._generate_3d_html(pdb_content, html_path, pdb_id, style=style)
-            else:
-                html_path = f"https://www.rcsb.org/3d/view/{pdb_id}"  # Fallback to RCSB viewer
-                # If offline mode, note that the viewer is unavailable
-                if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
-                    html_path = f"file://{pdb_path}"  # Local PDB file fallback
-
+            # httpx.get (sync) + file write + py3Dmol HTML gen are blocking;
+            # offload so the event loop stays responsive.
+            html_out, pdb_out = await asyncio.to_thread(
+                self._render_pdb, pdb_id, safe_id, pdb_content, html_path, pdb_path, style
+            )
             return MoleculeVisualization(
                 success=True,
-                html_path=html_path,
-                pdb_path=pdb_path,
+                html_path=html_out,
+                pdb_path=pdb_out,
             )
 
         except Exception as e:
@@ -371,6 +363,49 @@ class MoleculeVisualizer:
                 success=False,
                 error=str(e),
             )
+
+    def _render_pdb(
+        self,
+        pdb_id: str,
+        safe_id: str,
+        pdb_content: str,
+        html_path: str,
+        pdb_path: str,
+        style: str,
+    ) -> tuple[str, str]:
+        if not pdb_content:
+            # Fetch from RCSB with configurable mirror URL
+
+            import httpx
+
+            pdb_base = os.getenv("FUSION_SCI_PDB_MIRROR", "https://files.rcsb.org")
+            # F-S7: scheme whitelist — reject file:// etc. before fetching.
+            from ..utils.mirrors import validate_fetch_url
+
+            pdb_base = validate_fetch_url(pdb_base, "https://files.rcsb.org")
+            # Normalize: if the mirror URL is an API endpoint, extract the download host
+            if pdb_base.endswith("/rest/v1"):
+                pdb_base = "https://files.rcsb.org"
+            resp = httpx.get(f"{pdb_base}/download/{pdb_id}.pdb")
+            if resp.status_code != 200:
+                raise RuntimeError(f"Failed to fetch PDB: {pdb_id}")
+            pdb_content = resp.text
+
+        # Save PDB file
+        with open(pdb_path, "w") as f:
+            f.write(pdb_content)
+
+        # Generate 3D HTML
+        out_html = html_path
+        if self._py3dmol_available:
+            self._generate_3d_html(pdb_content, html_path, safe_id, style=style)
+        else:
+            out_html = f"https://www.rcsb.org/3d/view/{pdb_id}"  # Fallback to RCSB viewer
+            # If offline mode, note that the viewer is unavailable
+            if os.getenv("FUSION_OFFLINE_MODE", "").lower() in ("true", "1", "yes"):
+                out_html = f"file://{pdb_path}"  # Local PDB file fallback
+
+        return out_html, pdb_path
 
     def _generate_3d_html(
         self,
