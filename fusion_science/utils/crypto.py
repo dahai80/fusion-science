@@ -27,7 +27,7 @@ _DERIV_ITER = 200_000
 _MAGIC = b"FS1"  # envelope magic so we never misread plaintext as ciphertext
 
 
-def _resolve_key() -> bytes | None:
+def _encryption_key() -> bytes | None:
     # Env wins; fall back to Keychain (macOS) where the key is generated on
     # first use. Returns None when no key is provisioned -> caller skips
     # encryption (graceful: encrypt_at_rest flag without a key logs + degrades
@@ -51,7 +51,7 @@ def _resolve_key() -> bytes | None:
 
 def encrypt_bytes(plaintext: bytes) -> bytes:
     # Returns plaintext unchanged when no key. Envelope: MAGIC || nonce || ct.
-    key = _resolve_key()
+    key = _encryption_key()
     if key is None:
         return plaintext
     try:
@@ -72,7 +72,7 @@ def decrypt_bytes(blob: bytes) -> bytes:
     # without re-encrypting history (new writes encrypt; old reads still work).
     if not blob.startswith(_MAGIC):
         return blob
-    key = _resolve_key()
+    key = _encryption_key()
     if key is None:
         logger.error("Encrypted blob present but no decryption key available")
         raise RuntimeError("audit blob is encrypted but no encryption key is provisioned")
