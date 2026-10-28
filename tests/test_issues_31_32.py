@@ -84,28 +84,24 @@ class TestIssue32JwtSecretFailFast:
 
 class TestIssue31ProcessTitle:
     # Issue #31: process title must show "fusion-science serve :<port>",
-    # with a safe fallback when setproctitle is unavailable.
+    # with a safe fallback when setproctitle is unavailable. The live
+    # ps/Activity-Monitor behavior was verified on macOS; on CI we spy the
+    # call because getproctitle() readback is not reliable on Linux.
 
-    def test_set_process_title(self):
+    def test_set_process_title(self, monkeypatch):
         import setproctitle
 
-        previous = setproctitle.getproctitle()
-        try:
-            _set_process_title(11462)
-            assert setproctitle.getproctitle() == "fusion-science serve :11462"
-        finally:
-            setproctitle.setproctitle(previous)
+        calls: list[str] = []
+        monkeypatch.setattr(setproctitle, "setproctitle", calls.append)
+        _set_process_title(11462)
+        assert calls == ["fusion-science serve :11462"]
 
     def test_set_process_title_fallback_safe(self, monkeypatch):
-        import setproctitle
+        def _boom(*_args):
+            raise RuntimeError("boom")
 
-        previous = setproctitle.getproctitle()
-        monkeypatch.setattr(setproctitle, "setproctitle", lambda *_: (_ for _ in ()).throw(RuntimeError("boom")))
-        try:
-            _set_process_title(11462)  # must not raise
-        finally:
-            monkeypatch.undo()
-            setproctitle.setproctitle(previous)
+        monkeypatch.setattr("setproctitle.setproctitle", _boom)
+        _set_process_title(11462)  # must not raise
 
     def test_setproctitle_declared_dependency(self):
         with open("pyproject.toml", encoding="utf-8") as fh:
