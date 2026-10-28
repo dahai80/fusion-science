@@ -201,6 +201,7 @@ All planned features and non-functional requirements are complete. This is the f
 | v1.0.10 | Enterprise compliance hardening (compliance gaps G1/G2/G6/G9): TLS termination in the API server (`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`, HTTPS health check); encryption-at-rest for audit JSON (AES-256-GCM envelope, PBKDF2 key, `FUSION_SCIENCE_ENCRYPT_AT_REST`); TOTP MFA second factor on `/auth/token` (RFC 6238, stdlib-only, `FUSION_SCIENCE_MFA_REQUIRED`); DSAR / right-to-erasure + right-of-access endpoints (`/api/v1/data-subject/{id}`, admin-only). See **Enterprise Compliance Hardening** below. |
 | v1.0.11 | Compliance hardening batch 2 (gaps G4/G5/G7/G10/G12/G13): idle session lockout / auto-logoff (`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`); configurable JWT hard TTL (`FUSION_SCIENCE_JWT_TTL`); extensible audit redaction patterns (`FUSION_SCIENCE_REDACT_PATTERNS`); tamper-detection alert webhook (`FUSION_SCIENCE_TAMPER_ALERT_URL`); 等保三级 180-day audit retention preset (`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`); push-based SIEM export confirmed closed (v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`). See **Compliance Hardening Batch 2** below. |
 | v1.0.12 | Compliance hardening batch 3 (gaps G3/G8/G11): stdlib heuristic malware scan of cached blobs + admin-only `/api/v1/security/scan` endpoint (`scan_bytes`, exec-magic/shebang/extension/entropy, optional YARA via `yara-python`); per-data-class audit retention map (`FUSION_SCIENCE_RETENTION_MAP=ephi:2555,audit:0`); anomaly/intrusion detection middleware for 等保三级 (route enumeration + burst spike, `FUSION_SCIENCE_ANOMALY_DETECT`, alerts to tamper sink, detection-not-blocking). Closes all 13 code-level compliance gaps G1–G13. See **Compliance Hardening Batch 3** below. |
+| v1.0.13 | Security + ops remediation (closes #31, #32): removed the hardcoded JWT fallback secret (`fusion-science-dev-secret`) — prod missing `FUSION_SCIENCE_JWT_SECRET` now fails fast with a guidance message (config-conventions §3), dev warns and disables token login instead of signing with a guessable key; JWT decode with no configured secret rejects (fail-closed) instead of verifying forgeable empty-key signatures; process title set via `setproctitle` (`fusion-science serve :<port>` in ps/Activity Monitor, try/except fallback); fixed macOS bash 3.2 `set -u` crash in `start.sh` when TLS is disabled. |
 
 ## Enterprise Security (v1.0.8)
 
@@ -499,6 +500,21 @@ export FUSION_SCIENCE_ANOMALY_DETECT=1
 ```
 
 Single-process, in-memory (same scope as the rate limiter); disabled unless opted in.
+
+## Security & Ops Remediation (v1.0.13)
+
+v1.0.13 closes the two open remediation issues from the 2026-10 config-governance audit:
+
+### JWT Fallback Secret Removed (#32, P0)
+
+The HS256 signing secret no longer falls back to a hardcoded dev literal. Resolution order: `FUSION_SCIENCE_JWT_SECRET` → macOS Keychain (`FUSION_SCIENCE_KEYCHAIN=1`) → derived from the provisioned `FUSION_SCIENCE_API_KEY`. When nothing is configured:
+
+- `FUSION_PROFILE=prod`: `POST /auth/token` fails fast (503) and the resolver raises with variable name + how to obtain it + doc path (config-conventions §3).
+- `FUSION_PROFILE=dev` (default): a prominent warning is logged and token login is disabled — `issue_jwt` refuses to mint an empty-key token and `decode_jwt` rejects instead of verifying forgeable signatures. API-key auth is unaffected.
+
+### Process Title (#31)
+
+The daemon now sets its process title via `setproctitle` (added as a dependency, try/except fallback when missing), so `ps` / Activity Monitor show `fusion-science serve :11462` instead of a bare `Python`. Verified live via `./start.sh start`. Also fixed a latent `start.sh` bug: on macOS bash 3.2 with `set -u`, the empty `TLS_ARGS[@]` expansion crashed startup whenever TLS was disabled.
 
 ## Domestic Research Environment
 

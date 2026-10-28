@@ -199,6 +199,7 @@ fusion-science/
 | v1.0.10 | 企业合规加固（合规缺口 G1/G2/G6/G9）：API 服务 TLS 终止（`FUSION_SCIENCE_TLS_CERTFILE`/`KEYFILE`，HTTPS 健康检查）；审计 JSON 静态加密（AES-256-GCM 信封、PBKDF2 派生密钥、`FUSION_SCIENCE_ENCRYPT_AT_REST`）；`/auth/token` 的 TOTP MFA 第二因子（RFC 6238、纯标准库、`FUSION_SCIENCE_MFA_REQUIRED`）；DSAR 删除权 + 访问权端点（`/api/v1/data-subject/{id}`，仅 admin）。详见下方**企业合规加固**。 |
 | v1.0.11 | 合规加固第二批（合规缺口 G4/G5/G7/G10/G12/G13）：空闲会话锁定 / 自动注销（`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`）；可配置 JWT 硬 TTL（`FUSION_SCIENCE_JWT_TTL`）；可扩展审计脱敏模式（`FUSION_SCIENCE_REDACT_PATTERNS`）；篡改检测告警 webhook（`FUSION_SCIENCE_TAMPER_ALERT_URL`）；等保三级 180 天审计留存预设（`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`）；推送式 SIEM 导出确认关闭（v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`）。详见下方**合规加固第二批**。 |
 | v1.0.12 | 合规加固第三批（合规缺口 G3/G8/G11）：标准库启发式恶意软件扫描缓存 blob + 仅管理员 `/api/v1/security/scan` 端点（`scan_bytes`，可执行 magic/shebang/扩展名/熵，可选 YARA 经 `yara-python`）；按数据类审计留存映射（`FUSION_SCIENCE_RETENTION_MAP=ephi:2555,audit:0`）；等保三级异常/入侵检测中间件（路由枚举 + 突发尖峰，`FUSION_SCIENCE_ANOMALY_DETECT`，告警至篡改 sink，仅检测不阻断）。关闭全部 13 个代码级合规缺口 G1–G13。详见下方**合规加固第三批**。 |
+| v1.0.13 | 安全与运维整改（关闭 #31、#32）：移除硬编码 JWT 兜底 secret（`fusion-science-dev-secret`）——prod 缺 `FUSION_SCIENCE_JWT_SECRET` 快速失败并给出修复指引（config-conventions §3），dev 警告并禁用 token 登录，不再用可猜测 key 签名；未配置 secret 时 JWT 解码直接拒绝（fail-closed），不再验证空 key 可伪造签名；经 `setproctitle` 设置进程标题（ps/活动监视器显示 `fusion-science serve :<port>`，try/except 兜底）；修复 macOS bash 3.2 下 TLS 关闭时 `start.sh` 的 `set -u` 崩溃。 |
 
 ## 企业安全 (v1.0.8)
 
@@ -497,6 +498,21 @@ export FUSION_SCIENCE_ANOMALY_DETECT=1
 ```
 
 单进程、内存内（与限流器同作用域）；未显式启用则禁用。
+
+## 安全与运维整改 (v1.0.13)
+
+v1.0.13 关闭 2026-10 配置治理审计的 2 个整改 issue：
+
+### 移除 JWT 兜底 Secret（#32，P0）
+
+HS256 签名 secret 不再回落到硬编码的开发字面量。解析顺序：`FUSION_SCIENCE_JWT_SECRET` → macOS 钥匙串（`FUSION_SCIENCE_KEYCHAIN=1`）→ 由已配置的 `FUSION_SCIENCE_API_KEY` 派生。全都未配置时：
+
+- `FUSION_PROFILE=prod`：`POST /auth/token` 快速失败（503），解析器抛出含变量名 + 获取方式 + 文档路径的异常（config-conventions §3）。
+- `FUSION_PROFILE=dev`（默认）：记录醒目警告并禁用 token 登录——`issue_jwt` 拒绝签发空 key token，`decode_jwt` 直接拒绝而非验证可伪造签名。API key 认证不受影响。
+
+### 进程标题（#31）
+
+守护进程经 `setproctitle` 设置进程标题（已加入依赖，缺失时 try/except 兜底），`ps` / 活动监视器显示 `fusion-science serve :11462` 而非裸 `Python`。已经 `./start.sh start` 实测验证。同时修复 `start.sh` 一个潜在 bug：macOS bash 3.2 下 `set -u` 会在 TLS 关闭时因空 `TLS_ARGS[@]` 展开导致启动崩溃。
 
 ## 国内研究环境适配
 

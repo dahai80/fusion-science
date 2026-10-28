@@ -75,6 +75,19 @@ async def _audit_handler(event):
     )
 
 
+def _set_process_title(port: int) -> None:
+    # Issue #31: set the process title so ps/Activity Monitor show the product
+    # name instead of a bare "Python". setproctitle is the only reliable way on
+    # macOS homebrew Python (exec -a is overwritten by the Python.app argv).
+    # try/except fallback keeps startup working when the package is missing.
+    try:
+        import setproctitle
+
+        setproctitle.setproctitle(f"fusion-science serve :{port}")
+    except Exception:
+        logger.debug("setproctitle unavailable — process title stays default")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # F-A1: multi-worker note. With the SQLite session store (default), sessions
@@ -101,6 +114,7 @@ async def lifespan(app: FastAPI):
 
     config: ScienceConfig = getattr(app.state, "config", None) or load_config()
     app.state.config = config
+    _set_process_title(config.api_port)
     app.state.gateway = LLMGateway(
         model=config.model_name,
         base_url=config.engine_base_url,
