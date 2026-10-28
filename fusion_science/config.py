@@ -16,15 +16,16 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fusion_core.config import client_key, resolve_api_key, service_data_dir, service_port
+
 logger = logging.getLogger(__name__)
 
 # Sentinel defaults: when load_config() sees these unchanged values, it tries to
-# auto-resolve them from the running fusion-mlx service (settings.json + /api/status).
-# Env vars / config files override these before auto-resolve runs, so explicit
-# settings always win; auto-resolve only fills in sentinels.
+# auto-resolve them (key via fusion_core.config single-point resolution, model
+# from the running fusion-mlx service). Env vars / config files override these
+# before auto-resolve runs, so explicit settings always win.
 _SENTINEL_MODEL_NAME = "qwen3.5-9b"
 _SENTINEL_ENGINE_API_KEY = "local"
-_MLX_SETTINGS_PATH = Path.home() / ".fusion-mlx" / "settings.json"
 # MLX service-discovery endpoint (probes the MLX engine directly, not the gateway).
 # Gateway (:11432) does not expose /api/status; override via FUSION_SCI_MLX_STATUS_URL.
 _MLX_STATUS_URL = os.getenv("FUSION_SCI_MLX_STATUS_URL", "http://localhost:11434/api/status")
@@ -237,70 +238,72 @@ def load_config(path: str | None = None) -> ScienceConfig:
             if hasattr(config, config_key):
                 setattr(config, config_key, value)
 
-    # Auto-resolve sentinel defaults from running fusion-mlx (non-fatal).
-    # Env vars / config files have already overridden above; this only fills
-    # in values that are still the sentinel defaults.
-    if config.engine_api_key == _SENTINEL_ENGINE_API_KEY or config.model_name == _SENTINEL_MODEL_NAME:
-        # F-ENT-KC: macOS Keychain takes priority over the MLX settings file —
-        # a secret in Keychain is never written to disk as plaintext. Opt-in via
-        # FUSION_SCIENCE_KEYCHAIN=1; no-op (returns None) on non-macOS.
-        _resolve_from_keychain(config)
-        _resolve_from_mlx(config)
+    # Auto-resolve sentinel defaults (non-fatal). Env vars / config files have
+    # already overridden above; this only fills in sentinels.
+    if config.engine_api_key == _SENTINEL_ENGINE_API_KEY:
+        config.engine_api_key = _engine_key()
+    if config.model_name == _SENTINEL_MODEL_NAME:
+        _auto_detect_model(config)
+
+    # fusion_core single-point resolution (config-conventions §2): FUSION_SCIENCE_PORT
+    # wins over FUSION_SCIENCE_API_PORT (both kept for backward compat); data dir
+    # honors FUSION_SCIENCE_DATA_DIR and re-roots the sub-paths that are still at
+    # their defaults — explicit env/file path settings are never touched.
+    config.api_port = service_port("science", default=config.api_port)
+    data_dir = service_data_dir("science", default=config.cache_dir)
+    config.cache_dir = str(data_dir)
+    if config.session_db_path == ScienceConfig.session_db_path:
+        config.session_db_path = str(Path(data_dir) / "sessions.db")
+    if config.trace_dir == ScienceConfig.trace_dir:
+        config.trace_dir = str(Path(data_dir) / "traces")
+    if config.provenance_dir == ScienceConfig.provenance_dir:
+        config.provenance_dir = str(Path(data_dir) / "provenance")
 
     return config
 
 
-def _resolve_from_keychain(config: ScienceConfig) -> None:
-    # Resolve the engine API key from the macOS Keychain (opt-in via
-    # FUSION_SCIENCE_KEYCHAIN). Only acts when the key is still the sentinel —
-    # an explicit env/file value always wins. Failures are non-fatal: log and
-    # fall through to the MLX settings-file resolver.
-    if os.getenv("FUSION_SCIENCE_KEYCHAIN", "").lower() not in ("true", "1", "yes"):
-        return
-    if config.engine_api_key != _SENTINEL_ENGINE_API_KEY:
-        return
-    try:
-        from .utils.keychain import retrieve_key
+def _engine_key() -> str:
+    # F-ENT-KC: macOS Keychain takes priority over the fusion_core env chain —
+    # a secret in Keychain is never written to disk as plaintext. Opt-in via
+    # FUSION_SCIENCE_KEYCHAIN=1; no-op (returns None) on non-macOS.
+    if os.getenv("FUSION_SCIENCE_KEYCHAIN", "").lower() in ("true", "1", "yes"):
+        try:
+            from .utils.keychain import retrieve_key
 
-        val = retrieve_key("engine_api_key")
-        if val:
-            config.engine_api_key = val
-            logger.info("Resolved engine_api_key from macOS Keychain")
-    except Exception as e:
-        logger.warning("Keychain resolution failed (non-fatal): %s", e)
+            val = retrieve_key("engine_api_key")
+            if val:
+                logger.info("Resolved engine_api_key from macOS Keychain")
+                return val
+        except Exception as e:
+            logger.warning("Keychain resolution failed (non-fatal): %s", e)
+    # Single-point resolution lives in fusion_core.config (issue #34): the
+    # FUSION_CLIENT_KEY alias chain (legacy MLX-era names kept as deprecated
+    # fallbacks there) — dev missing = "" + warning, FUSION_PROFILE=prod
+    # missing = RuntimeError — then the local fusion-mlx settings file as the
+    # final fallback.
+    return client_key() or resolve_api_key()
 
 
-def _resolve_from_mlx(config: ScienceConfig) -> None:
-    # Resolve sentinel engine_api_key / model_name from the local fusion-mlx
-    # service. Any failure is non-fatal: log a warning and keep existing values.
+def _auto_detect_model(config: ScienceConfig) -> None:
+    # Auto-detect model_name from the local fusion-mlx service. Key resolution
+    # is NOT done here (fusion_core.config owns it, see _engine_key). Any
+    # failure is non-fatal: log a warning and keep the existing value.
     import httpx
 
-    if config.engine_api_key == _SENTINEL_ENGINE_API_KEY:
-        try:
-            with open(_MLX_SETTINGS_PATH) as f:
-                data = json.load(f)
-            key = data.get("auth", {}).get("api_key", "")
-            if key:
-                config.engine_api_key = key
-                logger.info("Auto-resolved engine_api_key from fusion-mlx settings")
-        except Exception as e:
-            logger.warning("Could not read api_key from %s: %s", _MLX_SETTINGS_PATH, e)
-
-    if config.model_name == _SENTINEL_MODEL_NAME:
-        try:
-            headers = {"X-Fusion-Route": "fusion-science"}
-            if config.engine_api_key and config.engine_api_key != _SENTINEL_ENGINE_API_KEY:
-                headers["Authorization"] = f"Bearer {config.engine_api_key}"
-            with httpx.Client(timeout=2.0) as client:
-                resp = client.get(_MLX_STATUS_URL, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-            loaded = data.get("loaded_models", [])
-            if isinstance(loaded, list) and loaded:
-                config.model_name = loaded[0]
-                logger.info("Auto-resolved model_name from fusion-mlx: %s", loaded[0])
-        except Exception as e:
-            logger.warning("Could not auto-detect model from fusion-mlx: %s", e)
+    try:
+        headers = {"X-Fusion-Route": "fusion-science"}
+        if config.engine_api_key and config.engine_api_key != _SENTINEL_ENGINE_API_KEY:
+            headers["Authorization"] = f"Bearer {config.engine_api_key}"
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(_MLX_STATUS_URL, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        loaded = data.get("loaded_models", [])
+        if isinstance(loaded, list) and loaded:
+            config.model_name = loaded[0]
+            logger.info("Auto-resolved model_name from fusion-mlx: %s", loaded[0])
+    except Exception as e:
+        logger.warning("Could not auto-detect model from fusion-mlx: %s", e)
 
 
 def _try_load_dotenv() -> None:

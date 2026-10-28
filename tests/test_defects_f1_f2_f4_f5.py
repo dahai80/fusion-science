@@ -193,7 +193,10 @@ def _clean_env():
     return {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith("FUSION_SCIENCE_") and not k.startswith("FUSION_SCI_") and k != "FUSION_OFFLINE_MODE"
+        if not k.startswith("FUSION_SCIENCE_")
+        and not k.startswith("FUSION_SCI_")
+        and k != "FUSION_OFFLINE_MODE"
+        and k not in ("FUSION_CLIENT_KEY", "FUSION_MLX_API_KEY", "MLX_API_KEY", "FUSION_PROFILE")
     }
 
 
@@ -229,16 +232,15 @@ class TestLoadConfigMlxAutoDetect:
     def test_mlx_down_keeps_defaults_nonfatal(self):
         with (
             patch.dict(os.environ, _clean_env(), clear=True),
-            patch(
-                "fusion_science.config._MLX_SETTINGS_PATH",
-                Path("/nonexistent/settings.json"),
-            ),
+            patch("fusion_science.config.resolve_api_key", return_value=""),
             patch("httpx.Client") as mock_client,
         ):
             mock_client.side_effect = httpx.ConnectError("connection refused")
             config = load_config(path="/nonexistent/path.yml")
 
-        assert config.engine_api_key == "local"
+        # Issue #34: dev with no key anywhere resolves to "" (anonymous dev
+        # warning from fusion_core.client_key), not the sentinel literal.
+        assert config.engine_api_key == ""
         assert config.model_name == "qwen3.5-9b"
 
     def test_env_override_beats_auto_detect(self):

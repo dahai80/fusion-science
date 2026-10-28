@@ -1263,7 +1263,7 @@ class TestConfig:
         assert config.engine_base_url == "http://localhost:11432/v1"
 
     def test_load_config_defaults(self):
-        with patch.dict(os.environ, {}, clear=True), patch("fusion_science.config._resolve_from_mlx"):
+        with patch.dict(os.environ, {}, clear=True), patch("fusion_science.config._auto_detect_model"):
             config = load_config(path="/nonexistent/path.yml")
             assert config.model_name == "qwen3.5-9b"
 
@@ -1323,7 +1323,7 @@ class TestConfig:
     def test_load_config_bad_file(self, tmp_path):
         bad_path = tmp_path / "bad.yml"
         bad_path.write_text("{{{{invalid yaml")
-        with patch("fusion_science.config._resolve_from_mlx"):
+        with patch("fusion_science.config._auto_detect_model"):
             # F-E14: corrupt explicit config path fails loudly (RuntimeError)
             # rather than silently falling back to defaults.
             with pytest.raises(RuntimeError):

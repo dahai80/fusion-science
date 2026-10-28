@@ -200,6 +200,7 @@ fusion-science/
 | v1.0.11 | 合规加固第二批（合规缺口 G4/G5/G7/G10/G12/G13）：空闲会话锁定 / 自动注销（`FUSION_SCIENCE_JWT_IDLE_TIMEOUT`）；可配置 JWT 硬 TTL（`FUSION_SCIENCE_JWT_TTL`）；可扩展审计脱敏模式（`FUSION_SCIENCE_REDACT_PATTERNS`）；篡改检测告警 webhook（`FUSION_SCIENCE_TAMPER_ALERT_URL`）；等保三级 180 天审计留存预设（`FUSION_SCIENCE_COMPLIANCE_LEVEL=3`）；推送式 SIEM 导出确认关闭（v1.0.9 `FUSION_SCIENCE_AUDIT_SINK_URL`）。详见下方**合规加固第二批**。 |
 | v1.0.12 | 合规加固第三批（合规缺口 G3/G8/G11）：标准库启发式恶意软件扫描缓存 blob + 仅管理员 `/api/v1/security/scan` 端点（`scan_bytes`，可执行 magic/shebang/扩展名/熵，可选 YARA 经 `yara-python`）；按数据类审计留存映射（`FUSION_SCIENCE_RETENTION_MAP=ephi:2555,audit:0`）；等保三级异常/入侵检测中间件（路由枚举 + 突发尖峰，`FUSION_SCIENCE_ANOMALY_DETECT`，告警至篡改 sink，仅检测不阻断）。关闭全部 13 个代码级合规缺口 G1–G13。详见下方**合规加固第三批**。 |
 | v1.0.13 | 安全与运维整改（关闭 #31、#32）：移除硬编码 JWT 兜底 secret（`fusion-science-dev-secret`）——prod 缺 `FUSION_SCIENCE_JWT_SECRET` 快速失败并给出修复指引（config-conventions §3），dev 警告并禁用 token 登录，不再用可猜测 key 签名；未配置 secret 时 JWT 解码直接拒绝（fail-closed），不再验证空 key 可伪造签名；经 `setproctitle` 设置进程标题（ps/活动监视器显示 `fusion-science serve :<port>`，try/except 兜底）；修复 macOS bash 3.2 下 TLS 关闭时 `start.sh` 的 `set -u` 崩溃。 |
+| v1.0.14 | 配置 Phase 2.2 迁移（关闭 #34）：引擎 API key 解析委托给 `fusion_core.config` 单点解析器（`client_key()` 别名链 → `resolve_api_key()` settings 兜底；dev 缺 key = `""` + 警告，`FUSION_PROFILE=prod` 缺 key = `RuntimeError`）——删除本地 `_resolve_*` key 函数，经 `service_data_dir`/`service_port` 采纳 `FUSION_SCIENCE_DATA_DIR`/`FUSION_SCIENCE_PORT`；macOS Keychain 显式开启（`FUSION_SCIENCE_KEYCHAIN=1`）仍最优先。 |
 
 ## 企业安全 (v1.0.8)
 

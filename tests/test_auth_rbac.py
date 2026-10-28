@@ -15,7 +15,7 @@ from fusion_science.api.auth import (
     role_allows,
     verify_oidc_token,
 )
-from fusion_science.config import _SENTINEL_ENGINE_API_KEY, ScienceConfig, load_config
+from fusion_science.config import ScienceConfig, load_config
 from fusion_science.core.gateway import LLMGateway
 from fusion_science.session import MemorySessionStore, SessionManager
 from fusion_science.utils.events import reset_event_bus
@@ -321,8 +321,8 @@ class TestKeychainSecrets:
             "fusion_science.utils.keychain.retrieve_key",
             lambda name: "kc-engine-key" if name == "engine_api_key" else None,
         )
-        # block the MLX resolver so the test doesn't hit the network
-        monkeypatch.setattr("fusion_science.config._resolve_from_mlx", lambda c: None)
+        # block the MLX model probe so the test doesn't hit the network
+        monkeypatch.setattr("fusion_science.config._auto_detect_model", lambda c: None)
         cfg = load_config()
         assert cfg.engine_api_key == "kc-engine-key"
 
@@ -332,10 +332,14 @@ class TestKeychainSecrets:
             "fusion_science.utils.keychain.retrieve_key",
             lambda name: "should-not-be-used",
         )
-        monkeypatch.setattr("fusion_science.config._resolve_from_mlx", lambda c: None)
+        monkeypatch.setattr("fusion_science.config._auto_detect_model", lambda c: None)
+        # hermetic: no fusion_core alias-chain env, no settings.json fallback
+        for var in ("FUSION_CLIENT_KEY", "FUSION_MLX_API_KEY", "MLX_API_KEY", "FUSION_PROFILE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr("fusion_science.config.resolve_api_key", lambda *a, **kw: "")
         cfg = load_config()
-        # keychain not consulted; MLX blocked; stays sentinel
-        assert cfg.engine_api_key == _SENTINEL_ENGINE_API_KEY
+        # keychain not consulted; dev with no key anywhere = "" (issue #34)
+        assert cfg.engine_api_key == ""
 
 
 # OIDC tests need pyjwt + cryptography (the [oidc] extra). Skip the whole
