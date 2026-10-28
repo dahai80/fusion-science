@@ -51,7 +51,13 @@ async def issue_token(request: Request, body: TokenRequest) -> JSONResponse:
     # missing/secret-less/wrong code is 401, never a single-factor token.
     if not verify_subject_mfa(sub, body.totp):
         return JSONResponse(status_code=401, content={"detail": "MFA required: provide a valid TOTP code"})
-    token = issue_jwt(role, sub)
+    try:
+        token = issue_jwt(role, sub)
+    except RuntimeError as exc:
+        # Issue #32: no signing secret configured (dev with empty secret, or a
+        # prod misconfiguration surfaced by the fail-fast resolver).
+        logger.error("Auth: cannot issue JWT: %s", exc)
+        return JSONResponse(status_code=503, content={"detail": "JWT signing secret not configured"})
     logger.info("Auth: issued %s JWT for subject=%s", role.value, sub)
     return JSONResponse(
         status_code=200,

@@ -213,6 +213,9 @@ def _load_idle_timeout() -> int:
 
 
 def _jwt_secret() -> str:
+    # Issue #32 / config-conventions §3: no hardcoded fallback literal — unset
+    # must mean empty, never a guessable default. Callers enforce the profile
+    # semantics (prod fail-fast / dev warn) via _require_jwt_secret().
     secret = os.getenv("FUSION_SCIENCE_JWT_SECRET", "")
     if not secret and os.getenv("FUSION_SCIENCE_KEYCHAIN", "").lower() in ("true", "1", "yes"):
         # F-ENT-KC: prefer a Keychain-stored signing secret over deriving one.
@@ -226,10 +229,30 @@ def _jwt_secret() -> str:
         except Exception as e:
             logger.warning("Keychain JWT secret resolution failed (non-fatal): %s", e)
     if not secret:
-        # Derive from the legacy API key so a single-key setup still gets a
-        # stable signing secret without an extra env var.
-        secret = os.getenv("FUSION_SCIENCE_API_KEY", "fusion-science-dev-secret")
+        # Derive from the provisioned admin API key so a single-key setup still
+        # gets a stable signing secret without an extra env var.
+        secret = os.getenv("FUSION_SCIENCE_API_KEY", "")
     return secret
+
+
+def _require_jwt_secret() -> str:
+    # Issue #32 / config-conventions §3: prod missing secret → RuntimeError with
+    # variable name + how to obtain it + doc path; dev → empty allowed with a
+    # prominent warning (JWT token login stays disabled until a secret is set).
+    secret = _jwt_secret()
+    if secret:
+        return secret
+    if os.getenv("FUSION_PROFILE", "dev") == "prod":
+        raise RuntimeError(
+            "FUSION_SCIENCE_JWT_SECRET not set — generate one with "
+            "`openssl rand -hex 32` (or store via FUSION_SCIENCE_KEYCHAIN=1), "
+            "see architecture/config-conventions.md §3"
+        )
+    logger.warning(
+        "FUSION_SCIENCE_JWT_SECRET not set and no FUSION_SCIENCE_API_KEY provisioned "
+        "(dev) — JWT token login disabled; set a secret to enable it"
+    )
+    return ""
 
 
 def issue_jwt(role: Role, subject: str) -> str:
@@ -238,6 +261,11 @@ def issue_jwt(role: Role, subject: str) -> str:
     import hashlib
     import json
 
+    secret = _require_jwt_secret()
+    if not secret:
+        # Dev with no secret configured: refuse to mint a token signed with an
+        # empty key (it would be trivially forgeable) instead of failing open.
+        raise RuntimeError("JWT signing secret not configured — token login disabled")
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
     payload = {
@@ -252,7 +280,7 @@ def issue_jwt(role: Role, subject: str) -> str:
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
     signing_input = f"{_b64(header)}.{_b64(payload)}".encode()
-    sig = hmac.new(_jwt_secret().encode(), signing_input, hashlib.sha256).digest()
+    sig = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
     sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
     return f"{signing_input.decode()}.{sig_b64}"
 
@@ -267,13 +295,19 @@ def decode_jwt(token: str) -> AuthPrincipal | None:
     if len(parts) != 3:
         return None
     header_b64, payload_b64, sig_b64 = parts
+    secret = _jwt_secret()
+    if not secret:
+        # No signing secret configured: JWT auth is disabled, not fail-open —
+        # an empty-key signature would verify any forgeable token.
+        logger.warning("JWT decode rejected: no signing secret configured")
+        return None
 
     def _unb64(seg: str) -> bytes:
         pad = "=" * (-len(seg) % 4)
         return base64.urlsafe_b64decode(seg + pad)
 
     signing_input = f"{header_b64}.{payload_b64}".encode()
-    expected = hmac.new(_jwt_secret().encode(), signing_input, hashlib.sha256).digest()
+    expected = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
     given = _unb64(sig_b64)
     if not hmac.compare_digest(expected, given):
         logger.warning("JWT signature mismatch")

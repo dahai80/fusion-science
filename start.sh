@@ -104,8 +104,10 @@ start() {
     else
         log_warn "TLS disabled (HTTP) — set FUSION_SCIENCE_TLS_CERTFILE/KEYFILE for HTTPS"
     fi
+    # bash 3.2 (macOS default) + `set -u`: an empty array expansion
+    # "${TLS_ARGS[@]}" is an unbound-variable error — guard with ${arr[@]+...}.
     nohup python3 -m uvicorn fusion_science.api.app:app \
-        --host "$HOST" --port "$PORT" --workers "$WORKERS" "${TLS_ARGS[@]}" \
+        --host "$HOST" --port "$PORT" --workers "$WORKERS" ${TLS_ARGS[@]+"${TLS_ARGS[@]}"} \
         >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
     local pid=$!
     echo "$pid" > "$PID_FILE"
