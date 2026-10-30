@@ -61,6 +61,23 @@ is_healthy() {
 }
 
 start() {
+    # Config governance Phase 3.3 (issue #36): register-then-start self-check.
+    # Verify our port is registered in architecture/port-registry.yaml before
+    # serving, so an unregistered port fails at start instead of being caught
+    # later by CI check-ports. Runs before any state mutation (pid/log) so a
+    # refusal is clean. FUSION_SKIP_REGISTRY_CHECK=1 bypasses; missing registry
+    # file = warn + continue (standalone deploy).
+    local service="fusion-science"
+    local registry="${FUSION_REGISTRY:-$HOME/fusion/architecture/port-registry.yaml}"
+    if [[ ! -f "$registry" ]]; then
+        log_warn "port-registry.yaml not found at ${registry} — registry self-check skipped"
+    elif ! grep -A3 "^  ${service}:" "$registry" 2>/dev/null | grep -q "port: ${PORT}$"; then
+        if [[ "${FUSION_SKIP_REGISTRY_CHECK:-}" != "1" ]]; then
+            log_error "port ${PORT} for ${service} not registered in ${registry} — refusing to start"
+            exit 1
+        fi
+        log_warn "registry check bypassed (FUSION_SKIP_REGISTRY_CHECK=1)"
+    fi
     if is_running; then
         log_info "fusion-science already running (PID $(get_pid))"
         exit 0
