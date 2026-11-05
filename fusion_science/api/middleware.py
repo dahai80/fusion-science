@@ -22,6 +22,9 @@ _EXEMPT_PATHS = {
     "/redoc",
     "/redoc.openapi.json",
     "/favicon.ico",
+    # Issue #40: static web console shell. The HTML itself carries no secrets;
+    # its API calls are authenticated individually (X-API-Key from the UI).
+    "/web",
 }
 
 # Routes that authenticate themselves in the body and must NOT be gated by the
