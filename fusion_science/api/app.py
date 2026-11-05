@@ -48,6 +48,7 @@ from .routes import (
     tools,
     visualize,
     visualize_ext,
+    web,
 )
 
 logger = logging.getLogger(__name__)
@@ -312,6 +313,10 @@ def create_app(config: ScienceConfig | None = None) -> FastAPI:
     # transport. Was previously declared but never mounted — dead code. Wired
     # here at /mcp so the MCP clients the README documents actually resolve.
     app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
+
+    # Issue #40: built-in web console (static shell at /web; the page's API
+    # calls carry the caller's own key through APIKeyMiddleware).
+    app.include_router(web.router, tags=["web"])
 
     return app
 

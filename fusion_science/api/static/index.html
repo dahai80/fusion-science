@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion-Science Console</title>
+<style>
+:root {
+    --bg: #f8fafc; --panel: #ffffff; --border: #e2e8f0; --text: #0f172a;
+    --muted: #64748b; --accent: #6366f1; --accent-soft: #eef2ff;
+    --ok: #059669; --err: #dc2626; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0b0f1a; --panel: #131a2b; --border: #253048; --text: #e2e8f0;
+        --muted: #8ea0bd; --accent: #818cf8; --accent-soft: #1d2440;
+        --ok: #34d399; --err: #f87171;
+    }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+         padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .spacer { flex: 1; }
+header input { width: 320px; max-width: 45vw; padding: 6px 10px; border: 1px solid var(--border);
+               border-radius: 8px; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; }
+nav { display: flex; gap: 4px; padding: 8px 20px 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+nav button { border: 1px solid transparent; border-bottom: none; background: none; color: var(--muted);
+             padding: 8px 16px; border-radius: 10px 10px 0 0; cursor: pointer; font-size: 13px; font-weight: 500; }
+nav button.active { color: var(--accent); background: var(--bg); border-color: var(--border); }
+main { padding: 20px; max-width: 960px; margin: 0 auto; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+         padding: 16px; margin-bottom: 16px; }
+.panel h2 { font-size: 13px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+textarea, select, input[type=text], input[type=number] { width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+        border-radius: 8px; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; }
+textarea { min-height: 120px; resize: vertical; }
+button.act { background: var(--accent); color: #fff; border: none; padding: 8px 16px;
+             border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; }
+button.act.secondary { background: var(--accent-soft); color: var(--accent); }
+button.act:disabled { opacity: .5; cursor: default; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px; overflow: auto; font-family: var(--mono); font-size: 12px; max-height: 320px; }
+pre.err { color: var(--err); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.badge.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.hidden { display: none; }
+iframe.frame { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+#status { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+    <h1>Fusion-Science Console</h1>
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <input id="apikey" type="password" placeholder="API key (stored locally)">
+</header>
+<nav>
+    <button data-tab="exec" class="active">Exec</button>
+    <button data-tab="admin">Admin</button>
+    <button data-tab="gallery">Gallery</button>
+</nav>
+<main>
+<section id="tab-exec">
+    <div class="panel">
+        <h2>Jupyter kernels</h2>
+        <div id="kernels" class="kv"></div>
+        <div class="row"><button class="act secondary" id="btn-kernels">Refresh kernels</button></div>
+    </div>
+    <div class="panel">
+        <h2>Execute code</h2>
+        <textarea id="code" placeholder="print('hello')"></textarea>
+        <div class="row">
+            <label>Timeout(s) <input id="timeout" type="number" value="30" min="1" max="300" style="width:80px"></label>
+            <button class="act" id="btn-exec">Execute</button>
+        </div>
+        <pre id="exec-out" class="hidden"></pre>
+    </div>
+</section>
+<section id="tab-admin" class="hidden">
+    <div class="panel">
+        <h2>System</h2>
+        <div id="sys" class="kv"></div>
+        <div class="row"><button class="act secondary" id="btn-sys">Refresh</button></div>
+    </div>
+    <div class="panel">
+        <h2>DB mirrors</h2>
+        <pre id="mirrors">not loaded</pre>
+        <div class="row">
+            <button class="act secondary" id="btn-mirrors">Latency test</button>
+            <button class="act secondary" id="btn-mirror-status">Status</button>
+            <button class="act" id="btn-autoswitch">Toggle auto-switch</button>
+        </div>
+    </div>
+    <div class="panel">
+        <h2>API keys</h2>
+        <div id="keys" class="kv"></div>
+        <div class="row">
+            <button class="act secondary" id="btn-keys">List keys</button>
+            <button class="act" id="btn-rotate">Rotate keys</button>
+        </div>
+        <pre id="keys-out" class="hidden"></pre>
+    </div>
+    <div class="panel">
+        <h2>Token exchange</h2>
+        <div class="row"><button class="act secondary" id="btn-token">Exchange API key for JWT</button></div>
+        <pre id="token-out" class="hidden"></pre>
+    </div>
+</section>
+<section id="tab-gallery" class="hidden">
+    <div class="panel">
+        <h2>Molecule (SMILES)</h2>
+        <input id="smiles" type="text" placeholder="CC(=O)Oc1ccccc1C(=O)O (aspirin)">
+        <div class="row"><button class="act" id="btn-smiles">Render</button></div>
+        <div id="mol-out"></div>
+    </div>
+    <div class="panel">
+        <h2>Protein (PDB ID)</h2>
+        <input id="pdbid" type="text" placeholder="1CRN">
+        <div class="row">
+            <select id="protein-style" style="width:140px">
+                <option value="cartoon">cartoon</option>
+                <option value="stick">stick</option>
+                <option value="sphere">sphere</option>
+            </select>
+            <button class="act" id="btn-protein">Render</button>
+        </div>
+        <div id="protein-out"></div>
+    </div>
+</section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const api = (path) => "http://" + location.host + "/api/v1" + path;
+
+function headers() {
+    const h = { "Content-Type": "application/json" };
+    const key = $("apikey").value.trim();
+    if (key) h["X-API-Key"] = key;
+    return h;
+}
+
+async function call(path, opts) {
+    const res = await fetch(api(path), Object.assign({ headers: headers() }, opts));
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+    if (!res.ok) throw new Error(typeof data === "object" ? JSON.stringify(data) : data);
+    return data;
+}
+
+function show(el, data, isError) {
+    el.classList.remove("hidden");
+    el.classList.toggle("err", Boolean(isError));
+    el.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+}
+
+function kvRender(el, obj) {
+    el.innerHTML = "";
+    for (const [k, v] of Object.entries(obj || {})) {
+        const dt = document.createElement("dt"); dt.textContent = k;
+        const dd = document.createElement("dd");
+        dd.textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
+        el.append(dt, dd);
+    }
+}
+
+function renderHtml(el, data) {
+    el.innerHTML = "";
+    const html = data && (data.html || data.image_html);
+    if (html) {
+        const f = document.createElement("iframe");
+        f.className = "frame";
+        f.srcdoc = html;
+        el.appendChild(f);
+    } else {
+        show(el, data && data.error ? data : { note: "no html payload returned", data });
+    }
+}
+
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    for (const s of document.querySelectorAll("main section")) s.classList.add("hidden");
+    $("tab-" + b.dataset.tab).classList.remove("hidden");
+}));
+
+$("apikey").value = localStorage.getItem("fusion-science-key") || "";
+$("apikey").addEventListener("change", () => localStorage.setItem("fusion-science-key", $("apikey").value.trim()));
+
+$("btn-kernels").addEventListener("click", async () => {
+    try { kvRender($("kernels"), {}); const d = await call("/compute/jupyter/kernels");
+        $("kernels").innerHTML = (d.kernels || []).map((k) =>
+            "<dt>" + k.display_name + "</dt><dd>" + k.language + " (" + k.name + ")</dd>").join("") || "(none)";
+    } catch (e) { kvRender($("kernels"), { error: String(e) }); }
+});
+
+$("btn-exec").addEventListener("click", async () => {
+    const btn = $("btn-exec"); btn.disabled = true;
+    try {
+        const d = await call("/compute/jupyter/execute", { method: "POST",
+            body: JSON.stringify({ code: $("code").value, timeout: Number($("timeout").value) || 30 }) });
+        const out = [d.output, d.error].filter(Boolean).join("\n") || "(no output)";
+        show($("exec-out"), out, !d.success);
+    } catch (e) { show($("exec-out"), String(e), true); }
+    btn.disabled = false;
+});
+
+$("btn-sys").addEventListener("click", async () => {
+    try { kvRender($("sys"), await call("/system/status")); $("status").textContent = "connected"; }
+    catch (e) { kvRender($("sys"), { error: String(e) }); $("status").textContent = "auth/connection error"; }
+});
+
+$("btn-mirrors").addEventListener("click", async () => {
+    try { show($("mirrors"), await call("/system/mirrors/latency")); }
+    catch (e) { show($("mirrors"), String(e), true); }
+});
+$("btn-mirror-status").addEventListener("click", async () => {
+    try { show($("mirrors"), await call("/system/mirrors/status")); }
+    catch (e) { show($("mirrors"), String(e), true); }
+});
+$("btn-autoswitch").addEventListener("click", async () => {
+    try { show($("mirrors"), await call("/system/mirrors/auto-switch", { method: "POST", body: "{}" })); }
+    catch (e) { show($("mirrors"), String(e), true); }
+});
+
+$("btn-keys").addEventListener("click", async () => {
+    try { const d = await call("/security/keys");
+        kvRender($("keys"), {}); $("keys").innerHTML = Object.entries(d).flatMap(([k, v]) =>
+            Array.isArray(v) ? v.map((r) => "<dt>" + k + "</dt><dd>" + JSON.stringify(r) + "</dd>") :
+            ["<dt>" + k + "</dt><dd>" + JSON.stringify(v) + "</dd>"]).join("") || "(none)";
+    } catch (e) { show($("keys-out"), String(e), true); }
+});
+$("btn-rotate").addEventListener("click", async () => {
+    try { show($("keys-out"), await call("/security/rotate-keys", { method: "POST", body: "{}" })); }
+    catch (e) { show($("keys-out"), String(e), true); }
+});
+$("btn-token").addEventListener("click", async () => {
+    try { const d = await fetch(api("/auth/token"), { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: $("apikey").value.trim() }) });
+        const j = await d.json(); show($("token-out"), j, !d.ok);
+    } catch (e) { show($("token-out"), String(e), true); }
+});
+
+$("btn-smiles").addEventListener("click", async () => {
+    try { renderHtml($("mol-out"), await call("/viz/molecule/smiles", { method: "POST",
+        body: JSON.stringify({ smiles: $("smiles").value.trim() }) })); }
+    catch (e) { show($("mol-out"), String(e), true); }
+});
+$("btn-protein").addEventListener("click", async () => {
+    try { renderHtml($("protein-out"), await call("/viz/protein", { method: "POST",
+        body: JSON.stringify({ pdb_id: $("pdbid").value.trim(), style: $("protein-style").value }) })); }
+    catch (e) { show($("protein-out"), String(e), true); }
+});
+
+call("/system/status").then((d) => { kvRender($("sys"), d); $("status").textContent = "connected"; })
+    .catch(() => { $("status").textContent = "not connected (set API key)"; });
+</script>
+</body>
+</html>
