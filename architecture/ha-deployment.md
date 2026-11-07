@@ -1,3 +1,19 @@
+---
+doc_id: fusion-science/guide
+product: fusion-science
+class: app
+entry: service
+doc_type: guide
+title: { zh: "高可用部署", en: "HA Deployment" }
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - architecture/ha-deployment.md
+---
+
 # Multi-Node HA Deployment Topology (Issue #24)
 
 > Status: **implemented** (v1.0.9) — shared session store, readiness endpoint,
