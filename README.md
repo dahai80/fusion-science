@@ -1,3 +1,19 @@
+---
+doc_id: fusion-science/readme
+product: fusion-science
+class: app
+entry: service
+doc_type: readme
+title: { zh: "Fusion-Science", en: "Fusion-Science" }
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README.md
+---
+
 # Fusion-Science
 
 > **Local Scientific Research AI Workbench for Apple Silicon**  

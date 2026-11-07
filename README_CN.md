@@ -1,3 +1,19 @@
+---
+doc_id: fusion-science/readme
+product: fusion-science
+class: app
+entry: service
+doc_type: readme
+title: { zh: "Fusion-Science 中文说明", en: "Fusion-Science (Chinese)" }
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README_CN.md
+---
+
 # Fusion-Science 🔬
 
 > **本地科研 AI 工作台 · 专为 Apple Silicon 打造**

@@ -1,3 +1,19 @@
+---
+doc_id: fusion-science/api-reference
+product: fusion-science
+class: app
+entry: service
+doc_type: api-reference
+title: { zh: "模块级 API 说明", en: "Module-level API Notes" }
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/api.md
+---
+
 # Fusion-Science API Reference
 
 ## Overview

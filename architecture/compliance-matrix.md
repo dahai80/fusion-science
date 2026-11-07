@@ -1,3 +1,19 @@
+---
+doc_id: fusion-science/guide
+product: fusion-science
+class: app
+entry: service
+doc_type: guide
+title: { zh: "合规控制矩阵", en: "Compliance Control Matrix" }
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - architecture/compliance-matrix.md
+---
+
 # Fusion-Science v1.0.8 Compliance Control Matrix
 
 **Issue:** #25 — Formal Compliance Certification Roadmap
