@@ -220,6 +220,7 @@ fusion-science/
 | v1.0.15 | 配置 Phase 3.3：`start.sh` 注册后启动自检（关闭 #36）——`start` 在提供服务前校验自身端口已在 `architecture/port-registry.yaml`（可用 `FUSION_REGISTRY` 覆盖）注册，使未注册端口在启动时即失败，而非事后被 CI `check-ports` 捕获；`FUSION_SKIP_REGISTRY_CHECK=1` 可绕过，registry 文件缺失时警告并继续（独立部署）。 |
 | v1.0.16 | 依赖修复（关闭 #38）：放宽 `lxml>=4.9.0,<6.0` → `lxml>=4.9.0`——`<6.0` 上界与工作区 `requirements.lock` 锁定版本（`lxml==6.1.1`）冲突，导致共享 venv 每次安装都出现 pip 解析器警告；lxml 无直接导入（经 bs4 传递依赖），且 6.x 在工作区 venv 已长期稳定。 |
 | v1.0.17 | Web 控制台（关闭 #40）：内置查看 UI，服务在 `/web`——静态自包含页面（无外部 CDN，离线可用），三个标签页：Exec（Jupyter 内核列表 + 代码执行，经 `/compute/jupyter/*`）、Admin（系统状态、数据库镜像延迟/状态/自动切换、API key 列表/轮换、JWT token 交换，经 `/system/*` + `/security/*` + `/auth/token`）、Gallery（分子 SMILES + 蛋白 PDB 渲染，经 `/viz/*`）。外壳免鉴权（内无秘密）；页面每个 API 调用携带调用者自己的 key。随包数据分发。 |
+| v1.0.18 | 文档系统对账：将 fusion docs-system v1.1 接入（原 PR #42，曾被直接推到游离的 `main` 分支后关闭）经 PR #43 折入 `master`——Tier 0 文档（`docs/product-page.md`、`docs/get-started.md`）、Tier 1 文档（`docs/api-reference.md`、`docs/config-reference.md`、`docs/architecture.md`、`docs/troubleshooting.md`）、根 `CHANGELOG.md`（Keep-a-Changelog 格式）、范围内 markdown 的 12 键 frontmatter、加固的 `ci/validate_docs.py` + `.github/workflows/docs.yml` 校验门禁；删除游离 `main` 分支——恢复单一主干。 |
 
 ## 企业安全 (v1.0.8)
 

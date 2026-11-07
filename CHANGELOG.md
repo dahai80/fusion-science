@@ -7,7 +7,7 @@ doc_type: changelog
 title: { zh: "变更日志", en: "Changelog" }
 audience: engineer
 status: draft
-version: 1.0.17
+version: 1.0.18
 updated: 2026-11-07
 owner: @dahai
 source_of_truth:
@@ -23,6 +23,8 @@ patch-release tables); this file tracks changes going forward in
 Keep-a-Changelog format.
 
 ## [Unreleased]
+
+## [1.0.18] - 2026-11-07
 
 ### Added
 - Adopted the fusion docs-system v1.1 contract (grid position app x service):
