@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fusion-Science is a local-first scientific research AI workbench for Apple Silicon (v1.0.17). It unifies literature review, data computation, visualization, paper writing, and result traceability — all running locally via MLX inference. Sits in the fusion monorepo; shares one `.venv/` at the repo root with sibling `fusion-*` projects. Hardened for enterprise/compliance deployments (RBAC, OIDC, HA Postgres, encryption-at-rest, MFA, DSAR, 等保三级 controls).
+Fusion-Science is a local-first scientific research AI workbench for Apple Silicon (v1.0.18). It unifies literature review, data computation, visualization, paper writing, and result traceability — all running locally via MLX inference. Sits in the fusion monorepo; shares one `.venv/` at the repo root with sibling `fusion-*` projects. Hardened for enterprise/compliance deployments (RBAC, OIDC, HA Postgres, encryption-at-rest, MFA, DSAR, 等保三级 controls).
 
 ## Environment & Build
 
