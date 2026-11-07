@@ -59,6 +59,7 @@ gh issue comment <ISSUE_NUM> --repo dahai80/fusion-science --body "Implementatio
 ```python
 try:
     import setproctitle
+
     setproctitle.setproctitle(f"fusion-<product> serve :{port}")
 except Exception:
     pass
