@@ -5,6 +5,14 @@ on:
     branches: [master, main, "port-*", "feature-*"]
   pull_request:
     branches: [master, main]
+    # docs-only PRs skip the test jobs (md files carry no product code)
+    paths-ignore:
+      - "**.md"
+
+# Cancel superseded runs on the same ref (rapid PR iterations / quick merges)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -14,6 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install ruff
       - run: ruff check .
       - run: ruff format --check .
@@ -29,6 +39,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install fusion-core (in-tree dependency, not on PyPI)
         run: pip install git+https://github.com/dahai80/fusion-core.git
         # fusion-core is an in-tree editable install in the monorepo venv
