@@ -7,7 +7,7 @@ doc_type: changelog
 title: { zh: "变更日志", en: "Changelog" }
 audience: engineer
 status: draft
-version: 1.0.18
+version: 1.0.19
 updated: 2026-11-07
 owner: "@dahai"
 source_of_truth:
@@ -23,6 +23,14 @@ patch-release tables); this file tracks changes going forward in
 Keep-a-Changelog format.
 
 ## [Unreleased]
+
+## [1.0.19] - 2026-11-16
+
+### Changed
+- Docs: quoted the `owner` frontmatter value so strict YAML parsers accept it (PR #45).
+
+### CI
+- Docs workflow gains concurrency cancel-in-progress, pip caching, and a docs-only path filter so markdown-only PRs skip the heavy test job (fusion#2 checklist, PR #47).
 
 ## [1.0.18] - 2026-11-07
 
