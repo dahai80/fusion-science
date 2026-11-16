@@ -19,10 +19,13 @@ import logging
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+_BWRAP_PROBE_OK: bool | None = None
 
 
 @dataclass
@@ -110,6 +113,44 @@ def _bwrap_command(work_dir: str, python_executable: str) -> list[str]:
     ]
 
 
+def _bwrap_probe(bwrap_path: str) -> bool:
+    # Probe bwrap once per process: some hardened images (ubuntu-24.04 with
+    # apparmor_restrict_unprivileged_userns=1) install bwrap but deny
+    # unprivileged namespace creation at spawn time ("Creating new namespace
+    # failed: Resource temporarily unavailable"), which would make every
+    # isolated execution fail at runtime. If the probe fails, fall back to
+    # the rlimit-only layer instead of failing every execution.
+    global _BWRAP_PROBE_OK
+    if _BWRAP_PROBE_OK is not None:
+        return _BWRAP_PROBE_OK
+    try:
+        probe = subprocess.run(
+            [
+                bwrap_path,
+                "--unshare-all",
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "/bin/true",
+            ],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        _BWRAP_PROBE_OK = probe.returncode == 0
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Isolation: bwrap probe failed: %r", exc)
+        _BWRAP_PROBE_OK = False
+    if not _BWRAP_PROBE_OK:
+        logger.warning(
+            "Isolation: bwrap present but cannot create namespaces "
+            "(hardened userns policy?). Falling back to rlimit-only layer."
+        )
+    return _BWRAP_PROBE_OK
+
+
 def build_isolation(work_dir: str, python_executable: str) -> IsolationResult:
     """Return the command prefix + profile to run `python_executable` isolated.
 
@@ -135,7 +176,7 @@ def build_isolation(work_dir: str, python_executable: str) -> IsolationResult:
         )
 
     bwrap = _which("bwrap")
-    if bwrap:
+    if bwrap and _bwrap_probe(bwrap):
         logger.info("Isolation: bwrap (bubblewrap), work_dir=%s", work_dir)
         return IsolationResult(
             available=True,
