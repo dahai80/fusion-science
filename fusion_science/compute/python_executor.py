@@ -147,6 +147,15 @@ class PythonExecutor:
             except ImportError:
                 resource = None  # Windows / non-UNIX fallback
 
+            # F-O11: OS-level isolation (sandbox-exec / bwrap) wrapping the
+            # subprocess. Defense-in-depth on top of the AST gate + rlimits:
+            # even a payload that bypasses the import/call checks cannot reach
+            # the network or write outside work_dir. No tool → rlimit fallback.
+            from .isolation import build_isolation, cleanup_isolation
+
+            isolation = build_isolation(self.work_dir, sys.executable)
+            spawn_argv = [*isolation.command_prefix, sys.executable, script_path]
+
             def _set_limits():
                 """Apply resource limits (CPU, memory, processes) to child process."""
                 if resource is None:
@@ -156,19 +165,16 @@ class PythonExecutor:
                     resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
                     # 2 GB virtual memory
                     resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024))
-                    # 50 child processes max
-                    resource.setrlimit(resource.RLIMIT_NPROC, (50, 50))
+                    # 50 child processes max under rlimit-only isolation. When an
+                    # OS sandbox wraps the payload, bwrap's own namespace clone
+                    # also forks under this per-user cap — on runners with many
+                    # pre-spawned user processes a 50 cap makes the clone fail
+                    # with EAGAIN ("Creating new namespace failed"), so raise it
+                    # there (the sandbox PID-isolates the payload anyway).
+                    nproc_cap = 512 if isolation.available else 50
+                    resource.setrlimit(resource.RLIMIT_NPROC, (nproc_cap, nproc_cap))
                 except (ValueError, resource.error):
                     pass  # Some limits may not be supported on all platforms
-
-            # F-O11: OS-level isolation (sandbox-exec / bwrap) wrapping the
-            # subprocess. Defense-in-depth on top of the AST gate + rlimits:
-            # even a payload that bypasses the import/call checks cannot reach
-            # the network or write outside work_dir. No tool → rlimit fallback.
-            from .isolation import build_isolation, cleanup_isolation
-
-            isolation = build_isolation(self.work_dir, sys.executable)
-            spawn_argv = [*isolation.command_prefix, sys.executable, script_path]
 
             proc = await asyncio.create_subprocess_exec(
                 *spawn_argv,
