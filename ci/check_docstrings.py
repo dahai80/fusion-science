@@ -13,7 +13,8 @@ def main() -> int:
     try:
         raw = subprocess.run(
             ["git", "ls-files", "-z", "--", "*.py"],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         ).stdout
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         print(f"check_docstrings: cannot list tracked files: {exc}", file=sys.stderr)
