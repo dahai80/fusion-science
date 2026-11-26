@@ -27,6 +27,8 @@ jobs:
       - run: pip install ruff
       - run: ruff check .
       - run: ruff format --check .
+      - name: No-docstring convention gate (refs dahai80/fusion#9)
+        run: python ci/check_docstrings.py
 
   test:
     runs-on: ubuntu-latest
