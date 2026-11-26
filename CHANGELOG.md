@@ -7,7 +7,7 @@ doc_type: changelog
 title: { zh: "变更日志", en: "Changelog" }
 audience: engineer
 status: draft
-version: 1.0.20
+version: 1.0.21
 updated: 2026-11-07
 owner: "@dahai"
 source_of_truth:
@@ -23,6 +23,12 @@ patch-release tables); this file tracks changes going forward in
 Keep-a-Changelog format.
 
 ## [Unreleased]
+
+## [1.0.21] - 2026-11-26
+
+### Added
+
+- CI gate for the no-docstring convention (PR #52, refs dahai80/fusion#9): `ci/check_docstrings.py` AST-scans all tracked `.py` files and fails lint with file:line locations when any docstring is found; wired into the lint job of `.github/workflows/ci.yml`
 
 ## [1.0.20] - 2026-11-26
 
