@@ -1,4 +1,4 @@
-"""Tests for the database connector modules."""
+# Tests for the database connector modules.
 
 from __future__ import annotations
 
@@ -12,9 +12,8 @@ from fusion_science.database.mirror import (
 )
 
 
+# Test ConnectorConfig dataclass.
 class TestConnectorConfig:
-    """Test ConnectorConfig dataclass."""
-
     def test_default_config(self):
         config = ConnectorConfig()
         assert config.timeout == 30.0
@@ -28,9 +27,8 @@ class TestConnectorConfig:
         assert config.timeout == 60.0
 
 
+# Test DatabaseResult dataclass.
 class TestDatabaseResult:
-    """Test DatabaseResult dataclass."""
-
     def test_default_result(self):
         result = DatabaseResult(source="pubmed", query="cancer")
         assert result.source == "pubmed"
@@ -50,9 +48,8 @@ class TestDatabaseResult:
         assert result.items[0]["accession"] == "P04637"
 
 
+# Test the offline cache system.
 class TestScienceCache:
-    """Test the offline cache system."""
-
     def test_cache_init(self, tmp_path):
         config = CacheConfig(cache_dir=str(tmp_path), enabled=True)
         cache = ScienceCache(config)
@@ -122,9 +119,8 @@ class TestScienceCache:
         cache.close()
 
 
+# Test the mirror routing system.
 class TestMirrorRouter:
-    """Test the mirror routing system."""
-
     def test_router_init(self):
         router = MirrorRouter()
         assert len(router.mirrors) > 0
@@ -163,9 +159,8 @@ class TestMirrorRouter:
         assert "NGDC" in names
 
 
+# Test the domestic mirror configuration.
 class TestDomesticMirrors:
-    """Test the domestic mirror configuration."""
-
     def test_domestic_mirrors_defined(self):
         assert len(DOMESTIC_MIRRORS) >= 5
         assert "pubmed" in DOMESTIC_MIRRORS

@@ -222,6 +222,7 @@ fusion-science/
 | v1.0.17 | Web 控制台（关闭 #40）：内置查看 UI，服务在 `/web`——静态自包含页面（无外部 CDN，离线可用），三个标签页：Exec（Jupyter 内核列表 + 代码执行，经 `/compute/jupyter/*`）、Admin（系统状态、数据库镜像延迟/状态/自动切换、API key 列表/轮换、JWT token 交换，经 `/system/*` + `/security/*` + `/auth/token`）、Gallery（分子 SMILES + 蛋白 PDB 渲染，经 `/viz/*`）。外壳免鉴权（内无秘密）；页面每个 API 调用携带调用者自己的 key。随包数据分发。 |
 | v1.0.18 | 文档系统对账：将 fusion docs-system v1.1 接入（原 PR #42，曾被直接推到游离的 `main` 分支后关闭）经 PR #43 折入 `master`——Tier 0 文档（`docs/product-page.md`、`docs/get-started.md`）、Tier 1 文档（`docs/api-reference.md`、`docs/config-reference.md`、`docs/architecture.md`、`docs/troubleshooting.md`）、根 `CHANGELOG.md`（Keep-a-Changelog 格式）、范围内 markdown 的 12 键 frontmatter、加固的 `ci/validate_docs.py` + `.github/workflows/docs.yml` 校验门禁；删除游离 `main` 分支——恢复单一主干。 |
 | v1.0.19 | 发布后跟进：docs frontmatter `owner` 值加引号以兼容严格 YAML 解析器（PR #45）；按 fusion#2 CI 检查单加固 docs 工作流——并发取消、pip 缓存、docs-only 路径过滤使纯 markdown 变更跳过重测试任务（PR #47）。 |
+| v1.0.20 | 无 docstring 规范落地（issues #49/#50）：基于 AST 的批量转换，`fusion_science/`、`tests/`、`scripts/`、`ci/` 共 316 处 docstring 改为 `#` 注释；通过 click `help=` 保留全部 12 个命令的 CLI `--help` 文本；AST 校验残留为 0。 |
 
 ## 企业安全 (v1.0.8)
 

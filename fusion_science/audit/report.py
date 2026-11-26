@@ -1,11 +1,10 @@
-"""Audit report generation — produce comprehensive audit and reproducibility reports.
-
-Generates:
-- Full audit reports of the research workflow
-- Reproducibility packages with all parameters and code
-- Compliance summaries for journal and regulatory requirements
-- Data lineage visualizations
-"""
+# Audit report generation — produce comprehensive audit and reproducibility reports.
+#
+# Generates:
+# - Full audit reports of the research workflow
+# - Reproducibility packages with all parameters and code
+# - Compliance summaries for journal and regulatory requirements
+# - Data lineage visualizations
 
 from __future__ import annotations
 
@@ -22,10 +21,9 @@ from .tracker import TraceRecorder
 logger = logging.getLogger(__name__)
 
 
+# A complete audit report for a research workflow.
 @dataclass
 class AuditReport:
-    """A complete audit report for a research workflow."""
-
     title: str
     created_at: str = ""
     session_info: dict[str, Any] = field(default_factory=dict)
@@ -40,27 +38,26 @@ class AuditReport:
     content: str = ""
 
 
+# Generates comprehensive audit and reproducibility reports.
+#
+# Combines trace data and provenance information into structured
+# reports suitable for journal submission, lab notebooks, and
+# compliance verification.
+#
 class ReportGenerator:
-    """Generates comprehensive audit and reproducibility reports.
-
-    Combines trace data and provenance information into structured
-    reports suitable for journal submission, lab notebooks, and
-    compliance verification.
-    """
-
     def __init__(self, trace_recorder: TraceRecorder, provenance_tracker: ProvenanceTracker | None = None):
         self.tracer = trace_recorder
         self.provenance = provenance_tracker
 
+    # Generate a comprehensive audit report from the current session.
+    #
+    # Args:
+    # title: Report title.
+    #
+    # Returns:
+    # AuditReport with full workflow audit.
+    #
     def generate_audit_report(self, title: str = "Research Audit Report") -> AuditReport:
-        """Generate a comprehensive audit report from the current session.
-
-        Args:
-            title: Report title.
-
-        Returns:
-            AuditReport with full workflow audit.
-        """
         session = self.tracer.get_session()
         if session is None:
             return AuditReport(title=title, content="No trace session data available.")
@@ -119,8 +116,8 @@ class ReportGenerator:
         report.content = self._format_report(report)
         return report
 
+    # Build a summary of data lineage from provenance tracker.
     def _build_lineage_summary(self) -> dict[str, Any]:
-        """Build a summary of data lineage from provenance tracker."""
         if self.provenance is None:
             return {"available": False}
 
@@ -136,8 +133,8 @@ class ReportGenerator:
             "outputs": sum(1 for n in graph.nodes.values() if n.type == "output"),
         }
 
+    # Build reproducibility information from the environment.
     def _build_reproducibility_info(self) -> dict[str, Any]:
-        """Build reproducibility information from the environment."""
         import platform
         import sys
 
@@ -160,15 +157,15 @@ class ReportGenerator:
 
         return info
 
+    # Format the audit report as a readable markdown document.
+    #
+    # Args:
+    # report: The audit report to format.
+    #
+    # Returns:
+    # Markdown-formatted report string.
+    #
     def _format_report(self, report: AuditReport) -> str:
-        """Format the audit report as a readable markdown document.
-
-        Args:
-            report: The audit report to format.
-
-        Returns:
-            Markdown-formatted report string.
-        """
         lines = [
             f"# {report.title}",
             "",
@@ -268,16 +265,16 @@ class ReportGenerator:
 
         return "\n".join(lines)
 
+    # Export a reproducibility package with all session data.
+    #
+    # Args:
+    # output_dir: Output directory for the package.
+    # include_code: Include executed code in the package.
+    #
+    # Returns:
+    # Path to the exported package directory.
+    #
     def export_package(self, output_dir: str, include_code: bool = True) -> str:
-        """Export a reproducibility package with all session data.
-
-        Args:
-            output_dir: Output directory for the package.
-            include_code: Include executed code in the package.
-
-        Returns:
-            Path to the exported package directory.
-        """
         package_dir = Path(output_dir) / f"reproducibility_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         package_dir.mkdir(parents=True, exist_ok=True)
 
@@ -315,16 +312,16 @@ class ReportGenerator:
         logger.info("Exported reproducibility package to %s", package_dir)
         return str(package_dir)
 
+    # Format the audit report for journal submission compliance.
+    #
+    # Args:
+    # report: The audit report.
+    #
+    # Returns:
+    # Journal-compliant reproducibility statement.
+    #
     @staticmethod
     def format_for_journal(report: AuditReport) -> str:
-        """Format the audit report for journal submission compliance.
-
-        Args:
-            report: The audit report.
-
-        Returns:
-            Journal-compliant reproducibility statement.
-        """
         ri = report.reproducibility_info
         lines = [
             "## Data Availability and Reproducibility",

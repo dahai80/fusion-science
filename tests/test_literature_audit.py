@@ -1,4 +1,4 @@
-"""Tests for the literature and audit modules."""
+# Tests for the literature and audit modules.
 
 from __future__ import annotations
 
@@ -20,9 +20,8 @@ from fusion_science.literature.synthesizer import ConsensusAnalysis, Contradicti
 # =========================================================================
 
 
+# Test the Paper dataclass.
 class TestPaper:
-    """Test the Paper dataclass."""
-
     def test_default_paper(self):
         paper = Paper(title="Test Paper")
         assert paper.title == "Test Paper"
@@ -49,9 +48,8 @@ class TestPaper:
         assert paper.pmid == "22745249"
 
 
+# Test the SearchResult dataclass.
 class TestSearchResult:
-    """Test the SearchResult dataclass."""
-
     def test_empty_result(self):
         result = SearchResult(query="cancer")
         assert result.query == "cancer"
@@ -65,9 +63,8 @@ class TestSearchResult:
         assert result.total_count == 2
 
 
+# Test the LiteratureSearch module.
 class TestLiteratureSearch:
-    """Test the LiteratureSearch module."""
-
     def test_extract_pmids(self):
         pmids = LiteratureSearch.extract_pmids("This paper (PMID: 12345678) shows...")
         assert "12345678" in pmids
@@ -84,9 +81,8 @@ class TestLiteratureSearch:
         assert "22222222" in pmids
 
 
+# Test the LiteratureReviewer.
 class TestLiteratureReviewer:
-    """Test the LiteratureReviewer."""
-
     def test_reviewer_init(self):
         reviewer = LiteratureReviewer()
         assert reviewer._themes == {}
@@ -109,9 +105,8 @@ class TestLiteratureReviewer:
         assert len(review.sections) >= 3
 
 
+# Test the PaperGenerator.
 class TestPaperGenerator:
-    """Test the PaperGenerator."""
-
     def test_generator_init(self):
         gen = PaperGenerator()
         assert gen.engine is None
@@ -155,9 +150,8 @@ result = stats.ttest_ind(group1, group2)
 # =========================================================================
 
 
+# Test the TraceRecorder.
 class TestTraceRecorder:
-    """Test the TraceRecorder."""
-
     def test_recorder_init(self, tmp_path):
         recorder = TraceRecorder(storage_dir=str(tmp_path))
         assert recorder._session is None
@@ -220,9 +214,8 @@ class TestTraceRecorder:
         assert len(data["entries"]) == 1
 
 
+# Test the ProvenanceTracker.
 class TestProvenanceTracker:
-    """Test the ProvenanceTracker."""
-
     def test_tracker_init(self, tmp_path):
         tracker = ProvenanceTracker(storage_dir=str(tmp_path))
         assert tracker._graph is None
@@ -278,9 +271,8 @@ class TestProvenanceTracker:
         assert data["node_count"] == 1
 
 
+# Test the ProvenanceNode dataclass.
 class TestProvenanceNode:
-    """Test the ProvenanceNode dataclass."""
-
     def test_source_node(self):
         node = ProvenanceNode(id="src_1", type="source", label="PubMed Query", timestamp=1000.0)
         assert node.id == "src_1"

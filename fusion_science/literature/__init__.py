@@ -1,4 +1,4 @@
-"""Literature search, reading, extraction, synthesis, review, and citation management."""
+# Literature search, reading, extraction, synthesis, review, and citation management.
 
 from __future__ import annotations
 

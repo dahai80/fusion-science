@@ -1,12 +1,11 @@
-"""HPC/Slurm scheduler connector — submit and monitor compute jobs on clusters.
-
-Provides an interface for scheduling computational experiments on
-HPC clusters with Slurm workload manager, supporting:
-- Job submission with resource specifications
-- Job status monitoring
-- Output retrieval
-- Array jobs for parallel parameter sweeps
-"""
+# HPC/Slurm scheduler connector — submit and monitor compute jobs on clusters.
+#
+# Provides an interface for scheduling computational experiments on
+# HPC clusters with Slurm workload manager, supporting:
+# - Job submission with resource specifications
+# - Job status monitoring
+# - Output retrieval
+# - Array jobs for parallel parameter sweeps
 
 from __future__ import annotations
 
@@ -36,10 +35,9 @@ def _validate_identifier(name: str, value: str, pattern: re.Pattern[str]) -> str
     return value
 
 
+# Represents a submitted HPC job.
 @dataclass
 class HPCJob:
-    """Represents a submitted HPC job."""
-
     job_id: str
     name: str
     status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
@@ -54,10 +52,9 @@ class HPCJob:
     submitted_at: str = ""
 
 
+# Information about the HPC cluster.
 @dataclass
 class HPCClusterInfo:
-    """Information about the HPC cluster."""
-
     name: str = ""
     partitions: list[dict[str, Any]] = field(default_factory=list)
     total_nodes: int = 0
@@ -66,13 +63,12 @@ class HPCClusterInfo:
     available: bool = False
 
 
+# Interface for HPC cluster job scheduling (Slurm).
+#
+# Supports local Slurm, SSH-remote Slurm, and fallback to
+# local subprocess execution for non-HPC environments.
+#
 class HPCScheduler:
-    """Interface for HPC cluster job scheduling (Slurm).
-
-    Supports local Slurm, SSH-remote Slurm, and fallback to
-    local subprocess execution for non-HPC environments.
-    """
-
     def __init__(
         self,
         use_local: bool = False,
@@ -89,8 +85,8 @@ class HPCScheduler:
         self._sbatch_available: bool | None = None
         self._check_sbatch()
 
+    # Check if Slurm sbatch is available.
     def _check_sbatch(self) -> bool:
-        """Check if Slurm sbatch is available."""
         if self._sbatch_available is not None:
             return self._sbatch_available
         try:
@@ -105,6 +101,24 @@ class HPCScheduler:
             self._sbatch_available = False
         return self._sbatch_available
 
+    # Submit a job to the HPC cluster.
+    #
+    # Args:
+    # script_content: The job script content (without Slurm headers).
+    # job_name: Name for the job.
+    # partition: Slurm partition name.
+    # nodes: Number of nodes.
+    # tasks: Number of tasks.
+    # cpus_per_task: CPUs per task.
+    # memory_gb: Memory in GB.
+    # gpus: Number of GPUs.
+    # time_limit: Time limit (HH:MM:SS).
+    # array_range: Array job range (e.g., "1-10").
+    # env_vars: Additional environment variables.
+    #
+    # Returns:
+    # HPCJob with job_id and status.
+    #
     async def submit_job(
         self,
         script_content: str,
@@ -119,24 +133,6 @@ class HPCScheduler:
         array_range: str = "",
         env_vars: dict[str, str] | None = None,
     ) -> HPCJob:
-        """Submit a job to the HPC cluster.
-
-        Args:
-            script_content: The job script content (without Slurm headers).
-            job_name: Name for the job.
-            partition: Slurm partition name.
-            nodes: Number of nodes.
-            tasks: Number of tasks.
-            cpus_per_task: CPUs per task.
-            memory_gb: Memory in GB.
-            gpus: Number of GPUs.
-            time_limit: Time limit (HH:MM:SS).
-            array_range: Array job range (e.g., "1-10").
-            env_vars: Additional environment variables.
-
-        Returns:
-            HPCJob with job_id and status.
-        """
         # Validate user-controlled identifiers before they reach bash / SBATCH lines.
         job_name = _validate_identifier("job_name", job_name, _JOB_NAME_RE)
         if partition:
@@ -207,6 +203,7 @@ class HPCScheduler:
             logger.error("Job submission failed: %s", e)
             return await self._run_locally(script_content, job_name, memory_gb, time_limit)
 
+    # Build Slurm #SBATCH headers.
     def _build_slurm_headers(
         self,
         job_name: str,
@@ -219,7 +216,6 @@ class HPCScheduler:
         time_limit: str,
         array_range: str,
     ) -> str:
-        """Build Slurm #SBATCH headers."""
         headers = [
             "#!/bin/bash",
             f"#SBATCH --job-name={job_name}",
@@ -245,8 +241,8 @@ class HPCScheduler:
 
         return "\n".join(headers)
 
+    # Write the job script to a temporary file.
     def _write_script(self, content: str, job_name: str) -> str:
-        """Write the job script to a temporary file."""
         # job_name is validated upstream, but defend in depth: strip path separators.
         safe_name = os.path.basename(job_name)
         script_dir = os.path.join(tempfile.gettempdir(), "fusion_science_jobs")
@@ -263,6 +259,7 @@ class HPCScheduler:
             raise
         return script_path
 
+    # Run the job locally as a subprocess (fallback).
     async def _run_locally(
         self,
         script_content: str,
@@ -270,7 +267,6 @@ class HPCScheduler:
         memory_gb: int,
         time_limit: str,
     ) -> HPCJob:
-        """Run the job locally as a subprocess (fallback)."""
         import time
 
         job_id = f"local_{int(time.time())}"
@@ -305,8 +301,8 @@ class HPCScheduler:
             error_path=err_path,
         )
 
+    # Submit a job via SSH to a remote cluster.
     async def _submit_ssh(self, script_path: str) -> str:
-        """Submit a job via SSH to a remote cluster."""
         cmd = ["ssh", "-i", self.ssh_key, self.ssh_host, f"sbatch {shlex.quote(script_path)}"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
         if result.returncode != 0:
@@ -314,15 +310,15 @@ class HPCScheduler:
         match = re.search(r"Submitted batch job (\d+)", result.stdout)
         return match.group(1) if match else "unknown"
 
+    # Check the status of a submitted job.
+    #
+    # Args:
+    # job_id: Job ID to check.
+    #
+    # Returns:
+    # Status string (PENDING, RUNNING, COMPLETED, FAILED, etc.).
+    #
     async def check_status(self, job_id: str) -> str:
-        """Check the status of a submitted job.
-
-        Args:
-            job_id: Job ID to check.
-
-        Returns:
-            Status string (PENDING, RUNNING, COMPLETED, FAILED, etc.).
-        """
         if job_id.startswith("local_"):
             # Local jobs: check if process is still running
             return "RUNNING"  # Simplified; actual status check would need PID tracking
@@ -351,15 +347,15 @@ class HPCScheduler:
             logger.warning("Failed to check job status: %s", e)
             return "UNKNOWN"
 
+    # Cancel a submitted job.
+    #
+    # Args:
+    # job_id: Job ID to cancel.
+    #
+    # Returns:
+    # True if cancelled successfully.
+    #
     async def cancel_job(self, job_id: str) -> bool:
-        """Cancel a submitted job.
-
-        Args:
-            job_id: Job ID to cancel.
-
-        Returns:
-            True if cancelled successfully.
-        """
         if job_id.startswith("local_"):
             logger.info("Cannot cancel local job %s via Slurm", job_id)
             return False
@@ -377,12 +373,12 @@ class HPCScheduler:
             logger.error("Failed to cancel job %s: %s", job_id, e)
             return False
 
+    # Get information about the HPC cluster.
+    #
+    # Returns:
+    # HPCClusterInfo with cluster details.
+    #
     async def get_cluster_info(self) -> HPCClusterInfo:
-        """Get information about the HPC cluster.
-
-        Returns:
-            HPCClusterInfo with cluster details.
-        """
         info = HPCClusterInfo()
         info.available = self._check_sbatch()
 
@@ -416,16 +412,16 @@ class HPCScheduler:
 
         return info
 
+    # Get the output of a completed job.
+    #
+    # Args:
+    # job_id: Job ID.
+    # job_name: Job name (for local jobs).
+    #
+    # Returns:
+    # Job output as a string.
+    #
     async def get_job_output(self, job_id: str, job_name: str = "") -> str:
-        """Get the output of a completed job.
-
-        Args:
-            job_id: Job ID.
-            job_name: Job name (for local jobs).
-
-        Returns:
-            Job output as a string.
-        """
         log_dir = os.path.join(tempfile.gettempdir(), "fusion_science_jobs", "logs")
         # Try standard Slurm output pattern
         out_path = os.path.join(log_dir, f"{job_name}_{job_id}.out")
@@ -434,22 +430,22 @@ class HPCScheduler:
                 return f.read()
         return ""
 
+    # Generate a Slurm array job script for parallel processing.
+    #
+    # Args:
+    # python_code: Python code to execute (uses $SLURM_ARRAY_TASK_ID).
+    # input_files: List of input files (one per array task).
+    # output_dir: Output directory.
+    #
+    # Returns:
+    # Complete Slurm script as a string.
+    #
     @staticmethod
     def generate_parallel_script(
         python_code: str,
         input_files: list[str],
         output_dir: str,
     ) -> str:
-        """Generate a Slurm array job script for parallel processing.
-
-        Args:
-            python_code: Python code to execute (uses $SLURM_ARRAY_TASK_ID).
-            input_files: List of input files (one per array task).
-            output_dir: Output directory.
-
-        Returns:
-            Complete Slurm script as a string.
-        """
         array_size = len(input_files)
         quoted_input = shlex.quote(input_files[0]) if input_files else ""
         quoted_output = shlex.quote(output_dir)

@@ -1,9 +1,8 @@
-"""PubMed connector — search and retrieve biomedical literature.
-
-Uses the NCBI E-utilities API (https://eutils.ncbi.nlm.nih.gov/entrez/eutils/)
-with support for domestic mirror fallback via CNKI or China National
-Science Library mirrors.
-"""
+# PubMed connector — search and retrieve biomedical literature.
+#
+# Uses the NCBI E-utilities API (https://eutils.ncbi.nlm.nih.gov/entrez/eutils/)
+# with support for domestic mirror fallback via CNKI or China National
+# Science Library mirrors.
 
 from __future__ import annotations
 
@@ -16,13 +15,12 @@ from .base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for PubMed biomedical literature database.
+#
+# Uses NCBI E-utilities API.
+# Domestic mirror: China National Science Library mirror.
+#
 class PubMedConnector(BaseConnector):
-    """Connector for PubMed biomedical literature database.
-
-    Uses NCBI E-utilities API.
-    Domestic mirror: China National Science Library mirror.
-    """
-
     BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
     MIRROR_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"  # PubMed无官方国内镜像，使用CNKI替代
 
@@ -54,17 +52,17 @@ class PubMedConnector(BaseConnector):
         self.tool_name = tool_name
         self.api_key = api_key
 
+    # Search PubMed for publications matching the query.
+    #
+    # Args:
+    # query: PubMed search query (supports MeSH terms, Boolean operators).
+    # max_results: Maximum number of results to return.
+    # **kwargs: Additional search parameters (e.g., date range, sort).
+    #
+    # Returns:
+    # DatabaseResult with matched publications.
+    #
     async def search(self, query: str, max_results: int = 20, **kwargs) -> DatabaseResult:
-        """Search PubMed for publications matching the query.
-
-        Args:
-            query: PubMed search query (supports MeSH terms, Boolean operators).
-            max_results: Maximum number of results to return.
-            **kwargs: Additional search parameters (e.g., date range, sort).
-
-        Returns:
-            DatabaseResult with matched publications.
-        """
         cache_key = f"search:{query}:{max_results}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -109,16 +107,16 @@ class PubMedConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch a PubMed record by PMID.
+    #
+    # Args:
+    # identifier: PubMed ID (PMID).
+    # **kwargs: Additional parameters.
+    #
+    # Returns:
+    # DatabaseResult with the publication details.
+    #
     async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch a PubMed record by PMID.
-
-        Args:
-            identifier: PubMed ID (PMID).
-            **kwargs: Additional parameters.
-
-        Returns:
-            DatabaseResult with the publication details.
-        """
         cache_key = f"fetch:{identifier}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -142,15 +140,15 @@ class PubMedConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch full details for a list of PMIDs.
+    #
+    # Args:
+    # pmids: List of PubMed IDs.
+    #
+    # Returns:
+    # List of publication detail dicts.
+    #
     async def _fetch_details(self, pmids: list[str]) -> list[dict]:
-        """Fetch full details for a list of PMIDs.
-
-        Args:
-            pmids: List of PubMed IDs.
-
-        Returns:
-            List of publication detail dicts.
-        """
         params = {
             "db": "pubmed",
             "id": ",".join(pmids),
@@ -164,15 +162,15 @@ class PubMedConnector(BaseConnector):
         resp = await self._request_with_retry("GET", "/efetch.fcgi", params=params)
         return self._parse_publications(resp.text)
 
+    # Parse PubMed XML response into structured publication dicts.
+    #
+    # Args:
+    # xml_text: Raw XML response from NCBI.
+    #
+    # Returns:
+    # List of parsed publication dicts.
+    #
     def _parse_publications(self, xml_text: str) -> list[dict]:
-        """Parse PubMed XML response into structured publication dicts.
-
-        Args:
-            xml_text: Raw XML response from NCBI.
-
-        Returns:
-            List of parsed publication dicts.
-        """
         try:
             # Security: prefer defusedxml to block XXE / billion-laughs on the
             # NCBI XML response; fall back to stdlib if defusedxml is absent.
@@ -197,8 +195,8 @@ class PubMedConnector(BaseConnector):
             logger.error("Failed to parse PubMed XML (likely non-XML 200 response): %s", e)
             raise ValueError(f"pubmed_xml_parse_failed: {e}") from e
 
+    # Parse a single PubmedArticle XML element.
     def _parse_single_article(self, article: Any) -> dict[str, Any] | None:
-        """Parse a single PubmedArticle XML element."""
         try:
             medline = article.find(".//MedlineCitation")
             if medline is None:
@@ -274,44 +272,44 @@ class PubMedConnector(BaseConnector):
             logger.warning("Failed to parse article: %s", e)
             return None
 
+    # Get text from an XML element path.
     @staticmethod
     def _get_text(parent: Any, path: str) -> str:
-        """Get text from an XML element path."""
         elem = parent.find(path) if hasattr(parent, "find") else None
         return "".join(elem.itertext()) if elem is not None else ""
 
+    # Search PubMed by MeSH (Medical Subject Heading) term.
+    #
+    # Args:
+    # mesh_term: MeSH term (e.g., "Alzheimer Disease", "CRISPR-Cas9").
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # DatabaseResult with matched publications.
+    #
     async def search_by_mesh(self, mesh_term: str, max_results: int = 20) -> DatabaseResult:
-        """Search PubMed by MeSH (Medical Subject Heading) term.
-
-        Args:
-            mesh_term: MeSH term (e.g., "Alzheimer Disease", "CRISPR-Cas9").
-            max_results: Maximum results.
-
-        Returns:
-            DatabaseResult with matched publications.
-        """
         return await self.search(f"{mesh_term}[MeSH Terms]", max_results=max_results)
 
+    # Search PubMed by author name.
+    #
+    # Args:
+    # author: Author name (e.g., "Smith J").
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # DatabaseResult with matched publications.
+    #
     async def search_by_author(self, author: str, max_results: int = 20) -> DatabaseResult:
-        """Search PubMed by author name.
-
-        Args:
-            author: Author name (e.g., "Smith J").
-            max_results: Maximum results.
-
-        Returns:
-            DatabaseResult with matched publications.
-        """
         return await self.search(f"{author}[Author]", max_results=max_results)
 
+    # Search PubMed for publications related to a gene.
+    #
+    # Args:
+    # gene: Gene symbol or name (e.g., "TP53", "BRCA1").
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # DatabaseResult with matched publications.
+    #
     async def search_by_gene(self, gene: str, max_results: int = 20) -> DatabaseResult:
-        """Search PubMed for publications related to a gene.
-
-        Args:
-            gene: Gene symbol or name (e.g., "TP53", "BRCA1").
-            max_results: Maximum results.
-
-        Returns:
-            DatabaseResult with matched publications.
-        """
         return await self.search(f"{gene}[Gene] OR {gene}[Title/Abstract]", max_results=max_results)

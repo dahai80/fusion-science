@@ -1,16 +1,15 @@
-"""AES-256-GCM envelope for encryption-at-rest (G1, HIPAA §164.312 / 等保三级).
-
-When FUSION_SCIENCE_ENCRYPT_AT_REST=1, audit JSON files are written encrypted
-and read back decrypted transparently. The 256-bit key is derived (PBKDF2-HMAC-
-SHA256, 200k iterations) from FUSION_SCIENCE_ENCRYPTION_KEY (env) or the macOS
-Keychain entry "fusion-science/encryption-key" (auto-generated + stored on first
-use). Default off — preserves local-first simplicity; enable for HIPAA/等保三级
-disk-encryption control.
-
-Envelope format (binary): nonce(12) || ciphertext || tag(16). The Python
-cryptography package (lazy import) provides AESGCM, which appends the tag to
-the ciphertext, so a stored blob is nonce || AESGCM.encrypt(plaintext).
-"""
+# AES-256-GCM envelope for encryption-at-rest (G1, HIPAA §164.312 / 等保三级).
+#
+# When FUSION_SCIENCE_ENCRYPT_AT_REST=1, audit JSON files are written encrypted
+# and read back decrypted transparently. The 256-bit key is derived (PBKDF2-HMAC-
+# SHA256, 200k iterations) from FUSION_SCIENCE_ENCRYPTION_KEY (env) or the macOS
+# Keychain entry "fusion-science/encryption-key" (auto-generated + stored on first
+# use). Default off — preserves local-first simplicity; enable for HIPAA/等保三级
+# disk-encryption control.
+#
+# Envelope format (binary): nonce(12) || ciphertext || tag(16). The Python
+# cryptography package (lazy import) provides AESGCM, which appends the tag to
+# the ciphertext, so a stored blob is nonce || AESGCM.encrypt(plaintext).
 
 from __future__ import annotations
 

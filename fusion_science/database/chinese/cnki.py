@@ -8,14 +8,13 @@ from ..base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for CNKI (China National Knowledge Infrastructure, 中国知网).
+#
+# API: https://www.cnki.net
+# Provides Chinese academic literature search — the primary domestic
+# alternative to PubMed for Chinese-language publications.
+#
 class CNKIConnector(BaseConnector):
-    """Connector for CNKI (China National Knowledge Infrastructure, 中国知网).
-
-    API: https://www.cnki.net
-    Provides Chinese academic literature search — the primary domestic
-    alternative to PubMed for Chinese-language publications.
-    """
-
     BASE_URL = "https://www.cnki.net"
 
     def __init__(

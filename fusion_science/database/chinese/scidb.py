@@ -8,14 +8,13 @@ from ..base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for ScienceDB (科学数据银行, CAS).
+#
+# API: https://www.scidb.cn
+# Open science data repository by Chinese Academy of Sciences.
+# Provides searchable scientific datasets with DOI.
+#
 class ScienceDBConnector(BaseConnector):
-    """Connector for ScienceDB (科学数据银行, CAS).
-
-    API: https://www.scidb.cn
-    Open science data repository by Chinese Academy of Sciences.
-    Provides searchable scientific datasets with DOI.
-    """
-
     BASE_URL = "https://www.scidb.cn"
 
     def __init__(

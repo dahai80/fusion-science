@@ -1,17 +1,16 @@
-"""OS-level sandbox isolation for the Python code executor.
-
-Defense-in-depth layer ON TOP of the AST validation gate in sandbox.py:
-the AST gate rejects dangerous imports/calls, but a determined or buggy
-payload could still reach the filesystem or network. This module wraps
-the subprocess in an OS-enforced sandbox so even a bypass cannot escape.
-
-- macOS: `sandbox-exec` with a deny-by-default SBPL profile (no network,
-  filesystem writes confined to the work_dir, read-only system paths).
-- Linux: `bwrap` (bubblewrap) if installed — unshared mount/IPC/UTS/PID
-  namespaces, no network, work_dir as the only writable bind mount.
-- Fallback: no isolation tool available → return None; caller keeps the
-  rlimit layer and logs a warning so the gap is visible, not silent.
-"""
+# OS-level sandbox isolation for the Python code executor.
+#
+# Defense-in-depth layer ON TOP of the AST validation gate in sandbox.py:
+# the AST gate rejects dangerous imports/calls, but a determined or buggy
+# payload could still reach the filesystem or network. This module wraps
+# the subprocess in an OS-enforced sandbox so even a bypass cannot escape.
+#
+# - macOS: `sandbox-exec` with a deny-by-default SBPL profile (no network,
+# filesystem writes confined to the work_dir, read-only system paths).
+# - Linux: `bwrap` (bubblewrap) if installed — unshared mount/IPC/UTS/PID
+# namespaces, no network, work_dir as the only writable bind mount.
+# - Fallback: no isolation tool available → return None; caller keeps the
+# rlimit layer and logs a warning so the gap is visible, not silent.
 
 from __future__ import annotations
 
@@ -151,14 +150,14 @@ def _bwrap_probe(bwrap_path: str) -> bool:
     return _BWRAP_PROBE_OK
 
 
+# Return the command prefix + profile to run `python_executable` isolated.
+#
+# Caller prepends `result.command_prefix` to its argv and, if
+# `result.profile_path` is set, must clean it up after the subprocess
+# completes. If no tool is available, `available=False` and the caller
+# falls back to the rlimit-only layer (with a logged warning).
+#
 def build_isolation(work_dir: str, python_executable: str) -> IsolationResult:
-    """Return the command prefix + profile to run `python_executable` isolated.
-
-    Caller prepends `result.command_prefix` to its argv and, if
-    `result.profile_path` is set, must clean it up after the subprocess
-    completes. If no tool is available, `available=False` and the caller
-    falls back to the rlimit-only layer (with a logged warning).
-    """
     work_dir = os.path.abspath(work_dir)
     python_executable = os.path.abspath(python_executable)
 

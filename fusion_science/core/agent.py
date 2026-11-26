@@ -42,13 +42,13 @@ class AgentStep:
     timestamp: float = field(default_factory=time.time)
 
 
+# Compact older messages in place, never splitting a tool_call/tool result pair.
+#
+# Keeps the most recent messages and summarizes older ones. A boundary is
+# only cut between messages that do not leave a dangling tool_calls (assistant)
+# without its following tool (role=tool) result.
+#
 def _compact_messages(messages: list[dict]) -> None:
-    """Compact older messages in place, never splitting a tool_call/tool result pair.
-
-    Keeps the most recent messages and summarizes older ones. A boundary is
-    only cut between messages that do not leave a dangling tool_calls (assistant)
-    without its following tool (role=tool) result.
-    """
     if len(messages) <= 4:
         return
     system_msgs = [m for m in messages if m.get("role") == "system"]

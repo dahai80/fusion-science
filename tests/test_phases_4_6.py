@@ -1,4 +1,4 @@
-"""Tests for Phase 4 (Compute+Viz), Phase 5 (Audit+Chinese DB), Phase 6 (Integration)."""
+# Tests for Phase 4 (Compute+Viz), Phase 5 (Audit+Chinese DB), Phase 6 (Integration).
 
 from __future__ import annotations
 

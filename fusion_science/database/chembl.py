@@ -1,8 +1,7 @@
-"""ChEMBL connector — retrieve drug, compound, and bioactivity data.
-
-Uses the ChEMBL REST API (https://www.ebi.ac.uk/chembl/api/data/)
-for drug discovery and medicinal chemistry research.
-"""
+# ChEMBL connector — retrieve drug, compound, and bioactivity data.
+#
+# Uses the ChEMBL REST API (https://www.ebi.ac.uk/chembl/api/data/)
+# for drug discovery and medicinal chemistry research.
 
 from __future__ import annotations
 
@@ -15,12 +14,11 @@ from .base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for ChEMBL — drug and bioactive molecule database.
+#
+# Uses ChEMBL REST API (ebi.ac.uk/chembl/api/data).
+#
 class ChEMBLConnector(BaseConnector):
-    """Connector for ChEMBL — drug and bioactive molecule database.
-
-    Uses ChEMBL REST API (ebi.ac.uk/chembl/api/data).
-    """
-
     BASE_URL = "https://www.ebi.ac.uk/chembl/api/data"
     MIRROR_URL = "https://www.ebi.ac.uk/chembl/api/data"  # ChEMBL 位于EBI，建议缓存常用查询
 
@@ -44,17 +42,17 @@ class ChEMBLConnector(BaseConnector):
         )
         super().__init__(config)
 
+    # Search ChEMBL for molecules, targets, or assays.
+    #
+    # Args:
+    # query: Search query (e.g., "aspirin", "BRD4", "kinase inhibitor").
+    # max_results: Maximum results.
+    # **kwargs: Additional search parameters (entity_type: molecule, target, assay).
+    #
+    # Returns:
+    # DatabaseResult with search results.
+    #
     async def search(self, query: str, max_results: int = 20, **kwargs) -> DatabaseResult:
-        """Search ChEMBL for molecules, targets, or assays.
-
-        Args:
-            query: Search query (e.g., "aspirin", "BRD4", "kinase inhibitor").
-            max_results: Maximum results.
-            **kwargs: Additional search parameters (entity_type: molecule, target, assay).
-
-        Returns:
-            DatabaseResult with search results.
-        """
         cache_key = f"search:{query}:{max_results}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -83,16 +81,16 @@ class ChEMBLConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch a ChEMBL entry by its identifier.
+    #
+    # Args:
+    # identifier: ChEMBL ID (e.g., "CHEMBL25" for aspirin, "CHEMBL203" for imatinib).
+    # **kwargs: Additional parameters.
+    #
+    # Returns:
+    # DatabaseResult with the entry details.
+    #
     async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch a ChEMBL entry by its identifier.
-
-        Args:
-            identifier: ChEMBL ID (e.g., "CHEMBL25" for aspirin, "CHEMBL203" for imatinib).
-            **kwargs: Additional parameters.
-
-        Returns:
-            DatabaseResult with the entry details.
-        """
         cache_key = f"fetch:{identifier}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -131,8 +129,8 @@ class ChEMBLConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Search for molecules in ChEMBL.
     async def _search_molecules(self, query: str, max_results: int, search_type: str = "similarity") -> DatabaseResult:
-        """Search for molecules in ChEMBL."""
         if search_type == "similarity":
             params = {
                 "q": query,
@@ -159,8 +157,8 @@ class ChEMBLConnector(BaseConnector):
             total_count=len(items),
         )
 
+    # Search for targets in ChEMBL.
     async def _search_targets(self, query: str, max_results: int) -> DatabaseResult:
-        """Search for targets in ChEMBL."""
         params = {
             "q": query,
             "limit": max_results,
@@ -178,26 +176,26 @@ class ChEMBLConnector(BaseConnector):
             total_count=len(items),
         )
 
+    # Fetch a single molecule by ChEMBL ID.
     async def _get_molecule(self, chembl_id: str) -> dict[str, Any]:
-        """Fetch a single molecule by ChEMBL ID."""
         resp = await self._request_with_retry("GET", f"/molecule/{chembl_id}.json")
         data = resp.json()
         return self._parse_molecule(data)
 
+    # Fetch a single target by ChEMBL target ID.
     async def _get_target(self, target_id: str) -> dict[str, Any]:
-        """Fetch a single target by ChEMBL target ID."""
         resp = await self._request_with_retry("GET", f"/target/{target_id}.json")
         data = resp.json()
         return self._parse_target(data)
 
+    # Fetch a single assay by ChEMBL assay ID.
     async def _get_assay(self, assay_id: str) -> dict[str, Any]:
-        """Fetch a single assay by ChEMBL assay ID."""
         resp = await self._request_with_retry("GET", f"/assay/{assay_id}.json")
         data = resp.json()
         return self._parse_assay(data)
 
+    # Parse a ChEMBL molecule entry.
     def _parse_molecule(self, mol: dict) -> dict[str, Any]:
-        """Parse a ChEMBL molecule entry."""
         return {
             "chembl_id": mol.get("molecule_chembl_id", ""),
             "pref_name": mol.get("pref_name", ""),
@@ -218,8 +216,8 @@ class ChEMBLConnector(BaseConnector):
             "source": "ChEMBL",
         }
 
+    # Parse a ChEMBL target entry.
     def _parse_target(self, target: dict) -> dict[str, Any]:
-        """Parse a ChEMBL target entry."""
         return {
             "chembl_id": target.get("target_chembl_id", ""),
             "pref_name": target.get("pref_name", ""),
@@ -232,8 +230,8 @@ class ChEMBLConnector(BaseConnector):
             "source": "ChEMBL",
         }
 
+    # Parse a ChEMBL assay entry.
     def _parse_assay(self, assay: dict) -> dict[str, Any]:
-        """Parse a ChEMBL assay entry."""
         return {
             "chembl_id": assay.get("assay_chembl_id", ""),
             "description": assay.get("description", ""),
@@ -245,16 +243,16 @@ class ChEMBLConnector(BaseConnector):
             "source": "ChEMBL",
         }
 
+    # Fetch bioactivity data for a molecule.
+    #
+    # Args:
+    # molecule_id: ChEMBL molecule ID (e.g., "CHEMBL25").
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # List of bioactivity dicts.
+    #
     async def get_bioactivities(self, molecule_id: str, max_results: int = 20) -> list[dict[str, Any]]:
-        """Fetch bioactivity data for a molecule.
-
-        Args:
-            molecule_id: ChEMBL molecule ID (e.g., "CHEMBL25").
-            max_results: Maximum results.
-
-        Returns:
-            List of bioactivity dicts.
-        """
         try:
             params = {
                 "molecule_chembl_id": molecule_id,
@@ -283,15 +281,15 @@ class ChEMBLConnector(BaseConnector):
             logger.error("Failed to fetch bioactivities for %s: %s", molecule_id, e)
             raise RuntimeError(f"chembl_fetch_bioactivities_failed: {e}") from e
 
+    # Fetch drug indications for a molecule.
+    #
+    # Args:
+    # molecule_id: ChEMBL molecule ID.
+    #
+    # Returns:
+    # List of indication dicts.
+    #
     async def get_drug_indications(self, molecule_id: str) -> list[dict[str, Any]]:
-        """Fetch drug indications for a molecule.
-
-        Args:
-            molecule_id: ChEMBL molecule ID.
-
-        Returns:
-            List of indication dicts.
-        """
         try:
             params = {
                 "molecule_chembl_id": molecule_id,

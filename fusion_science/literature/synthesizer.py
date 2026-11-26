@@ -1,8 +1,7 @@
-"""Literature synthesizer — multi-paper synthesis and consensus analysis.
-
-Provides consensus scoring, contradiction detection, research gap identification,
-and trend analysis across multiple papers. Uses LLMGateway for deep synthesis.
-"""
+# Literature synthesizer — multi-paper synthesis and consensus analysis.
+#
+# Provides consensus scoring, contradiction detection, research gap identification,
+# and trend analysis across multiple papers. Uses LLMGateway for deep synthesis.
 
 from __future__ import annotations
 

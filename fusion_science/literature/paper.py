@@ -1,12 +1,11 @@
-"""Paper generation — AI-assisted scientific paper writing.
-
-Provides tools for:
-- Paper structure generation (IMRaD format)
-- Section-by-section writing with citations
-- Methods section generation from analysis code
-- Figure legend generation
-- Reference formatting in multiple styles
-"""
+# Paper generation — AI-assisted scientific paper writing.
+#
+# Provides tools for:
+# - Paper structure generation (IMRaD format)
+# - Section-by-section writing with citations
+# - Methods section generation from analysis code
+# - Figure legend generation
+# - Reference formatting in multiple styles
 
 from __future__ import annotations
 
@@ -19,20 +18,18 @@ from .search import Paper
 logger = logging.getLogger(__name__)
 
 
+# A section of a scientific paper.
 @dataclass
 class PaperSection:
-    """A section of a scientific paper."""
-
     heading: str
     content: str = ""
     word_count: int = 0
     citations: list[str] = field(default_factory=list)
 
 
+# A complete scientific paper draft.
 @dataclass
 class PaperDraft:
-    """A complete scientific paper draft."""
-
     title: str
     authors: list[str] = field(default_factory=list)
     abstract: str = ""
@@ -44,14 +41,13 @@ class PaperDraft:
     status: str = "draft"  # draft, reviewed, final
 
 
+# AI-assisted scientific paper generator.
+#
+# Generates structured paper drafts following IMRaD format
+# (Introduction, Methods, Results, and Discussion) with
+# proper citations and formatting.
+#
 class PaperGenerator:
-    """AI-assisted scientific paper generator.
-
-    Generates structured paper drafts following IMRaD format
-    (Introduction, Methods, Results, and Discussion) with
-    proper citations and formatting.
-    """
-
     # Standard IMRaD section structure
     IMRAD_SECTIONS = [
         "Abstract",
@@ -83,22 +79,22 @@ class PaperGenerator:
     def __init__(self, engine=None):
         self.engine = engine  # Optional LLM engine for content generation
 
+    # Create a new paper draft with the specified structure.
+    #
+    # Args:
+    # title: Paper title.
+    # sections: Section headings (default: IMRaD).
+    # papers: Reference papers for citations.
+    #
+    # Returns:
+    # PaperDraft with empty sections ready for writing.
+    #
     def create_paper(
         self,
         title: str,
         sections: list[str] | None = None,
         papers: list[Paper] | None = None,
     ) -> PaperDraft:
-        """Create a new paper draft with the specified structure.
-
-        Args:
-            title: Paper title.
-            sections: Section headings (default: IMRaD).
-            papers: Reference papers for citations.
-
-        Returns:
-            PaperDraft with empty sections ready for writing.
-        """
         sections = sections or self.IMRAD_SECTIONS
         paper = PaperDraft(title=title)
 
@@ -114,6 +110,17 @@ class PaperGenerator:
 
         return paper
 
+    # Write a section of the paper using the LLM engine.
+    #
+    # Args:
+    # paper: The paper draft.
+    # section_index: Index of the section to write.
+    # context: Additional context for writing.
+    # engine_context: Optional data/results for the engine.
+    #
+    # Returns:
+    # Updated PaperDraft.
+    #
     async def write_section(
         self,
         paper: PaperDraft,
@@ -121,17 +128,6 @@ class PaperGenerator:
         context: str = "",
         engine_context: dict[str, Any] | None = None,
     ) -> PaperDraft:
-        """Write a section of the paper using the LLM engine.
-
-        Args:
-            paper: The paper draft.
-            section_index: Index of the section to write.
-            context: Additional context for writing.
-            engine_context: Optional data/results for the engine.
-
-        Returns:
-            Updated PaperDraft.
-        """
         if section_index >= len(paper.sections):
             return paper
 
@@ -157,6 +153,17 @@ class PaperGenerator:
 
         return paper
 
+    # Build a prompt for the LLM to write a paper section.
+    #
+    # Args:
+    # title: Paper title.
+    # heading: Section heading.
+    # context: Additional context.
+    # references: List of formatted references.
+    #
+    # Returns:
+    # Prompt string.
+    #
     def _build_section_prompt(
         self,
         title: str,
@@ -164,17 +171,6 @@ class PaperGenerator:
         context: str,
         references: list[str],
     ) -> str:
-        """Build a prompt for the LLM to write a paper section.
-
-        Args:
-            title: Paper title.
-            heading: Section heading.
-            context: Additional context.
-            references: List of formatted references.
-
-        Returns:
-            Prompt string.
-        """
         ref_text = "\n".join(references[:20]) if references else "No references provided."
 
         return f"""Write the "{heading}" section of a scientific paper titled "{title}".
@@ -194,16 +190,16 @@ Requirements:
 
 Write only the section content, not the heading."""
 
+    # Generate placeholder content for a section.
+    #
+    # Args:
+    # heading: Section heading.
+    # context: Section context.
+    #
+    # Returns:
+    # Placeholder text.
+    #
     def _generate_placeholder(self, heading: str, context: str) -> str:
-        """Generate placeholder content for a section.
-
-        Args:
-            heading: Section heading.
-            context: Section context.
-
-        Returns:
-            Placeholder text.
-        """
         placeholders = {
             "Abstract": "This study presents [brief summary of the research]. Our findings demonstrate [key results], suggesting [main conclusion].",
             "Introduction": "The [topic] is a critical area of research. Previous studies have shown [background]. However, [gap in knowledge] remains poorly understood. Here, we [approach] to address this question.",
@@ -215,16 +211,16 @@ Write only the section content, not the heading."""
         }
         return placeholders.get(heading, f"Content for the {heading} section will be generated here.")
 
+    # Format a paper as a reference citation.
+    #
+    # Args:
+    # paper: Paper to format.
+    # style: Citation style.
+    #
+    # Returns:
+    # Formatted reference string.
+    #
     def _format_reference(self, paper: Paper, style: str = "apa") -> str:
-        """Format a paper as a reference citation.
-
-        Args:
-            paper: Paper to format.
-            style: Citation style.
-
-        Returns:
-            Formatted reference string.
-        """
         authors = ", ".join(paper.authors[:3])
         if len(paper.authors) > 3:
             authors += " et al."
@@ -242,22 +238,22 @@ Write only the section content, not the heading."""
 
         return ref
 
+    # Generate a standard figure legend.
+    #
+    # Args:
+    # figure_type: Type of figure (bar chart, heatmap, etc.).
+    # description: Description of the figure.
+    # statistical_info: Statistical test results.
+    #
+    # Returns:
+    # Formatted figure legend.
+    #
     @staticmethod
     def generate_figure_legend(
         figure_type: str,
         description: str,
         statistical_info: str = "",
     ) -> str:
-        """Generate a standard figure legend.
-
-        Args:
-            figure_type: Type of figure (bar chart, heatmap, etc.).
-            description: Description of the figure.
-            statistical_info: Statistical test results.
-
-        Returns:
-            Formatted figure legend.
-        """
         parts = [f"**Figure X.** {description}"]
 
         if statistical_info:
@@ -267,17 +263,17 @@ Write only the section content, not the heading."""
 
         return "\n\n".join(parts)
 
+    # Generate a Methods section description from analysis code.
+    #
+    # Args:
+    # code: Analysis code to describe.
+    # language: Programming language used.
+    #
+    # Returns:
+    # Methods section text.
+    #
     @staticmethod
     def generate_methods_from_code(code: str, language: str = "python") -> str:
-        """Generate a Methods section description from analysis code.
-
-        Args:
-            code: Analysis code to describe.
-            language: Programming language used.
-
-        Returns:
-            Methods section text.
-        """
         import re
 
         # Extract key information from code
@@ -315,16 +311,16 @@ Write only the section content, not the heading."""
 
         return methods
 
+    # Check if sections are appropriately balanced in length.
+    #
+    # Args:
+    # paper: The paper draft to check.
+    #
+    # Returns:
+    # List of warnings about section balance.
+    #
     @staticmethod
     def check_section_balance(paper: PaperDraft) -> list[str]:
-        """Check if sections are appropriately balanced in length.
-
-        Args:
-            paper: The paper draft to check.
-
-        Returns:
-            List of warnings about section balance.
-        """
         warnings = []
         if not paper.sections:
             return ["Paper has no sections."]

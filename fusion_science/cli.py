@@ -1,19 +1,18 @@
-"""Fusion-Science CLI — command-line interface for the scientific research workbench.
-
-Usage:
-    fusion-science [OPTIONS] COMMAND [ARGS]...
-
-Commands:
-    run         Run a scientific task with natural language
-    pipeline    Execute a pre-built pipeline
-    search      Search scientific databases
-    analyze     Analyze data with Python/R
-    visualize   Generate scientific visualizations
-    review      Conduct literature review
-    audit       Generate audit/reproducibility report
-    config      Manage configuration
-    info        Show system information
-"""
+# Fusion-Science CLI — command-line interface for the scientific research workbench.
+#
+# Usage:
+# fusion-science [OPTIONS] COMMAND [ARGS]...
+#
+# Commands:
+# run         Run a scientific task with natural language
+# pipeline    Execute a pre-built pipeline
+# search      Search scientific databases
+# analyze     Analyze data with Python/R
+# visualize   Generate scientific visualizations
+# review      Conduct literature review
+# audit       Generate audit/reproducibility report
+# config      Manage configuration
+# info        Show system information
 
 from __future__ import annotations
 
@@ -38,18 +37,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+# Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon.
+#
+# A fully offline, privacy-first scientific AI platform that unifies
+# literature review, data computation, visualization, paper writing,
+# and result traceability into a single interface.
 @click.group()
 @click.option("--config", "-c", help="Path to config file")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 @click.option("--version", is_flag=True, help="Show version")
 @click.pass_context
 def cli(ctx: click.Context, config: str | None, verbose: bool, version: bool) -> None:
-    """Fusion-Science — Local Scientific Research AI Workbench for Apple Silicon.
-
-    A fully offline, privacy-first scientific AI platform that unifies
-    literature review, data computation, visualization, paper writing,
-    and result traceability into a single interface.
-    """
     if version:
         click.echo(f"fusion-science v{__version__}")
         sys.exit(0)
@@ -68,17 +66,16 @@ def cli(ctx: click.Context, config: str | None, verbose: bool, version: bool) ->
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Run a scientific task using natural language.
+#
+# If TASK is provided, executes it directly. Otherwise, enters
+# interactive mode.
+@cli.command(help="Run a scientific task using natural language.")
 @click.argument("task", required=False)
 @click.option("--pipeline", "-p", help="Pipeline template to use")
 @click.option("--output", "-o", help="Output directory")
 @click.pass_context
 def run(ctx: click.Context, task: str | None, pipeline: str | None, output: str | None) -> None:
-    """Run a scientific task using natural language.
-
-    If TASK is provided, executes it directly. Otherwise, enters
-    interactive mode.
-    """
     cfg: ScienceConfig = ctx.obj["config"]
 
     if not task:
@@ -95,8 +92,8 @@ def run(ctx: click.Context, task: str | None, pipeline: str | None, output: str 
         _execute_task(cfg, task, pipeline, output)
 
 
+# Execute a single task.
 def _execute_task(cfg: ScienceConfig, task: str, pipeline: str | None, output: str | None) -> None:
-    """Execute a single task."""
     # I-10: honest status — this path is not wired to the engine. Previously it
     # echoed "Executing:" which made the user believe the task ran. Say plainly
     # it is a stub and point at the working entry point.
@@ -118,17 +115,16 @@ def _execute_task(cfg: ScienceConfig, task: str, pipeline: str | None, output: s
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Execute a pre-built scientific pipeline.
+#
+# Available pipelines: literature_review, bioinformatics_analysis,
+# molecular_analysis.
+@cli.command(help="Execute a pre-built scientific pipeline.")
 @click.argument("pipeline_name", required=True)
 @click.argument("query", required=True)
 @click.option("--output", "-o", help="Output directory")
 @click.pass_context
 def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | None) -> None:
-    """Execute a pre-built scientific pipeline.
-
-    Available pipelines: literature_review, bioinformatics_analysis,
-    molecular_analysis.
-    """
     cfg: ScienceConfig = ctx.obj["config"]
     click.echo(f"🔬 Running pipeline '{pipeline_name}' with query: {query}")
 
@@ -193,14 +189,14 @@ def pipeline(ctx: click.Context, pipeline_name: str, query: str, output: str | N
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Search scientific databases.
+@cli.command(help="Search scientific databases.")
 @click.argument("query", required=True)
 @click.option("--db", "-d", default="pubmed", help="Database to search (pubmed, arxiv, uniprot, pdb)")
 @click.option("--max", "-m", default=10, help="Maximum results")
 @click.option("--output", "-o", help="Output file (JSON)")
 @click.pass_context
 def search(ctx: click.Context, query: str, db: str, max: int, output: str | None) -> None:
-    """Search scientific databases."""
     cfg: ScienceConfig = ctx.obj["config"]
     click.echo(f"🔍 Search requested: {db} for: {query}")
     click.echo("   ⚠️  This CLI command is not implemented yet.")
@@ -215,17 +211,16 @@ def search(ctx: click.Context, query: str, db: str, max: int, output: str | None
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Analyze data using Python or R.
+#
+# Provide a data file or use --code to pass code directly.
+@cli.command(help="Analyze data using Python or R.")
 @click.argument("file", required=False)
 @click.option("--lang", "-l", default="python", help="Language (python or r)")
 @click.option("--code", "-c", help="Code to execute directly")
 @click.option("--output", "-o", help="Output directory")
 @click.pass_context
 def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, output: str | None) -> None:
-    """Analyze data using Python or R.
-
-    Provide a data file or use --code to pass code directly.
-    """
     ctx.obj["config"]
     click.echo(f"📊 Analyze requested ({lang})")
     click.echo("   ⚠️  This CLI command is not implemented yet.")
@@ -243,16 +238,15 @@ def analyze(ctx: click.Context, file: str | None, lang: str, code: str | None, o
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Generate scientific visualizations.
+#
+# Types: chart, molecule (from SMILES), protein (from PDB ID).
+@cli.command(help="Generate scientific visualizations.")
 @click.argument("type", type=click.Choice(["chart", "molecule", "protein"]))
 @click.option("--data", "-d", help="Data file or SMILES/PDB ID")
 @click.option("--output", "-o", help="Output file path")
 @click.pass_context
 def visualize(ctx: click.Context, type: str, data: str | None, output: str | None) -> None:
-    """Generate scientific visualizations.
-
-    Types: chart, molecule (from SMILES), protein (from PDB ID).
-    """
     ctx.obj["config"]
     click.echo(f"🎨 Visualize requested: {type}")
     click.echo("   ⚠️  This CLI command is not implemented yet.")
@@ -269,13 +263,13 @@ def visualize(ctx: click.Context, type: str, data: str | None, output: str | Non
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Conduct a literature review on a research topic.
+@cli.command(help="Conduct a literature review on a research topic.")
 @click.argument("query", required=True)
 @click.option("--max-papers", "-m", default=20, help="Maximum papers to review")
 @click.option("--output", "-o", help="Output file for the review")
 @click.pass_context
 def review(ctx: click.Context, query: str, max_papers: int, output: str | None) -> None:
-    """Conduct a literature review on a research topic."""
     ctx.obj["config"]
     click.echo(f"📚 Literature review requested: {query}")
     click.echo("   ⚠️  This CLI command is not implemented yet.")
@@ -291,12 +285,12 @@ def review(ctx: click.Context, query: str, max_papers: int, output: str | None) 
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Generate an audit/reproducibility report for the current session.
+@cli.command(help="Generate an audit/reproducibility report for the current session.")
 @click.option("--output", "-o", default="./audit_report.md", help="Output file")
 @click.option("--format", "-f", type=click.Choice(["markdown", "json"]), default="markdown")
 @click.pass_context
 def audit(ctx: click.Context, output: str, format: str) -> None:
-    """Generate an audit/reproducibility report for the current session."""
     ctx.obj["config"]
     click.echo(f"📋 Audit report requested: {output}")
     click.echo("   ⚠️  This CLI command is not implemented yet.")
@@ -310,16 +304,16 @@ def audit(ctx: click.Context, output: str, format: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Manage configuration.
 @cli.group()
 def config() -> None:
-    """Manage configuration."""
     pass
 
 
-@config.command("show")
+# Show current configuration.
+@config.command("show", help="Show current configuration.")
 @click.pass_context
 def config_show(ctx: click.Context) -> None:
-    """Show current configuration."""
     cfg: ScienceConfig = ctx.obj["config"]
     click.echo("Current configuration:")
     click.echo("")
@@ -328,10 +322,10 @@ def config_show(ctx: click.Context) -> None:
             click.echo(f"  {key}: {value}")
 
 
-@config.command("init")
+# Create a default configuration file.
+@config.command("init", help="Create a default configuration file.")
 @click.option("--path", "-p", help="Config file path")
 def config_init(path: str | None) -> None:
-    """Create a default configuration file."""
     path = create_default_config(path)
     click.echo(f"✅ Created default config: {path}")
 
@@ -341,10 +335,10 @@ def config_init(path: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Show system information and available components.
+@cli.command(help="Show system information and available components.")
 @click.pass_context
 def info(ctx: click.Context) -> None:
-    """Show system information and available components."""
     cfg: ScienceConfig = ctx.obj["config"]
 
     click.echo("🔬 Fusion-Science System Info")
@@ -390,13 +384,13 @@ def info(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+# Start the Fusion-Science API server.
+@cli.command(help="Start the Fusion-Science API server.")
 @click.option("--host", default=None, help="Host to bind to (default: config api_host)")
 @click.option("--port", default=None, type=int, help="Port to listen on (default: config api_port)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 @click.pass_context
 def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) -> None:
-    """Start the Fusion-Science API server."""
     cfg: ScienceConfig = ctx.obj["config"]
     host = host or cfg.api_host
     port = port or cfg.api_port
@@ -433,12 +427,12 @@ def serve(ctx: click.Context, host: str | None, port: int | None, reload: bool) 
         sys.exit(1)
 
 
-@cli.command()
+# Launch the Fusion-Science web interface (alias for serve).
+@cli.command(help="Launch the Fusion-Science web interface (alias for serve).")
 @click.option("--host", default=None, help="Host to bind to (default: config api_host)")
 @click.option("--port", default=None, type=int, help="Port to listen on (default: config api_port)")
 @click.pass_context
 def web(ctx: click.Context, host: str | None, port: int | None) -> None:
-    """Launch the Fusion-Science web interface (alias for serve)."""
     ctx.invoke(serve, host=host, port=port)
 
 
@@ -447,8 +441,8 @@ def web(ctx: click.Context, host: str | None, port: int | None) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Main entry point.
 def main() -> None:
-    """Main entry point."""
     cli()
 
 

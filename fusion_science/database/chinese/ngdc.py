@@ -8,13 +8,12 @@ from ..base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for NGDC (National Genomics Data Center, 国家基因组科学数据中心).
+#
+# API docs: https://ngdc.cncb.ac.cn
+# Provides access to GSA, GWH, OMIX, and other genomics databases.
+#
 class NGDCConnector(BaseConnector):
-    """Connector for NGDC (National Genomics Data Center, 国家基因组科学数据中心).
-
-    API docs: https://ngdc.cncb.ac.cn
-    Provides access to GSA, GWH, OMIX, and other genomics databases.
-    """
-
     BASE_URL = "https://ngdc.cncb.ac.cn"
 
     def __init__(

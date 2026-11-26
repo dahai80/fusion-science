@@ -1,10 +1,9 @@
+# Check environment for fusion-science domestic research deployment.
+#
+# Verifies dependencies, mirror configuration, and offline mode.
+# Usage:
+# python scripts/check_env.py
 #!/usr/bin/env python3
-"""Check environment for fusion-science domestic research deployment.
-
-Verifies dependencies, mirror configuration, and offline mode.
-Usage:
-    python scripts/check_env.py
-"""
 
 import importlib
 import os
@@ -13,8 +12,8 @@ import sys
 from pathlib import Path
 
 
+# Check if a Python dependency is available.
 def check_dependency(name: str, package: str = "") -> tuple[bool, str]:
-    """Check if a Python dependency is available."""
     try:
         mod = importlib.import_module(package or name)
         version = getattr(mod, "__version__", "installed")

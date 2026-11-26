@@ -1,9 +1,8 @@
-"""Jupyter kernel integration — execute code in Jupyter kernels for interactive analysis.
-
-Provides an interface to launch and communicate with Jupyter kernels,
-supporting Python, R, Julia, and other Jupyter-compatible runtimes.
-Enables interactive notebook-style execution within the science workflow.
-"""
+# Jupyter kernel integration — execute code in Jupyter kernels for interactive analysis.
+#
+# Provides an interface to launch and communicate with Jupyter kernels,
+# supporting Python, R, Julia, and other Jupyter-compatible runtimes.
+# Enables interactive notebook-style execution within the science workflow.
 
 from __future__ import annotations
 
@@ -17,10 +16,9 @@ logger = logging.getLogger(__name__)
 _MAX_OUTPUT_CHARS = 1_000_000
 
 
+# Result of a single code execution in a kernel.
 @dataclass
 class KernelResult:
-    """Result of a single code execution in a kernel."""
-
     success: bool
     output: str = ""
     error: str = ""
@@ -28,23 +26,21 @@ class KernelResult:
     mime_data: dict[str, str] = field(default_factory=dict)  # Rich display data
 
 
+# Information about an available kernel.
 @dataclass
 class KernelInfo:
-    """Information about an available kernel."""
-
     name: str
     language: str
     display_name: str
     description: str = ""
 
 
+# Manages Jupyter kernels for interactive code execution.
+#
+# Supports multiple kernel types (Python, R, Julia) and manages
+# kernel lifecycle (start, execute, shutdown).
+#
 class JupyterKernelManager:
-    """Manages Jupyter kernels for interactive code execution.
-
-    Supports multiple kernel types (Python, R, Julia) and manages
-    kernel lifecycle (start, execute, shutdown).
-    """
-
     def __init__(self, kernel_name: str = "python3", sandbox: Any | None = None):
         self.kernel_name = kernel_name
         self._kernel_manager: Any = None
@@ -60,15 +56,15 @@ class JupyterKernelManager:
             sandbox = SandboxManager()
         self._sandbox = sandbox
 
+    # Start a Jupyter kernel.
+    #
+    # Args:
+    # kernel_name: Optional kernel name override (e.g., "python3", "ir", "julia").
+    #
+    # Returns:
+    # True if the kernel started successfully.
+    #
     async def start_kernel(self, kernel_name: str | None = None) -> bool:
-        """Start a Jupyter kernel.
-
-        Args:
-            kernel_name: Optional kernel name override (e.g., "python3", "ir", "julia").
-
-        Returns:
-            True if the kernel started successfully.
-        """
         try:
             from jupyter_client import KernelManager  # type: ignore[import-untyped]
 
@@ -94,16 +90,16 @@ class JupyterKernelManager:
             logger.error("Failed to start Jupyter kernel '%s': %s", kernel_name, e)
             return False
 
+    # Execute code in the running kernel.
+    #
+    # Args:
+    # code: Code to execute.
+    # timeout: Execution timeout in seconds.
+    #
+    # Returns:
+    # KernelResult with output and rich display data.
+    #
     async def execute(self, code: str, timeout: int = 120) -> KernelResult:
-        """Execute code in the running kernel.
-
-        Args:
-            code: Code to execute.
-            timeout: Execution timeout in seconds.
-
-        Returns:
-            KernelResult with output and rich display data.
-        """
         if not self._running or self._kernel_client is None:
             return KernelResult(
                 success=False,
@@ -199,12 +195,12 @@ class JupyterKernelManager:
             logger.error("Kernel execution error: %s", e)
             return KernelResult(success=False, error=str(e))
 
+    # Shutdown the kernel and clean up resources.
+    #
+    # Always attempts both stop_channels and shutdown_kernel,
+    # even if one of them fails.
+    #
     async def shutdown(self) -> None:
-        """Shutdown the kernel and clean up resources.
-
-        Always attempts both stop_channels and shutdown_kernel,
-        even if one of them fails.
-        """
         exc = None
         if self._kernel_client:
             try:
@@ -227,13 +223,13 @@ class JupyterKernelManager:
         if exc:
             raise exc
 
+    # List all available Jupyter kernels on the system.
+    #
+    # Returns:
+    # List of KernelInfo with available kernels.
+    #
     @staticmethod
     def list_available_kernels() -> list[KernelInfo]:
-        """List all available Jupyter kernels on the system.
-
-        Returns:
-            List of KernelInfo with available kernels.
-        """
         try:
             import jupyter_client  # noqa: F401  # type: ignore[import-untyped]
             from jupyter_client.kernelspec import KernelSpecManager  # type: ignore[import-untyped]
@@ -255,16 +251,16 @@ class JupyterKernelManager:
             logger.warning("Failed to list kernels: %s", e)
             return []
 
+    # Install the fusion-science Python kernel spec.
+    #
+    # Args:
+    # display_name: Display name for the kernel.
+    #
+    # Returns:
+    # True if installed successfully.
+    #
     @staticmethod
     def install_kernel(display_name: str = "Fusion Science") -> bool:
-        """Install the fusion-science Python kernel spec.
-
-        Args:
-            display_name: Display name for the kernel.
-
-        Returns:
-            True if installed successfully.
-        """
         try:
             import json
             import sys

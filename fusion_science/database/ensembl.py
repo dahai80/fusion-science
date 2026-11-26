@@ -1,8 +1,7 @@
-"""Ensembl connector — retrieve genomic data, genes, variants, and annotations.
-
-Uses the Ensembl REST API (https://rest.ensembl.org/) with support for
-domestic mirrors (Ensembl Asia/Gencode China mirrors).
-"""
+# Ensembl connector — retrieve genomic data, genes, variants, and annotations.
+#
+# Uses the Ensembl REST API (https://rest.ensembl.org/) with support for
+# domestic mirrors (Ensembl Asia/Gencode China mirrors).
 
 from __future__ import annotations
 
@@ -15,13 +14,12 @@ from .base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for Ensembl genomic database.
+#
+# Uses Ensembl REST API (rest.ensembl.org).
+# Domestic mirror: Ensembl Asia mirror (use_mirror=True).
+#
 class EnsemblConnector(BaseConnector):
-    """Connector for Ensembl genomic database.
-
-    Uses Ensembl REST API (rest.ensembl.org).
-    Domestic mirror: Ensembl Asia mirror (use_mirror=True).
-    """
-
     BASE_URL = "https://rest.ensembl.org"
     MIRROR_URL = "https://rest.ensembl.org"  # Ensembl 亚洲镜像: useast.ensembl.org
 
@@ -45,8 +43,8 @@ class EnsemblConnector(BaseConnector):
         )
         super().__init__(config)
 
+    # Make a GET request and return JSON with Ensembl headers.
     async def _get_json(self, path: str, params: dict | None = None) -> dict:
-        """Make a GET request and return JSON with Ensembl headers."""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -59,17 +57,17 @@ class EnsemblConnector(BaseConnector):
         )
         return resp.json()
 
+    # Search Ensembl for genes, transcripts, or features.
+    #
+    # Args:
+    # query: Search query (e.g., "BRCA1", "TP53 human").
+    # max_results: Maximum results.
+    # **kwargs: Additional search parameters (e.g., species).
+    #
+    # Returns:
+    # DatabaseResult with matching genomic entries.
+    #
     async def search(self, query: str, max_results: int = 20, **kwargs) -> DatabaseResult:
-        """Search Ensembl for genes, transcripts, or features.
-
-        Args:
-            query: Search query (e.g., "BRCA1", "TP53 human").
-            max_results: Maximum results.
-            **kwargs: Additional search parameters (e.g., species).
-
-        Returns:
-            DatabaseResult with matching genomic entries.
-        """
         cache_key = f"search:{query}:{max_results}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -121,16 +119,16 @@ class EnsemblConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch genomic data by Ensembl ID.
+    #
+    # Args:
+    # identifier: Ensembl gene/transcript/protein ID (e.g., "ENSG00000141510" for TP53).
+    # **kwargs: Additional parameters.
+    #
+    # Returns:
+    # DatabaseResult with the genomic entry.
+    #
     async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch genomic data by Ensembl ID.
-
-        Args:
-            identifier: Ensembl gene/transcript/protein ID (e.g., "ENSG00000141510" for TP53).
-            **kwargs: Additional parameters.
-
-        Returns:
-            DatabaseResult with the genomic entry.
-        """
         cache_key = f"fetch:{identifier}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -171,16 +169,16 @@ class EnsemblConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch detailed information about a gene.
+    #
+    # Args:
+    # gene_id: Ensembl gene ID (e.g., "ENSG00000141510").
+    # species: Species name (e.g., "human", "mouse").
+    #
+    # Returns:
+    # Dict with gene details including transcripts and homologues.
+    #
     async def fetch_gene(self, gene_id: str, species: str = "human") -> dict[str, Any]:
-        """Fetch detailed information about a gene.
-
-        Args:
-            gene_id: Ensembl gene ID (e.g., "ENSG00000141510").
-            species: Species name (e.g., "human", "mouse").
-
-        Returns:
-            Dict with gene details including transcripts and homologues.
-        """
         try:
             data = await self._get_json(
                 f"/lookup/id/{gene_id}",
@@ -205,18 +203,18 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch gene %s: %s", gene_id, e)
             return {"error": str(e), "gene_id": gene_id}
 
+    # Fetch genomic sequence for a specific region.
+    #
+    # Args:
+    # species: Species name (e.g., "human").
+    # region: Chromosome/region name (e.g., "17").
+    # start: Start position.
+    # end: End position.
+    #
+    # Returns:
+    # DNA sequence string.
+    #
     async def fetch_sequence_region(self, species: str, region: str, start: int, end: int) -> str:
-        """Fetch genomic sequence for a specific region.
-
-        Args:
-            species: Species name (e.g., "human").
-            region: Chromosome/region name (e.g., "17").
-            start: Start position.
-            end: End position.
-
-        Returns:
-            DNA sequence string.
-        """
         try:
             resp = await self._request_with_retry(
                 "GET",
@@ -232,16 +230,16 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch sequence region: %s", e)
             raise RuntimeError(f"ensembl_fetch_sequence_region_failed: {e}") from e
 
+    # Fetch variants for a gene.
+    #
+    # Args:
+    # gene_id: Ensembl gene ID.
+    # species: Species name.
+    #
+    # Returns:
+    # List of variant dicts.
+    #
     async def fetch_variants(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
-        """Fetch variants for a gene.
-
-        Args:
-            gene_id: Ensembl gene ID.
-            species: Species name.
-
-        Returns:
-            List of variant dicts.
-        """
         try:
             data = await self._get_json(
                 f"/overlap/id/{gene_id}",
@@ -268,16 +266,16 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch variants for %s: %s", gene_id, e)
             raise RuntimeError(f"ensembl_fetch_variants_failed: {e}") from e
 
+    # Fetch homologous genes across species.
+    #
+    # Args:
+    # gene_id: Ensembl gene ID.
+    # species: Species name.
+    #
+    # Returns:
+    # List of homologue dicts.
+    #
     async def fetch_homologues(self, gene_id: str, species: str = "human") -> list[dict[str, Any]]:
-        """Fetch homologous genes across species.
-
-        Args:
-            gene_id: Ensembl gene ID.
-            species: Species name.
-
-        Returns:
-            List of homologue dicts.
-        """
         try:
             data = await self._get_json(
                 f"/homology/id/{gene_id}",
@@ -306,14 +304,14 @@ class EnsemblConnector(BaseConnector):
             logger.error("Failed to fetch homologues for %s: %s", gene_id, e)
             raise RuntimeError(f"ensembl_fetch_homologues_failed: {e}") from e
 
+    # Search for a gene by its common name.
+    #
+    # Args:
+    # gene_name: Gene symbol (e.g., "TP53", "BRCA1").
+    # species: Species name.
+    #
+    # Returns:
+    # DatabaseResult with matching genes.
+    #
     async def search_by_gene_name(self, gene_name: str, species: str = "human") -> DatabaseResult:
-        """Search for a gene by its common name.
-
-        Args:
-            gene_name: Gene symbol (e.g., "TP53", "BRCA1").
-            species: Species name.
-
-        Returns:
-            DatabaseResult with matching genes.
-        """
         return await self.search(gene_name, max_results=10, species=species)

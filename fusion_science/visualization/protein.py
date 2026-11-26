@@ -1,9 +1,8 @@
-"""Protein structure visualization — 3D rendering of protein structures.
-
-Provides tools for visualizing protein 3D structures from PDB data,
-with support for highlighting domains, mutations, ligands, and
-generating publication-quality structural figures.
-"""
+# Protein structure visualization — 3D rendering of protein structures.
+#
+# Provides tools for visualizing protein 3D structures from PDB data,
+# with support for highlighting domains, mutations, ligands, and
+# generating publication-quality structural figures.
 
 from __future__ import annotations
 
@@ -26,10 +25,9 @@ def _safe_name(name: str) -> str:
     return _SAFE_NAME_RE.sub("_", name) or "protein"
 
 
+# Result of a protein structure visualization.
 @dataclass
 class ProteinVisualization:
-    """Result of a protein structure visualization."""
-
     success: bool
     html_path: str = ""  # Interactive 3D HTML
     image_path: str = ""  # Static image
@@ -39,16 +37,15 @@ class ProteinVisualization:
     residue_count: int = 0
 
 
+# Generates 3D protein structure visualizations.
+#
+# Supports:
+# - PDB structure rendering with py3Dmol
+# - Domain/mutation highlighting
+# - Ligand and binding site visualization
+# - Publication-quality static images
+#
 class ProteinVisualizer:
-    """Generates 3D protein structure visualizations.
-
-    Supports:
-    - PDB structure rendering with py3Dmol
-    - Domain/mutation highlighting
-    - Ligand and binding site visualization
-    - Publication-quality static images
-    """
-
     def __init__(self):
         self._py3dmol_available = False
         self._check_dependencies()
@@ -61,6 +58,19 @@ class ProteinVisualizer:
         except ImportError:
             self._py3dmol_available = False
 
+    # Generate a 3D protein structure visualization.
+    #
+    # Args:
+    # pdb_id: PDB ID (e.g., "6M0J" for SARS-CoV-2 spike).
+    # pdb_content: Optional PDB file content.
+    # style: Visualization style (cartoon, surface, ribbon).
+    # highlights: Optional regions to highlight:
+    # [{"start": 100, "end": 200, "color": "red", "label": "Active site"}]
+    # show_ligands: Whether to show bound ligands.
+    #
+    # Returns:
+    # ProteinVisualization with generated files.
+    #
     async def visualize(
         self,
         pdb_id: str,
@@ -69,19 +79,6 @@ class ProteinVisualizer:
         highlights: list[dict[str, Any]] | None = None,
         show_ligands: bool = True,
     ) -> ProteinVisualization:
-        """Generate a 3D protein structure visualization.
-
-        Args:
-            pdb_id: PDB ID (e.g., "6M0J" for SARS-CoV-2 spike).
-            pdb_content: Optional PDB file content.
-            style: Visualization style (cartoon, surface, ribbon).
-            highlights: Optional regions to highlight:
-                [{"start": 100, "end": 200, "color": "red", "label": "Active site"}]
-            show_ligands: Whether to show bound ligands.
-
-        Returns:
-            ProteinVisualization with generated files.
-        """
         output_dir = tempfile.gettempdir()
         safe_id = _safe_name(pdb_id)
         html_path = os.path.join(output_dir, f"{safe_id}_protein.html")
@@ -179,6 +176,16 @@ class ProteinVisualizer:
 
         return out_html, len(chains), len(residues)
 
+    # Generate interactive 3D HTML for protein structure.
+    #
+    # Args:
+    # pdb_content: PDB file content.
+    # html_path: Output HTML path.
+    # title: Title for the viewer.
+    # style: Visualization style.
+    # highlights: Regions to highlight.
+    # show_ligands: Show ligands.
+    #
     def _generate_protein_html(
         self,
         pdb_content: str,
@@ -188,16 +195,6 @@ class ProteinVisualizer:
         highlights: list[dict[str, Any]],
         show_ligands: bool,
     ) -> None:
-        """Generate interactive 3D HTML for protein structure.
-
-        Args:
-            pdb_content: PDB file content.
-            html_path: Output HTML path.
-            title: Title for the viewer.
-            style: Visualization style.
-            highlights: Regions to highlight.
-            show_ligands: Show ligands.
-        """
         import base64
 
         pdb_b64 = base64.b64encode(pdb_content.encode()).decode()
@@ -276,20 +273,20 @@ view.setStyle({hetflag: true}, {stick:{radius:0.3,colorscheme:'Jmol'}});
         with open(html_path, "w") as f:
             f.write(html)
 
+    # Generate a comparative visualization of multiple protein structures.
+    #
+    # Args:
+    # pdb_ids: List of PDB IDs to compare.
+    # alignment_residues: Optional alignment residues for each structure.
+    #
+    # Returns:
+    # HTML file path with the comparative viewer.
+    #
     async def compare_structures(
         self,
         pdb_ids: list[str],
         alignment_residues: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Generate a comparative visualization of multiple protein structures.
-
-        Args:
-            pdb_ids: List of PDB IDs to compare.
-            alignment_residues: Optional alignment residues for each structure.
-
-        Returns:
-            HTML file path with the comparative viewer.
-        """
         output_dir = tempfile.gettempdir()
         safe_name = "_".join(_safe_name(pid) for pid in pdb_ids)
         html_path = os.path.join(output_dir, f"comparison_{safe_name}.html")
@@ -370,13 +367,13 @@ viewer.setStyle({{model:{i}}}, {{cartoon:{{color:'{color}',opacity:0.7}}}});
 
         return html_path
 
+    # Get a list of notable PDB structures for quick testing.
+    #
+    # Returns:
+    # List of dicts with pdb_id, name, and description.
+    #
     @staticmethod
     def notable_proteins() -> list[dict[str, str]]:
-        """Get a list of notable PDB structures for quick testing.
-
-        Returns:
-            List of dicts with pdb_id, name, and description.
-        """
         return [
             {"pdb_id": "6M0J", "name": "SARS-CoV-2 Spike", "description": "COVID-19 spike protein RBD-ACE2 complex"},
             {"pdb_id": "1BNA", "name": "B-DNA", "description": "B-DNA dodecamer (classic structure)"},
