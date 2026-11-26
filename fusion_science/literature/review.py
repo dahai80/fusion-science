@@ -1,9 +1,8 @@
-"""Literature review — LLM-driven structured review generation.
-
-Analyzes and synthesizes multiple papers into a structured review with
-PRISMA 2020 compliance. Uses LLMGateway for review generation with
-fallback to rule-based analysis when LLM is unavailable.
-"""
+# Literature review — LLM-driven structured review generation.
+#
+# Analyzes and synthesizes multiple papers into a structured review with
+# PRISMA 2020 compliance. Uses LLMGateway for review generation with
+# fallback to rule-based analysis when LLM is unavailable.
 
 from __future__ import annotations
 

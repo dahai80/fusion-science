@@ -1,13 +1,12 @@
-"""Operation trace recorder — tracks every action in the scientific workflow.
-
-Provides a complete audit trail of all operations performed during a
-research session, including:
-- Database queries and their parameters
-- Code execution and results
-- LLM interactions and generated content
-- Visualization generation
-- File operations and outputs
-"""
+# Operation trace recorder — tracks every action in the scientific workflow.
+#
+# Provides a complete audit trail of all operations performed during a
+# research session, including:
+# - Database queries and their parameters
+# - Code execution and results
+# - LLM interactions and generated content
+# - Visualization generation
+# - File operations and outputs
 
 from __future__ import annotations
 
@@ -60,15 +59,15 @@ def _load_retention_map() -> dict[str, int]:
     return mapping
 
 
+# Redact sensitive parameter values before logging.
+#
+# Args:
+# params: Original parameters dict.
+#
+# Returns:
+# Sanitized copy with sensitive values replaced by ***REDACTED***.
+#
 def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
-    """Redact sensitive parameter values before logging.
-
-    Args:
-        params: Original parameters dict.
-
-    Returns:
-        Sanitized copy with sensitive values replaced by ***REDACTED***.
-    """
     patterns = _redaction_patterns()
     sanitized = {}
     for k, v in params.items():
@@ -83,10 +82,9 @@ def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+# A single trace entry recording an operation.
 @dataclass
 class TraceEntry:
-    """A single trace entry recording an operation."""
-
     id: str
     timestamp: float
     operation: str  # db_query, code_execution, llm_call, visualization, file_write
@@ -102,10 +100,9 @@ class TraceEntry:
     entry_hash: str = ""  # sha256 of this entry (excluding entry_hash itself)
 
 
+# A complete tracing session for a research workflow.
 @dataclass
 class TraceSession:
-    """A complete tracing session for a research workflow."""
-
     session_id: str
     start_time: float
     end_time: float = 0.0
@@ -121,13 +118,12 @@ class _ChainResult:
     mismatches: list[dict[str, str]] = field(default_factory=list)
 
 
+# Records and manages a complete audit trail of all operations.
+#
+# Creates a trace session for each research workflow, tracking
+# every operation with full parameter and result context.
+#
 class TraceRecorder:
-    """Records and manages a complete audit trail of all operations.
-
-    Creates a trace session for each research workflow, tracking
-    every operation with full parameter and result context.
-    """
-
     def __init__(
         self,
         storage_dir: str = "~/.cache/fusion-science/traces",
@@ -236,15 +232,15 @@ class TraceRecorder:
         raw = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+    # Start a new tracing session.
+    #
+    # Args:
+    # metadata: Optional session metadata (e.g., task description, user).
+    #
+    # Returns:
+    # Session ID.
+    #
     def start_session(self, metadata: dict[str, Any] | None = None) -> str:
-        """Start a new tracing session.
-
-        Args:
-            metadata: Optional session metadata (e.g., task description, user).
-
-        Returns:
-            Session ID.
-        """
         session_id = f"trace_{uuid.uuid4().hex[:12]}"
         self._session = TraceSession(
             session_id=session_id,
@@ -255,15 +251,15 @@ class TraceRecorder:
         logger.info("Started trace session: %s", session_id)
         return session_id
 
+    # End the current tracing session.
+    #
+    # Args:
+    # status: Final status (completed, failed).
+    #
+    # Returns:
+    # The completed TraceSession.
+    #
     def end_session(self, status: str = "completed") -> TraceSession:
-        """End the current tracing session.
-
-        Args:
-            status: Final status (completed, failed).
-
-        Returns:
-            The completed TraceSession.
-        """
         if self._session is None:
             raise RuntimeError("No active session to end.")
 
@@ -281,6 +277,21 @@ class TraceRecorder:
         self._session = None  # Release reference so GC can collect
         return session
 
+    # Record a trace entry.
+    #
+    # Args:
+    # operation: Operation type (db_query, code_execution, llm_call, etc.).
+    # source: Module name.
+    # description: Human-readable description.
+    # parameters: Operation parameters (for audit).
+    # result_summary: Summary of the result.
+    # duration_ms: Execution duration in milliseconds.
+    # success: Whether the operation succeeded.
+    # error: Error message if failed.
+    #
+    # Returns:
+    # Entry ID.
+    #
     def record(
         self,
         operation: str,
@@ -292,21 +303,6 @@ class TraceRecorder:
         success: bool = True,
         error: str = "",
     ) -> str:
-        """Record a trace entry.
-
-        Args:
-            operation: Operation type (db_query, code_execution, llm_call, etc.).
-            source: Module name.
-            description: Human-readable description.
-            parameters: Operation parameters (for audit).
-            result_summary: Summary of the result.
-            duration_ms: Execution duration in milliseconds.
-            success: Whether the operation succeeded.
-            error: Error message if failed.
-
-        Returns:
-            Entry ID.
-        """
         if self._session is None:
             self.start_session()
 
@@ -339,16 +335,16 @@ class TraceRecorder:
             self._forward_to_sink(entry)
         return entry_id
 
+    # Set the current parent entry ID for hierarchical tracing.
+    #
+    # Args:
+    # parent_id: Parent entry ID.
+    #
     def set_parent(self, parent_id: str) -> None:
-        """Set the current parent entry ID for hierarchical tracing.
-
-        Args:
-            parent_id: Parent entry ID.
-        """
         self._current_parent = parent_id
 
+    # Clear the current parent entry.
     def clear_parent(self) -> None:
-        """Clear the current parent entry."""
         self._current_parent = ""
 
     def _forward_to_sink(self, entry: TraceEntry) -> None:
@@ -376,6 +372,20 @@ class TraceRecorder:
 
         threading.Thread(target=_post, daemon=True).start()
 
+    # Record a database query operation.
+    #
+    # Args:
+    # source: Calling module.
+    # database: Database name (pubmed, uniprot, etc.).
+    # query: Query string.
+    # result_count: Number of results returned.
+    # success: Whether the query succeeded.
+    # error: Error message if failed.
+    # duration_ms: Query duration.
+    #
+    # Returns:
+    # Entry ID.
+    #
     def record_db_query(
         self,
         source: str,
@@ -386,20 +396,6 @@ class TraceRecorder:
         error: str = "",
         duration_ms: float = 0.0,
     ) -> str:
-        """Record a database query operation.
-
-        Args:
-            source: Calling module.
-            database: Database name (pubmed, uniprot, etc.).
-            query: Query string.
-            result_count: Number of results returned.
-            success: Whether the query succeeded.
-            error: Error message if failed.
-            duration_ms: Query duration.
-
-        Returns:
-            Entry ID.
-        """
         return self.record(
             operation="db_query",
             source=source,
@@ -411,6 +407,20 @@ class TraceRecorder:
             error=error,
         )
 
+    # Record a code execution operation.
+    #
+    # Args:
+    # source: Calling module.
+    # language: Programming language (python, r, julia).
+    # code_summary: Brief description of the code.
+    # success: Whether execution succeeded.
+    # error: Error message if failed.
+    # duration_ms: Execution duration.
+    # output_files: Paths to output files.
+    #
+    # Returns:
+    # Entry ID.
+    #
     def record_code_execution(
         self,
         source: str,
@@ -421,20 +431,6 @@ class TraceRecorder:
         duration_ms: float = 0.0,
         output_files: list[str] | None = None,
     ) -> str:
-        """Record a code execution operation.
-
-        Args:
-            source: Calling module.
-            language: Programming language (python, r, julia).
-            code_summary: Brief description of the code.
-            success: Whether execution succeeded.
-            error: Error message if failed.
-            duration_ms: Execution duration.
-            output_files: Paths to output files.
-
-        Returns:
-            Entry ID.
-        """
         return self.record(
             operation="code_execution",
             source=source,
@@ -446,6 +442,21 @@ class TraceRecorder:
             error=error,
         )
 
+    # Record an LLM call.
+    #
+    # Args:
+    # source: Calling module.
+    # model: Model name.
+    # prompt_summary: Summary of the prompt.
+    # response_summary: Summary of the response.
+    # success: Whether the call succeeded.
+    # error: Error message if failed.
+    # duration_ms: Call duration.
+    # token_usage: Token usage statistics.
+    #
+    # Returns:
+    # Entry ID.
+    #
     def record_llm_call(
         self,
         source: str,
@@ -457,21 +468,6 @@ class TraceRecorder:
         duration_ms: float = 0.0,
         token_usage: dict[str, int] | None = None,
     ) -> str:
-        """Record an LLM call.
-
-        Args:
-            source: Calling module.
-            model: Model name.
-            prompt_summary: Summary of the prompt.
-            response_summary: Summary of the response.
-            success: Whether the call succeeded.
-            error: Error message if failed.
-            duration_ms: Call duration.
-            token_usage: Token usage statistics.
-
-        Returns:
-            Entry ID.
-        """
         return self.record(
             operation="llm_call",
             source=source,
@@ -483,6 +479,19 @@ class TraceRecorder:
             error=error,
         )
 
+    # Record a visualization generation.
+    #
+    # Args:
+    # source: Calling module.
+    # viz_type: Type of visualization (chart, molecule, protein).
+    # file_path: Path to the generated file.
+    # success: Whether generation succeeded.
+    # error: Error message if failed.
+    # duration_ms: Generation duration.
+    #
+    # Returns:
+    # Entry ID.
+    #
     def record_visualization(
         self,
         source: str,
@@ -492,19 +501,6 @@ class TraceRecorder:
         error: str = "",
         duration_ms: float = 0.0,
     ) -> str:
-        """Record a visualization generation.
-
-        Args:
-            source: Calling module.
-            viz_type: Type of visualization (chart, molecule, protein).
-            file_path: Path to the generated file.
-            success: Whether generation succeeded.
-            error: Error message if failed.
-            duration_ms: Generation duration.
-
-        Returns:
-            Entry ID.
-        """
         return self.record(
             operation="visualization",
             source=source,
@@ -516,43 +512,43 @@ class TraceRecorder:
             error=error,
         )
 
+    # Get the current trace session.
+    #
+    # Returns:
+    # Current TraceSession or None.
+    #
     def get_session(self) -> TraceSession | None:
-        """Get the current trace session.
-
-        Returns:
-            Current TraceSession or None.
-        """
         return self._session
 
+    # Get trace entries, optionally filtered by operation type.
+    #
+    # Args:
+    # operation: Optional operation type filter.
+    #
+    # Returns:
+    # List of matching TraceEntry objects.
+    #
     def get_entries(self, operation: str | None = None) -> list[TraceEntry]:
-        """Get trace entries, optionally filtered by operation type.
-
-        Args:
-            operation: Optional operation type filter.
-
-        Returns:
-            List of matching TraceEntry objects.
-        """
         if self._session is None:
             return []
         if operation:
             return [e for e in self._session.entries if e.operation == operation]
         return self._session.entries
 
+    # Get trace entries as plain dicts, scoped to a request session_id.
+    #
+    # Filters entries whose parameters carry the given session_id, so one
+    # API session cannot read another session's audit trail (IDOR guard).
+    # Returns dicts (not TraceEntry) so compliance checkers can call .get().
+    #
+    # Args:
+    # session_id: Request session ID to scope entries to. If None, all
+    # entries of the current trace session are returned.
+    #
+    # Returns:
+    # List of trace entry dicts.
+    #
     def get_traces(self, session_id: str | None = None) -> list[dict[str, Any]]:
-        """Get trace entries as plain dicts, scoped to a request session_id.
-
-        Filters entries whose parameters carry the given session_id, so one
-        API session cannot read another session's audit trail (IDOR guard).
-        Returns dicts (not TraceEntry) so compliance checkers can call .get().
-
-        Args:
-            session_id: Request session ID to scope entries to. If None, all
-                entries of the current trace session are returned.
-
-        Returns:
-            List of trace entry dicts.
-        """
         if self._session is None:
             return []
         entries: list[TraceEntry] = []
@@ -577,15 +573,15 @@ class TraceRecorder:
             for e in entries
         ]
 
+    # Get a summary of a trace session.
+    #
+    # Args:
+    # session_id: Session ID (default: current session).
+    #
+    # Returns:
+    # Summary dict with counts and timing.
+    #
     def get_session_summary(self, session_id: str | None = None) -> dict[str, Any]:
-        """Get a summary of a trace session.
-
-        Args:
-            session_id: Session ID (default: current session).
-
-        Returns:
-            Summary dict with counts and timing.
-        """
         session = self._get_session(session_id)
         if session is None:
             return {"error": "Session not found"}
@@ -613,16 +609,16 @@ class TraceRecorder:
             "metadata": session.metadata,
         }
 
+    # Export the trace session as JSON.
+    #
+    # Args:
+    # session_id: Session ID (default: current session).
+    # pretty: Pretty-print the JSON.
+    #
+    # Returns:
+    # JSON string of the session.
+    #
     def export_json(self, session_id: str | None = None, pretty: bool = True) -> str:
-        """Export the trace session as JSON.
-
-        Args:
-            session_id: Session ID (default: current session).
-            pretty: Pretty-print the JSON.
-
-        Returns:
-            JSON string of the session.
-        """
         session = self._get_session(session_id)
         if session is None:
             return json.dumps({"error": "Session not found"})
@@ -633,8 +629,8 @@ class TraceRecorder:
         indent = 2 if pretty else None
         return json.dumps(data, indent=indent, default=str, ensure_ascii=False)
 
+    # Get a session by ID, or the current session.
     def _get_session(self, session_id: str | None) -> TraceSession | None:
-        """Get a session by ID, or the current session."""
         if session_id is None:
             return self._session
 
@@ -674,8 +670,8 @@ class TraceRecorder:
                 )
         return None
 
+    # Save the current session to disk atomically (temp + rename).
     def _save_session(self) -> None:
-        """Save the current session to disk atomically (temp + rename)."""
         if self._session is None:
             return
 
@@ -684,8 +680,8 @@ class TraceRecorder:
         self._write_file_atomic(export_path, payload)
         logger.info("Saved trace session to %s", export_path)
 
+    # Verify the hash chain of a trace session is intact (tamper-evident).
     def verify_chain(self, session_id: str | None = None) -> bool:
-        """Verify the hash chain of a trace session is intact (tamper-evident)."""
         return self.audit_chain(session_id).ok
 
     def audit_chain(self, session_id: str | None = None) -> Any:
@@ -760,13 +756,13 @@ class TraceRecorder:
             return self._retention_map[data_class]
         return self._max_age_days if self._max_age_days > 0 else None
 
+    # Apply the retention policy: drop sessions older than their retention
+    # age (per-data-class map or global max_age_days) and keep at most
+    # max_sessions (newest first).
+    #
+    # Returns a summary {pruned_by_age, pruned_by_count, remaining}.
+    #
     def prune(self) -> dict[str, int]:
-        """Apply the retention policy: drop sessions older than their retention
-        age (per-data-class map or global max_age_days) and keep at most
-        max_sessions (newest first).
-
-        Returns a summary {pruned_by_age, pruned_by_count, remaining}.
-        """
         pruned_age = 0
         pruned_count = 0
         files = sorted(
@@ -811,14 +807,14 @@ class TraceRecorder:
             "remaining": remaining,
         }
 
+    # Export trace entries as newline-delimited JSON (JSONL / NDJSON).
+    #
+    # JSONL is the de-facto SIEM/streaming ingest format (one record per
+    # line, no wrapping array) so an enterprise can ship audit events to a
+    # SIEM/ELK/Splunk pipeline without re-parsing. Each line is a single
+    # TraceEntry dict.
+    #
     def export_jsonl(self, session_id: str | None = None) -> str:
-        """Export trace entries as newline-delimited JSON (JSONL / NDJSON).
-
-        JSONL is the de-facto SIEM/streaming ingest format (one record per
-        line, no wrapping array) so an enterprise can ship audit events to a
-        SIEM/ELK/Splunk pipeline without re-parsing. Each line is a single
-        TraceEntry dict.
-        """
         session = self._get_session(session_id)
         if session is None:
             return ""
@@ -854,12 +850,12 @@ class TraceRecorder:
             ensure_ascii=False,
         )
 
+    # List all saved trace sessions.
+    #
+    # Returns:
+    # List of session summaries.
+    #
     def list_sessions(self) -> list[dict[str, Any]]:
-        """List all saved trace sessions.
-
-        Returns:
-            List of session summaries.
-        """
         sessions = []
         for f in self.storage_dir.glob("trace_*.json"):
             try:

@@ -1,11 +1,10 @@
-"""Data provenance tracking — trace the origin and transformation of every data point.
-
-Provides a provenance model that records:
-- Data sources (database queries, uploaded files, code output)
-- Data transformations (code operations, filtering, normalization)
-- Data lineage (parent-child relationships between data items)
-- Reproducibility information (parameters, environment, versions)
-"""
+# Data provenance tracking — trace the origin and transformation of every data point.
+#
+# Provides a provenance model that records:
+# - Data sources (database queries, uploaded files, code output)
+# - Data transformations (code operations, filtering, normalization)
+# - Data lineage (parent-child relationships between data items)
+# - Reproducibility information (parameters, environment, versions)
 
 from __future__ import annotations
 
@@ -21,10 +20,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# A single data provenance node.
 @dataclass
 class ProvenanceNode:
-    """A single data provenance node."""
-
     id: str
     type: str  # source, transformation, output
     label: str
@@ -35,39 +33,37 @@ class ProvenanceNode:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+# A directed graph of data provenance.
 @dataclass
 class ProvenanceGraph:
-    """A directed graph of data provenance."""
-
     name: str
     created_at: float
     nodes: dict[str, ProvenanceNode] = field(default_factory=dict)
     description: str = ""
 
 
+# Tracks the provenance of data throughout the research workflow.
+#
+# Builds a directed graph showing how data flows from sources
+# through transformations to final outputs, enabling full
+# reproducibility and auditability.
+#
 class ProvenanceTracker:
-    """Tracks the provenance of data throughout the research workflow.
-
-    Builds a directed graph showing how data flows from sources
-    through transformations to final outputs, enabling full
-    reproducibility and auditability.
-    """
-
     def __init__(self, storage_dir: str = "~/.cache/fusion-science/provenance"):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self._graph: ProvenanceGraph | None = None
 
+    # Start a new provenance tracking session.
+    #
+    # Args:
+    # name: Name for the provenance graph.
+    # description: Optional description.
+    #
+    # Returns:
+    # Graph ID.
+    #
     def start_tracking(self, name: str, description: str = "") -> str:
-        """Start a new provenance tracking session.
-
-        Args:
-            name: Name for the provenance graph.
-            description: Optional description.
-
-        Returns:
-            Graph ID.
-        """
         self._graph = ProvenanceGraph(
             name=name,
             created_at=time.time(),
@@ -75,6 +71,17 @@ class ProvenanceTracker:
         )
         return name
 
+    # Record a data source (database query, file upload, etc.).
+    #
+    # Args:
+    # label: Human-readable label.
+    # source_type: Type of source (db_query, file_upload, api_call).
+    # parameters: Parameters used to obtain the data.
+    # metadata: Additional metadata.
+    #
+    # Returns:
+    # Node ID.
+    #
     def add_source(
         self,
         label: str,
@@ -82,17 +89,6 @@ class ProvenanceTracker:
         parameters: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        """Record a data source (database query, file upload, etc.).
-
-        Args:
-            label: Human-readable label.
-            source_type: Type of source (db_query, file_upload, api_call).
-            parameters: Parameters used to obtain the data.
-            metadata: Additional metadata.
-
-        Returns:
-            Node ID.
-        """
         node_id = f"src_{uuid.uuid4().hex[:8]}"
         node = ProvenanceNode(
             id=node_id,
@@ -105,6 +101,17 @@ class ProvenanceTracker:
         self._add_node(node)
         return node_id
 
+    # Record a data transformation (code execution, filtering, etc.).
+    #
+    # Args:
+    # label: Human-readable label.
+    # input_ids: IDs of input data nodes.
+    # parameters: Transformation parameters (code, config, etc.).
+    # metadata: Additional metadata.
+    #
+    # Returns:
+    # Node ID.
+    #
     def add_transformation(
         self,
         label: str,
@@ -112,17 +119,6 @@ class ProvenanceTracker:
         parameters: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        """Record a data transformation (code execution, filtering, etc.).
-
-        Args:
-            label: Human-readable label.
-            input_ids: IDs of input data nodes.
-            parameters: Transformation parameters (code, config, etc.).
-            metadata: Additional metadata.
-
-        Returns:
-            Node ID.
-        """
         node_id = f"tx_{uuid.uuid4().hex[:8]}"
         node = ProvenanceNode(
             id=node_id,
@@ -136,6 +132,18 @@ class ProvenanceTracker:
         self._add_node(node)
         return node_id
 
+    # Record a data output (figure, table, paper section, etc.).
+    #
+    # Args:
+    # label: Human-readable label.
+    # input_ids: IDs of input data/transformation nodes.
+    # output_type: Type of output (figure, table, text, etc.).
+    # parameters: Output generation parameters.
+    # metadata: Additional metadata.
+    #
+    # Returns:
+    # Node ID.
+    #
     def add_output(
         self,
         label: str,
@@ -144,18 +152,6 @@ class ProvenanceTracker:
         parameters: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        """Record a data output (figure, table, paper section, etc.).
-
-        Args:
-            label: Human-readable label.
-            input_ids: IDs of input data/transformation nodes.
-            output_type: Type of output (figure, table, text, etc.).
-            parameters: Output generation parameters.
-            metadata: Additional metadata.
-
-        Returns:
-            Node ID.
-        """
         node_id = f"out_{uuid.uuid4().hex[:8]}"
         node = ProvenanceNode(
             id=node_id,
@@ -169,12 +165,12 @@ class ProvenanceTracker:
         self._add_node(node)
         return node_id
 
+    # Add a node to the provenance graph.
+    #
+    # Args:
+    # node: Node to add.
+    #
     def _add_node(self, node: ProvenanceNode) -> None:
-        """Add a node to the provenance graph.
-
-        Args:
-            node: Node to add.
-        """
         if self._graph is None:
             self.start_tracking("provenance")
 
@@ -187,15 +183,15 @@ class ProvenanceTracker:
                 if node.id not in parent.outputs:
                     parent.outputs.append(node.id)
 
+    # Get the full lineage of a data item (all ancestors).
+    #
+    # Args:
+    # node_id: Target node ID.
+    #
+    # Returns:
+    # List of ancestor nodes in topological order.
+    #
     def get_lineage(self, node_id: str) -> list[ProvenanceNode]:
-        """Get the full lineage of a data item (all ancestors).
-
-        Args:
-            node_id: Target node ID.
-
-        Returns:
-            List of ancestor nodes in topological order.
-        """
         if self._graph is None or node_id not in self._graph.nodes:
             return []
 
@@ -214,15 +210,15 @@ class ProvenanceTracker:
         dfs(node_id)
         return lineage
 
+    # Get all downstream nodes that depend on a data item.
+    #
+    # Args:
+    # node_id: Target node ID.
+    #
+    # Returns:
+    # List of downstream nodes.
+    #
     def get_downstream(self, node_id: str) -> list[ProvenanceNode]:
-        """Get all downstream nodes that depend on a data item.
-
-        Args:
-            node_id: Target node ID.
-
-        Returns:
-            List of downstream nodes.
-        """
         if self._graph is None or node_id not in self._graph.nodes:
             return []
 
@@ -241,23 +237,23 @@ class ProvenanceTracker:
         dfs(node_id)
         return downstream
 
+    # Get the current provenance graph.
+    #
+    # Returns:
+    # The current ProvenanceGraph or None.
+    #
     def get_graph(self) -> ProvenanceGraph | None:
-        """Get the current provenance graph.
-
-        Returns:
-            The current ProvenanceGraph or None.
-        """
         return self._graph
 
+    # Export the provenance graph as JSON.
+    #
+    # Args:
+    # pretty: Pretty-print the JSON.
+    #
+    # Returns:
+    # JSON string of the provenance graph.
+    #
     def export_json(self, pretty: bool = True) -> str:
-        """Export the provenance graph as JSON.
-
-        Args:
-            pretty: Pretty-print the JSON.
-
-        Returns:
-            JSON string of the provenance graph.
-        """
         if self._graph is None:
             return json.dumps({"error": "No provenance graph"})
 
@@ -283,15 +279,15 @@ class ProvenanceTracker:
         indent = 2 if pretty else None
         return json.dumps(data, indent=indent, default=str, ensure_ascii=False)
 
+    # Save the provenance graph to disk.
+    #
+    # Args:
+    # name: Optional filename (default: graph name).
+    #
+    # Returns:
+    # Path to the saved file.
+    #
     def save(self, name: str | None = None) -> str:
-        """Save the provenance graph to disk.
-
-        Args:
-            name: Optional filename (default: graph name).
-
-        Returns:
-            Path to the saved file.
-        """
         if self._graph is None:
             raise RuntimeError("No provenance graph to save.")
 
@@ -306,15 +302,15 @@ class ProvenanceTracker:
         logger.info("Saved provenance graph to %s", save_path)
         return str(save_path)
 
+    # Load a provenance graph from disk.
+    #
+    # Args:
+    # path: Path to the JSON file.
+    #
+    # Returns:
+    # True if loaded successfully.
+    #
     def load(self, path: str | Path) -> bool:
-        """Load a provenance graph from disk.
-
-        Args:
-            path: Path to the JSON file.
-
-        Returns:
-            True if loaded successfully.
-        """
         try:
             with open(path) as f:
                 data = json.load(f)
@@ -334,20 +330,20 @@ class ProvenanceTracker:
             logger.error("Failed to load provenance graph: %s", e)
             return False
 
+    # Generate a human-readable reproducibility report from provenance data.
+    #
+    # Args:
+    # provenance_json: JSON string of provenance data.
+    # include_parameters: Include operation parameters in the report.
+    #
+    # Returns:
+    # Markdown-formatted reproducibility report.
+    #
     @staticmethod
     def generate_reproducibility_report(
         provenance_json: str,
         include_parameters: bool = True,
     ) -> str:
-        """Generate a human-readable reproducibility report from provenance data.
-
-        Args:
-            provenance_json: JSON string of provenance data.
-            include_parameters: Include operation parameters in the report.
-
-        Returns:
-            Markdown-formatted reproducibility report.
-        """
         try:
             data = json.loads(provenance_json)
         except json.JSONDecodeError:

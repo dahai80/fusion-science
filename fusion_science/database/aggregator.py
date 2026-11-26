@@ -1,9 +1,8 @@
-"""Database aggregator — multi-database parallel query with result merging.
-
-Provides unified search across multiple scientific databases (PubMed, UniProt,
-PDB, Ensembl, ChEMBL) with parallel execution, result deduplication, and
-unified ranking.
-"""
+# Database aggregator — multi-database parallel query with result merging.
+#
+# Provides unified search across multiple scientific databases (PubMed, UniProt,
+# PDB, Ensembl, ChEMBL) with parallel execution, result deduplication, and
+# unified ranking.
 
 from __future__ import annotations
 

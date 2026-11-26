@@ -7,7 +7,7 @@ doc_type: changelog
 title: { zh: "变更日志", en: "Changelog" }
 audience: engineer
 status: draft
-version: 1.0.19
+version: 1.0.20
 updated: 2026-11-07
 owner: "@dahai"
 source_of_truth:
@@ -23,6 +23,12 @@ patch-release tables); this file tracks changes going forward in
 Keep-a-Changelog format.
 
 ## [Unreleased]
+
+## [1.0.20] - 2026-11-26
+
+### Fixed
+
+- Closes #49, closes #50: enforce no-docstring convention — converted 316 docstrings to `#` comments across `fusion_science/`, `tests/`, `scripts/`, `ci/`; restored CLI `--help` text via click `help=` on all 12 commands; zero docstrings remain (AST-verified)
 
 ## [1.0.19] - 2026-11-16
 

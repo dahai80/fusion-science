@@ -1,9 +1,8 @@
-"""Python code executor — sandboxed execution of Python code for scientific analysis.
-
-Executes user-generated Python code in a controlled subprocess with
-timeout, resource limits, and output capture. Supports matplotlib
-figure generation and numpy/pandas/scipy-based analysis.
-"""
+# Python code executor — sandboxed execution of Python code for scientific analysis.
+#
+# Executes user-generated Python code in a controlled subprocess with
+# timeout, resource limits, and output capture. Supports matplotlib
+# figure generation and numpy/pandas/scipy-based analysis.
 
 from __future__ import annotations
 
@@ -20,10 +19,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Result of a code execution.
 @dataclass
 class ExecutionResult:
-    """Result of a code execution."""
-
     success: bool
     stdout: str = ""
     stderr: str = ""
@@ -33,13 +31,12 @@ class ExecutionResult:
     figures: list[str] = field(default_factory=list)  # Paths to generated figures
 
 
+# Sandboxed Python code executor for scientific analysis.
+#
+# Executes code in a subprocess with configurable timeout and
+# resource limits. Supports matplotlib figure capture.
+#
 class PythonExecutor:
-    """Sandboxed Python code executor for scientific analysis.
-
-    Executes code in a subprocess with configurable timeout and
-    resource limits. Supports matplotlib figure capture.
-    """
-
     def __init__(
         self,
         timeout: int = 120,
@@ -60,6 +57,17 @@ class PythonExecutor:
             sandbox = SandboxManager()
         self._sandbox = sandbox
 
+    # Execute Python code in a sandboxed subprocess.
+    #
+    # Args:
+    # code: Python code to execute.
+    # input_data: Optional input data to pass to the code (serialized as JSON).
+    # env_vars: Optional environment variables.
+    # capture_figures: Whether to capture matplotlib figures.
+    #
+    # Returns:
+    # ExecutionResult with stdout, stderr, and figure paths.
+    #
     async def execute(
         self,
         code: str,
@@ -67,17 +75,6 @@ class PythonExecutor:
         env_vars: dict[str, str] | None = None,
         capture_figures: bool = True,
     ) -> ExecutionResult:
-        """Execute Python code in a sandboxed subprocess.
-
-        Args:
-            code: Python code to execute.
-            input_data: Optional input data to pass to the code (serialized as JSON).
-            env_vars: Optional environment variables.
-            capture_figures: Whether to capture matplotlib figures.
-
-        Returns:
-            ExecutionResult with stdout, stderr, and figure paths.
-        """
         start = asyncio.get_event_loop().time()
 
         # P0 (S2): AST validation gate — reject dangerous imports / eval /
@@ -156,8 +153,8 @@ class PythonExecutor:
             isolation = build_isolation(self.work_dir, sys.executable)
             spawn_argv = [*isolation.command_prefix, sys.executable, script_path]
 
+            # Apply resource limits (CPU, memory, processes) to child process.
             def _set_limits():
-                """Apply resource limits (CPU, memory, processes) to child process."""
                 if resource is None:
                     return
                 try:
@@ -267,22 +264,22 @@ class PythonExecutor:
             with contextlib.suppress(Exception):
                 cleanup_isolation(isolation)
 
+    # Build a wrapper script that captures output and figures.
+    #
+    # Args:
+    # code: User code to execute.
+    # has_input_data: Whether an input_data file was written.
+    # capture_figures: Whether to capture matplotlib figures.
+    #
+    # Returns:
+    # Complete wrapper script as a string.
+    #
     def _build_wrapper(
         self,
         code: str,
         has_input_data: bool,
         capture_figures: bool,
     ) -> str:
-        """Build a wrapper script that captures output and figures.
-
-        Args:
-            code: User code to execute.
-            has_input_data: Whether an input_data file was written.
-            capture_figures: Whether to capture matplotlib figures.
-
-        Returns:
-            Complete wrapper script as a string.
-        """
         # Indent the user code
         indented_code = textwrap.indent(code, "    ")
 
@@ -350,15 +347,15 @@ if _output_path:
 
         return wrapper
 
+    # Execute R code using rpy2 (requires rpy2 extra).
+    #
+    # Args:
+    # code: R code to execute.
+    #
+    # Returns:
+    # ExecutionResult with R output.
+    #
     async def execute_r_code(self, code: str) -> ExecutionResult:
-        """Execute R code using rpy2 (requires rpy2 extra).
-
-        Args:
-            code: R code to execute.
-
-        Returns:
-            ExecutionResult with R output.
-        """
         start = asyncio.get_event_loop().time()
         try:
             import rpy2.robjects as robjects  # type: ignore[import-untyped]
@@ -397,13 +394,13 @@ if _output_path:
                 execution_time=asyncio.get_event_loop().time() - start,
             )
 
+    # Check which scientific Python packages are available.
+    #
+    # Returns:
+    # List of available packages with version info.
+    #
     @staticmethod
     def check_available_packages() -> list[dict[str, str]]:
-        """Check which scientific Python packages are available.
-
-        Returns:
-            List of available packages with version info.
-        """
         packages = [
             "numpy",
             "scipy",

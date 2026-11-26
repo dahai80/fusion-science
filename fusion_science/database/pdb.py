@@ -1,8 +1,7 @@
-"""PDB connector — retrieve 3D protein/nucleic acid structures.
-
-Uses the RCSB PDB REST API (https://data.rcsb.org/) and the
-PDB search API (https://search.rcsb.org/).
-"""
+# PDB connector — retrieve 3D protein/nucleic acid structures.
+#
+# Uses the RCSB PDB REST API (https://data.rcsb.org/) and the
+# PDB search API (https://search.rcsb.org/).
 
 from __future__ import annotations
 
@@ -18,12 +17,11 @@ from .base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for Protein Data Bank (PDB) — 3D macromolecular structures.
+#
+# Uses RCSB PDB data API (data.rcsb.org) and search API (search.rcsb.org).
+#
 class PDBConnector(BaseConnector):
-    """Connector for Protein Data Bank (PDB) — 3D macromolecular structures.
-
-    Uses RCSB PDB data API (data.rcsb.org) and search API (search.rcsb.org).
-    """
-
     DATA_URL = "https://data.rcsb.org/rest/v1"
     SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
     MIRROR_URL = "https://data.rcsb.org/rest/v1"  # PDBe (欧洲) 从中国访问更稳定
@@ -72,17 +70,17 @@ class PDBConnector(BaseConnector):
             await self._search_client.aclose()
             self._search_client = None
 
+    # Search the PDB for structures matching the query.
+    #
+    # Args:
+    # query: Search query (e.g., "CRISPR Cas9", "SARS-CoV-2 spike").
+    # max_results: Maximum results to return.
+    # **kwargs: Additional search parameters.
+    #
+    # Returns:
+    # DatabaseResult with matched PDB entries.
+    #
     async def search(self, query: str, max_results: int = 20, **kwargs) -> DatabaseResult:
-        """Search the PDB for structures matching the query.
-
-        Args:
-            query: Search query (e.g., "CRISPR Cas9", "SARS-CoV-2 spike").
-            max_results: Maximum results to return.
-            **kwargs: Additional search parameters.
-
-        Returns:
-            DatabaseResult with matched PDB entries.
-        """
         cache_key = f"search:{query}:{max_results}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -149,16 +147,16 @@ class PDBConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch a PDB entry by its 4-character ID.
+    #
+    # Args:
+    # identifier: PDB ID (e.g., "6M0J" for SARS-CoV-2 spike protein).
+    # **kwargs: Additional parameters.
+    #
+    # Returns:
+    # DatabaseResult with the PDB entry details.
+    #
     async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch a PDB entry by its 4-character ID.
-
-        Args:
-            identifier: PDB ID (e.g., "6M0J" for SARS-CoV-2 spike protein).
-            **kwargs: Additional parameters.
-
-        Returns:
-            DatabaseResult with the PDB entry details.
-        """
         pdb_id = identifier.upper()
         cache_key = f"fetch:{pdb_id}"
         cached = self._check_cache(cache_key)
@@ -193,16 +191,16 @@ class PDBConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Parse a PDB entry JSON into a structured dict.
+    #
+    # Args:
+    # data: Entry data from /core/entry/{id}.
+    # assembly_data: Assembly data from /core/assembly/{id}/1.
+    #
+    # Returns:
+    # Structured dict with PDB entry information.
+    #
     def _parse_entry(self, data: dict, assembly_data: dict) -> dict[str, Any]:
-        """Parse a PDB entry JSON into a structured dict.
-
-        Args:
-            data: Entry data from /core/entry/{id}.
-            assembly_data: Assembly data from /core/assembly/{id}/1.
-
-        Returns:
-            Structured dict with PDB entry information.
-        """
         struct = data.get("struct", {})
         rcsb_entry = data.get("rcsb_entry_info", {})
         exptl = data.get("exptl", [{}])
@@ -290,15 +288,15 @@ class PDBConnector(BaseConnector):
             "source": "PDB",
         }
 
+    # Get URLs for downloading PDB structure files.
+    #
+    # Args:
+    # pdb_id: PDB ID (e.g., "6M0J").
+    #
+    # Returns:
+    # Dict with URLs for different formats (pdb, mmcif, pdbml).
+    #
     async def fetch_structure_url(self, pdb_id: str) -> dict[str, str]:
-        """Get URLs for downloading PDB structure files.
-
-        Args:
-            pdb_id: PDB ID (e.g., "6M0J").
-
-        Returns:
-            Dict with URLs for different formats (pdb, mmcif, pdbml).
-        """
         pdb_id = pdb_id.upper()
         return {
             "pdb": f"https://files.rcsb.org/download/{pdb_id}.pdb",
@@ -307,16 +305,16 @@ class PDBConnector(BaseConnector):
             "pdbml_ext": f"https://files.rcsb.org/download/{pdb_id}-ext.xml",
         }
 
+    # Search PDB by protein sequence.
+    #
+    # Args:
+    # sequence: Amino acid sequence string.
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # DatabaseResult with structurally similar PDB entries.
+    #
     async def search_by_sequence(self, sequence: str, max_results: int = 10) -> DatabaseResult:
-        """Search PDB by protein sequence.
-
-        Args:
-            sequence: Amino acid sequence string.
-            max_results: Maximum results.
-
-        Returns:
-            DatabaseResult with structurally similar PDB entries.
-        """
         search_payload = {
             "query": {
                 "type": "terminal",

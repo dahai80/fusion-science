@@ -1,4 +1,4 @@
-"""Tests for the compute layer."""
+# Tests for the compute layer.
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ from fusion_science.compute.hpc_scheduler import HPCClusterInfo, HPCJob, HPCSche
 from fusion_science.compute.python_executor import PythonExecutor
 
 
+# Test the Python code executor.
 class TestPythonExecutor:
-    """Test the Python code executor."""
-
     @pytest.mark.asyncio
     async def test_simple_execution(self):
         executor = PythonExecutor(timeout=10)
@@ -55,9 +54,8 @@ result = "Hello, Fusion Science!"
             assert numpy_info["available"] is True
 
 
+# Test the HPC scheduler.
 class TestHPCScheduler:
-    """Test the HPC scheduler."""
-
     def test_scheduler_init(self):
         scheduler = HPCScheduler(use_local=True)
         assert scheduler.use_local is True
@@ -101,9 +99,8 @@ class TestHPCScheduler:
         assert "/output" in script
 
 
+# Test the HPCJob dataclass.
 class TestHPCJob:
-    """Test the HPCJob dataclass."""
-
     def test_default_job(self):
         job = HPCJob(job_id="12345", name="test")
         assert job.job_id == "12345"
@@ -128,9 +125,8 @@ class TestHPCJob:
         assert job.memory_gb == 64
 
 
+# Test the HPCClusterInfo dataclass.
 class TestHPCClusterInfo:
-    """Test the HPCClusterInfo dataclass."""
-
     def test_default_info(self):
         info = HPCClusterInfo()
         assert info.name == ""

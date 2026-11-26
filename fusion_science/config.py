@@ -1,12 +1,11 @@
-"""Configuration management for fusion-science.
-
-Manages YAML/JSON configuration files for:
-- MLX inference engine settings
-- Database connector settings (mirrors, API keys, caching)
-- Compute environment (Python, R, Jupyter, HPC)
-- Visualization defaults
-- Audit and tracing settings
-"""
+# Configuration management for fusion-science.
+#
+# Manages YAML/JSON configuration files for:
+# - MLX inference engine settings
+# - Database connector settings (mirrors, API keys, caching)
+# - Compute environment (Python, R, Jupyter, HPC)
+# - Visualization defaults
+# - Audit and tracing settings
 
 from __future__ import annotations
 
@@ -31,10 +30,9 @@ _SENTINEL_ENGINE_API_KEY = "local"
 _MLX_STATUS_URL = os.getenv("FUSION_SCI_MLX_STATUS_URL", "http://localhost:11434/api/status")
 
 
+# Complete configuration for fusion-science.
 @dataclass
 class ScienceConfig:
-    """Complete configuration for fusion-science."""
-
     # Inference engine — routed through fusion-gateway (:11432) per netlayer plan.
     # Override via FUSION_SCIENCE_ENGINE_BASE_URL to bypass the gateway.
     model_name: str = _SENTINEL_MODEL_NAME
@@ -138,19 +136,19 @@ class ScienceConfig:
     compliance_level: int = 1
 
 
+# Load configuration from a file, with environment variable overrides.
+#
+# Also loads .env file from config/ directory if present (python-dotenv).
+# Supports both FUSION_SCIENCE_* (for ScienceConfig fields) and
+# FUSION_SCI_* (for database mirror URLs) and FUSION_OFFLINE_MODE.
+#
+# Args:
+# path: Path to config file (JSON/YAML). If None, searches standard locations.
+#
+# Returns:
+# ScienceConfig with merged settings.
+#
 def load_config(path: str | None = None) -> ScienceConfig:
-    """Load configuration from a file, with environment variable overrides.
-
-    Also loads .env file from config/ directory if present (python-dotenv).
-    Supports both FUSION_SCIENCE_* (for ScienceConfig fields) and
-    FUSION_SCI_* (for database mirror URLs) and FUSION_OFFLINE_MODE.
-
-    Args:
-        path: Path to config file (JSON/YAML). If None, searches standard locations.
-
-    Returns:
-        ScienceConfig with merged settings.
-    """
     config = ScienceConfig()
 
     # Try to load .env file (optional, requires python-dotenv)
@@ -306,8 +304,8 @@ def _auto_detect_model(config: ScienceConfig) -> None:
         logger.warning("Could not auto-detect model from fusion-mlx: %s", e)
 
 
+# Try to load .env file from config/ directory (optional dependency).
 def _try_load_dotenv() -> None:
-    """Try to load .env file from config/ directory (optional dependency)."""
     try:
         from dotenv import load_dotenv
 
@@ -319,13 +317,13 @@ def _try_load_dotenv() -> None:
         pass  # python-dotenv not installed, skip
 
 
+# Save configuration to a file.
+#
+# Args:
+# config: The configuration to save.
+# path: Output file path (JSON or YAML).
+#
 def save_config(config: ScienceConfig, path: str) -> None:
-    """Save configuration to a file.
-
-    Args:
-        config: The configuration to save.
-        path: Output file path (JSON or YAML).
-    """
     data = {k: v for k, v in config.__dict__.items() if not k.startswith("_")}
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -340,15 +338,15 @@ def save_config(config: ScienceConfig, path: str) -> None:
     logger.info("Saved config to %s", path)
 
 
+# Create a default configuration file.
+#
+# Args:
+# path: Output path (default: ~/.config/fusion-science/config.yml).
+#
+# Returns:
+# Path to the created config file.
+#
 def create_default_config(path: str | None = None) -> str:
-    """Create a default configuration file.
-
-    Args:
-        path: Output path (default: ~/.config/fusion-science/config.yml).
-
-    Returns:
-        Path to the created config file.
-    """
     if path is None:
         path = str(Path.home() / ".config" / "fusion-science" / "config.yml")
 

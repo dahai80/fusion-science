@@ -1,12 +1,11 @@
-"""RFC 6238 TOTP second factor (G6, 等保三级 / HIPAA ePHI).
-
-stdlib-only (hmac/hashlib/base64/struct/time) — no external dependency, so MFA
-works on a default install. Per-subject TOTP secrets are provisioned by the
-operator in a file pointed at by FUSION_SCIENCE_MFA_SECRETS_FILE
-(subject:base32secret per line), the same newline/rotate pattern as the API-key
-file. When FUSION_SCIENCE_MFA_REQUIRED=1, /auth/token must additionally carry a
-`totp` field verified here; a missing/wrong code is 401.
-"""
+# RFC 6238 TOTP second factor (G6, 等保三级 / HIPAA ePHI).
+#
+# stdlib-only (hmac/hashlib/base64/struct/time) — no external dependency, so MFA
+# works on a default install. Per-subject TOTP secrets are provisioned by the
+# operator in a file pointed at by FUSION_SCIENCE_MFA_SECRETS_FILE
+# (subject:base32secret per line), the same newline/rotate pattern as the API-key
+# file. When FUSION_SCIENCE_MFA_REQUIRED=1, /auth/token must additionally carry a
+# `totp` field verified here; a missing/wrong code is 401.
 
 from __future__ import annotations
 

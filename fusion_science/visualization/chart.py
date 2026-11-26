@@ -1,9 +1,8 @@
-"""Scientific chart generation — publication-quality statistical plots.
-
-Provides a unified interface for generating scientific charts using
-matplotlib and seaborn, with support for common plot types used in
-life sciences and bioinformatics publications.
-"""
+# Scientific chart generation — publication-quality statistical plots.
+#
+# Provides a unified interface for generating scientific charts using
+# matplotlib and seaborn, with support for common plot types used in
+# life sciences and bioinformatics publications.
 
 from __future__ import annotations
 
@@ -23,10 +22,9 @@ logger = logging.getLogger(__name__)
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
+# Configuration for chart generation.
 @dataclass
 class ChartConfig:
-    """Configuration for chart generation."""
-
     width: int = 8
     height: int = 6
     dpi: int = 300
@@ -40,28 +38,26 @@ class ChartConfig:
     output_format: str = "png"  # png, svg, pdf
 
 
+# Result of chart generation.
 @dataclass
 class ChartResult:
-    """Result of chart generation."""
-
     success: bool
     file_path: str = ""
     error: str = ""
     mime_type: str = "image/png"
 
 
+# Generates publication-quality scientific charts.
+#
+# Supports common bioinformatics and life science visualization types.
+#
 class ChartGenerator:
-    """Generates publication-quality scientific charts.
-
-    Supports common bioinformatics and life science visualization types.
-    """
-
     def __init__(self, config: ChartConfig | None = None):
         self.config = config or ChartConfig()
         self._figure_counter = 0
 
+    # Apply matplotlib/seaborn style settings.
     def _setup_style(self) -> None:
-        """Apply matplotlib/seaborn style settings."""
         try:
             import matplotlib
 
@@ -82,8 +78,8 @@ class ChartGenerator:
         except ImportError:
             logger.warning("matplotlib/seaborn not available for styling")
 
+    # Get an output file path.
     def _get_output_path(self, name: str) -> str:
-        """Get an output file path."""
         output_dir = tempfile.gettempdir()
         self._figure_counter += 1
         safe_name = _SAFE_NAME_RE.sub("_", name) or "chart"
@@ -92,6 +88,18 @@ class ChartGenerator:
             f"fusion_chart_{safe_name}_{self._figure_counter}.{self.config.output_format}",
         )
 
+    # Generate a bar chart (e.g., for gene expression comparison).
+    #
+    # Args:
+    # categories: Category labels.
+    # values: Values for each category.
+    # errors: Optional error bars.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def bar_chart(
         self,
         categories: list[str],
@@ -100,18 +108,6 @@ class ChartGenerator:
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a bar chart (e.g., for gene expression comparison).
-
-        Args:
-            categories: Category labels.
-            values: Values for each category.
-            errors: Optional error bars.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("bar")
@@ -146,6 +142,18 @@ class ChartGenerator:
         plt.close()
         return ChartResult(success=True, file_path=output_path)
 
+    # Generate a scatter plot (e.g., for correlation analysis).
+    #
+    # Args:
+    # x: X-axis values.
+    # y: Y-axis values.
+    # groups: Optional group labels for coloring.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def scatter_plot(
         self,
         x: list[float],
@@ -154,18 +162,6 @@ class ChartGenerator:
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a scatter plot (e.g., for correlation analysis).
-
-        Args:
-            x: X-axis values.
-            y: Y-axis values.
-            groups: Optional group labels for coloring.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("scatter")
@@ -202,6 +198,18 @@ class ChartGenerator:
         plt.close()
         return ChartResult(success=True, file_path=output_path)
 
+    # Generate a heatmap (e.g., for gene expression data).
+    #
+    # Args:
+    # data: 2D matrix of values.
+    # row_labels: Labels for rows.
+    # col_labels: Labels for columns.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def heatmap(
         self,
         data: list[list[float]],
@@ -210,18 +218,6 @@ class ChartGenerator:
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a heatmap (e.g., for gene expression data).
-
-        Args:
-            data: 2D matrix of values.
-            row_labels: Labels for rows.
-            col_labels: Labels for columns.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("heatmap")
@@ -261,6 +257,20 @@ class ChartGenerator:
         plt.close()
         return ChartResult(success=True, file_path=output_path)
 
+    # Generate a volcano plot (e.g., for differential expression analysis).
+    #
+    # Args:
+    # log2fc: Log2 fold change values.
+    # pvalues: P-values.
+    # labels: Optional gene/probe labels.
+    # fc_threshold: Fold change significance threshold.
+    # p_threshold: P-value significance threshold.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def volcano_plot(
         self,
         log2fc: list[float],
@@ -271,20 +281,6 @@ class ChartGenerator:
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a volcano plot (e.g., for differential expression analysis).
-
-        Args:
-            log2fc: Log2 fold change values.
-            pvalues: P-values.
-            labels: Optional gene/probe labels.
-            fc_threshold: Fold change significance threshold.
-            p_threshold: P-value significance threshold.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("volcano")
@@ -332,6 +328,17 @@ class ChartGenerator:
         plt.close()
         return ChartResult(success=True, file_path=output_path)
 
+    # Generate a line chart (e.g., for time series or growth curves).
+    #
+    # Args:
+    # x: X-axis values.
+    # y_sets: List of dicts with 'label' and 'values' keys.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def line_chart(
         self,
         x: list[float],
@@ -339,17 +346,6 @@ class ChartGenerator:
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a line chart (e.g., for time series or growth curves).
-
-        Args:
-            x: X-axis values.
-            y_sets: List of dicts with 'label' and 'values' keys.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("line")
@@ -382,22 +378,22 @@ class ChartGenerator:
         plt.close()
         return ChartResult(success=True, file_path=output_path)
 
+    # Generate a box plot (e.g., for comparing distributions).
+    #
+    # Args:
+    # data: Dict mapping group names to value lists.
+    # config: Chart configuration overrides.
+    # output_path: Output file path.
+    #
+    # Returns:
+    # ChartResult with file path.
+    #
     async def box_plot(
         self,
         data: dict[str, list[float]],
         config: ChartConfig | None = None,
         output_path: str | None = None,
     ) -> ChartResult:
-        """Generate a box plot (e.g., for comparing distributions).
-
-        Args:
-            data: Dict mapping group names to value lists.
-            config: Chart configuration overrides.
-            output_path: Output file path.
-
-        Returns:
-            ChartResult with file path.
-        """
         cfg = config or self.config
         self._setup_style()
         output_path = output_path or self._get_output_path("box")

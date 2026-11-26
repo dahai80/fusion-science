@@ -1,11 +1,10 @@
-"""Domestic database mirror and offline cache manager.
-
-For the Chinese research environment, many international scientific databases
-have limited direct access. This module provides:
-1. Mirror configuration for domestic database endpoints
-2. Offline cache management for pre-downloaded datasets
-3. Automatic fallback routing between mirrors and primary endpoints
-"""
+# Domestic database mirror and offline cache manager.
+#
+# For the Chinese research environment, many international scientific databases
+# have limited direct access. This module provides:
+# 1. Mirror configuration for domestic database endpoints
+# 2. Offline cache management for pre-downloaded datasets
+# 3. Automatic fallback routing between mirrors and primary endpoints
 
 from __future__ import annotations
 
@@ -22,10 +21,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Configuration for a domestic database mirror.
 @dataclass
 class MirrorEndpoint:
-    """Configuration for a domestic database mirror."""
-
     name: str
     primary_url: str
     mirror_url: str
@@ -34,10 +32,9 @@ class MirrorEndpoint:
     notes: str = ""
 
 
+# Configuration for the offline cache.
 @dataclass
 class CacheConfig:
-    """Configuration for the offline cache."""
-
     enabled: bool = True
     cache_dir: str = "~/.cache/fusion-science"
     db_path: str = "science_cache.db"
@@ -175,20 +172,20 @@ DOMESTIC_ALTERNATIVES: dict[str, list[dict[str, str]]] = {
 # ---------------------------------------------------------------------------
 
 
+# 从环境变量加载镜像配置，覆盖默认值。
+#
+# 支持的环境变量:
+# FUSION_SCI_PUBMED_MIRROR    - PubMed 镜像地址
+# FUSION_SCI_PDB_MIRROR       - PDB 镜像地址
+# FUSION_SCI_UNIPROT_MIRROR   - UniProt 镜像地址
+# FUSION_SCI_ENSEMBL_MIRROR   - Ensembl 镜像地址
+# FUSION_SCI_CHEMBL_MIRROR    - ChEMBL 镜像地址
+# FUSION_SCI_NGDC_URL         - 国家基因组科学数据中心
+# FUSION_SCI_CNGB_URL         - 国家基因库
+# FUSION_SCI_CNKI_URL         - 中国知网
+# FUSION_SCI_SCIENCEDB_URL    - 科学数据银行
+#
 def _load_mirrors_from_env() -> dict[str, MirrorEndpoint]:
-    """从环境变量加载镜像配置，覆盖默认值。
-
-    支持的环境变量:
-        FUSION_SCI_PUBMED_MIRROR    - PubMed 镜像地址
-        FUSION_SCI_PDB_MIRROR       - PDB 镜像地址
-        FUSION_SCI_UNIPROT_MIRROR   - UniProt 镜像地址
-        FUSION_SCI_ENSEMBL_MIRROR   - Ensembl 镜像地址
-        FUSION_SCI_CHEMBL_MIRROR    - ChEMBL 镜像地址
-        FUSION_SCI_NGDC_URL         - 国家基因组科学数据中心
-        FUSION_SCI_CNGB_URL         - 国家基因库
-        FUSION_SCI_CNKI_URL         - 中国知网
-        FUSION_SCI_SCIENCEDB_URL    - 科学数据银行
-    """
     overrides = {}
     env_map = {
         "FUSION_SCI_PUBMED_MIRROR": "pubmed",
@@ -234,13 +231,12 @@ for env_var, db_key in _env_db_map.items():
 # ---------------------------------------------------------------------------
 
 
+# SQLite-backed offline cache for scientific database queries.
+#
+# Caches API responses locally to reduce network requests and
+# enable offline operation for previously queried data.
+#
 class ScienceCache:
-    """SQLite-backed offline cache for scientific database queries.
-
-    Caches API responses locally to reduce network requests and
-    enable offline operation for previously queried data.
-    """
-
     def __init__(self, config: CacheConfig | None = None):
         self.config = config or CacheConfig()
         self._conn: sqlite3.Connection | None = None
@@ -289,8 +285,8 @@ class ScienceCache:
             logger.error("Failed to init cache database: %s", e)
             self._conn = None
 
+    # Get a cached value by key.
     def get(self, key: str) -> Any | None:
-        """Get a cached value by key."""
         if not self.config.enabled or self._conn is None:
             return None
         try:
@@ -317,8 +313,8 @@ class ScienceCache:
             logger.warning("Cache read error: %s", e)
             return None
 
+    # Store a value in the cache.
     def set(self, key: str, data: Any, source: str = "unknown", ttl: int | None = None) -> None:
-        """Store a value in the cache."""
         if not self.config.enabled or self._conn is None:
             return
         # G3: scan raw-bytes payloads before persisting. A fetched structure /
@@ -430,18 +426,17 @@ class ScienceCache:
 # ---------------------------------------------------------------------------
 
 
+# Routes database requests to the best available endpoint.
+#
+# Supports:
+# - Automatic fallback from primary URL to domestic mirror
+# - Environment variable overrides (FUSION_SCI_*)
+# - Offline mode auto-detection (FUSION_OFFLINE_MODE=true)
+# - Domestic alternatives for unreachable international databases
+# - Online-to-cached data fallback
+# - Smart routing: latency testing + auto-switch to fastest endpoint
+#
 class MirrorRouter:
-    """Routes database requests to the best available endpoint.
-
-    Supports:
-    - Automatic fallback from primary URL to domestic mirror
-    - Environment variable overrides (FUSION_SCI_*)
-    - Offline mode auto-detection (FUSION_OFFLINE_MODE=true)
-    - Domestic alternatives for unreachable international databases
-    - Online-to-cached data fallback
-    - Smart routing: latency testing + auto-switch to fastest endpoint
-    """
-
     def __init__(self, cache: ScienceCache | None = None):
         # Reuse the process-wide shared cache by default. Constructing a new
         # ScienceCache per request opens a fresh SQLite connection each time —
@@ -455,46 +450,46 @@ class MirrorRouter:
         self._auto_switch: bool = False
         self._last_latency_test: float = 0.0
 
+    # Detect offline mode from environment variable.
     @staticmethod
     def _detect_offline_mode() -> bool:
-        """Detect offline mode from environment variable."""
         val = os.getenv("FUSION_OFFLINE_MODE", "").lower()
         return val in ("true", "1", "yes")
 
+    # Enable or disable domestic mirror routing.
+    #
+    # Args:
+    # enabled: True to use mirrors when available.
+    #
     def enable_mirrors(self, enabled: bool = True) -> None:
-        """Enable or disable domestic mirror routing.
-
-        Args:
-            enabled: True to use mirrors when available.
-        """
         self._use_mirrors = enabled
         if enabled:
             logger.info("国内数据库镜像已启用 (%s)", self._offline_mode)
 
+    # Enable or disable strict offline mode.
+    #
+    # In offline mode, all international requests are blocked and
+    # only local cache / domestic mirrors are used.
+    #
+    # Args:
+    # enabled: True to enable offline mode.
+    #
     def enable_offline_mode(self, enabled: bool = True) -> None:
-        """Enable or disable strict offline mode.
-
-        In offline mode, all international requests are blocked and
-        only local cache / domestic mirrors are used.
-
-        Args:
-            enabled: True to enable offline mode.
-        """
         self._offline_mode = enabled
         if enabled:
             logger.info("离线模式已启用 — 仅使用本地缓存和国内镜像")
         else:
             logger.info("离线模式已禁用")
 
+    # Get the best endpoint configuration for a database.
+    #
+    # Args:
+    # db_name: Database name (e.g., "pubmed", "uniprot").
+    #
+    # Returns:
+    # MirrorEndpoint with the appropriate URL (mirror if enabled).
+    #
     def get_endpoint(self, db_name: str) -> MirrorEndpoint:
-        """Get the best endpoint configuration for a database.
-
-        Args:
-            db_name: Database name (e.g., "pubmed", "uniprot").
-
-        Returns:
-            MirrorEndpoint with the appropriate URL (mirror if enabled).
-        """
         mirror = self.mirrors.get(
             db_name,
             MirrorEndpoint(
@@ -505,43 +500,43 @@ class MirrorRouter:
         )
         return mirror
 
+    # Get the best URL for a database, considering mirror and offline settings.
+    #
+    # In offline mode, prefers mirror URLs. If no mirror is configured,
+    # returns the primary URL (which may be unreachable offline).
+    #
+    # Args:
+    # db_name: Database name.
+    #
+    # Returns:
+    # URL string (mirror if enabled/offline, otherwise primary).
+    #
     def get_url(self, db_name: str) -> str:
-        """Get the best URL for a database, considering mirror and offline settings.
-
-        In offline mode, prefers mirror URLs. If no mirror is configured,
-        returns the primary URL (which may be unreachable offline).
-
-        Args:
-            db_name: Database name.
-
-        Returns:
-            URL string (mirror if enabled/offline, otherwise primary).
-        """
         endpoint = self.get_endpoint(db_name)
         if (self._use_mirrors or self._offline_mode) and endpoint.mirror_url:
             return endpoint.mirror_url
         return endpoint.primary_url
 
+    # Get domestic alternative databases for a given international database.
+    #
+    # Args:
+    # db_name: International database name (e.g., "pubmed", "pdb").
+    #
+    # Returns:
+    # List of alternative database info dicts with name, url, type, lang.
+    #
     def get_alternatives(self, db_name: str) -> list[dict[str, str]]:
-        """Get domestic alternative databases for a given international database.
-
-        Args:
-            db_name: International database name (e.g., "pubmed", "pdb").
-
-        Returns:
-            List of alternative database info dicts with name, url, type, lang.
-        """
         return self.alternatives.get(db_name, [])
 
+    # Get the recommended Chinese equivalent for an international database.
+    #
+    # Args:
+    # db_name: International database name.
+    #
+    # Returns:
+    # URL of the recommended Chinese alternative, or empty string.
+    #
     def get_chinese_equivalent(self, db_name: str) -> str:
-        """Get the recommended Chinese equivalent for an international database.
-
-        Args:
-            db_name: International database name.
-
-        Returns:
-            URL of the recommended Chinese alternative, or empty string.
-        """
         alts = self.get_alternatives(db_name)
         # Prefer Chinese-language alternatives
         for alt in alts:
@@ -552,20 +547,20 @@ class MirrorRouter:
             return alts[0]["url"]
         return ""
 
+    # Check if offline mode is currently active.
+    #
+    # Returns:
+    # True if offline mode is enabled.
+    #
     def is_offline_mode(self) -> bool:
-        """Check if offline mode is currently active.
-
-        Returns:
-            True if offline mode is enabled.
-        """
         return self._offline_mode
 
+    # List all configured mirrors with their status.
+    #
+    # Returns:
+    # List of mirror info dicts.
+    #
     def list_mirrors(self) -> list[dict[str, Any]]:
-        """List all configured mirrors with their status.
-
-        Returns:
-            List of mirror info dicts.
-        """
         return [
             {
                 "name": m.name,
@@ -580,28 +575,28 @@ class MirrorRouter:
             for key, m in sorted(self.mirrors.items(), key=lambda x: x[1].priority)
         ]
 
+    # List Chinese domestic scientific databases.
+    #
+    # Returns:
+    # List of Chinese database info dicts.
+    #
     def list_chinese_databases(self) -> list[dict[str, str]]:
-        """List Chinese domestic scientific databases.
-
-        Returns:
-            List of Chinese database info dicts.
-        """
         return [{"name": name, "url": url} for name, url in CHINESE_DATABASES.items()]
 
+    # List all domestic alternatives for international databases.
+    #
+    # Returns:
+    # Dict mapping database name to list of alternative endpoints.
+    #
     def list_alternatives(self) -> dict[str, list[dict[str, str]]]:
-        """List all domestic alternatives for international databases.
-
-        Returns:
-            Dict mapping database name to list of alternative endpoints.
-        """
         return dict(self.alternatives)
 
+    # Get a comprehensive status report of the mirror routing system.
+    #
+    # Returns:
+    # Dict with status information.
+    #
     def get_status_report(self) -> dict[str, Any]:
-        """Get a comprehensive status report of the mirror routing system.
-
-        Returns:
-            Dict with status information.
-        """
         return {
             "offline_mode": self._offline_mode,
             "mirrors_enabled": self._use_mirrors,
@@ -618,17 +613,17 @@ class MirrorRouter:
     # Smart routing: latency test + auto-switch (F-20)
     # ------------------------------------------------------------------
 
+    # Test latency to primary and mirror endpoints for a database.
+    #
+    # Args:
+    # db_name: Database name (e.g., "pubmed", "uniprot").
+    # timeout: HTTP request timeout in seconds.
+    #
+    # Returns:
+    # Dict with "primary" and "mirror" latency in seconds.
+    # -1.0 means unreachable.
+    #
     async def test_latency(self, db_name: str, timeout: float = 5.0) -> dict[str, float]:
-        """Test latency to primary and mirror endpoints for a database.
-
-        Args:
-            db_name: Database name (e.g., "pubmed", "uniprot").
-            timeout: HTTP request timeout in seconds.
-
-        Returns:
-            Dict with "primary" and "mirror" latency in seconds.
-            -1.0 means unreachable.
-        """
         import httpx
 
         endpoint = self.get_endpoint(db_name)
@@ -666,20 +661,20 @@ class MirrorRouter:
         )
         return results
 
+    # Test latency for all configured mirrors in parallel.
+    #
+    # Probes all databases concurrently with a per-endpoint timeout cap so a
+    # single unreachable mirror cannot block the whole response. Per-database
+    # failures are degraded to {"primary": -1.0, "mirror": -1.0} rather than
+    # aborting the batch.
+    #
+    # Args:
+    # timeout: HTTP request timeout in seconds (per endpoint).
+    #
+    # Returns:
+    # Dict mapping db_name to {"primary": float, "mirror": float}.
+    #
     async def test_all_latency(self, timeout: float = 3.0) -> dict[str, dict[str, float]]:
-        """Test latency for all configured mirrors in parallel.
-
-        Probes all databases concurrently with a per-endpoint timeout cap so a
-        single unreachable mirror cannot block the whole response. Per-database
-        failures are degraded to {"primary": -1.0, "mirror": -1.0} rather than
-        aborting the batch.
-
-        Args:
-            timeout: HTTP request timeout in seconds (per endpoint).
-
-        Returns:
-            Dict mapping db_name to {"primary": float, "mirror": float}.
-        """
         import asyncio
 
         db_names = list(self.mirrors)
@@ -702,42 +697,42 @@ class MirrorRouter:
         logger.info("Latency batch done: %d/%d dbs probed ok", ok_count, len(db_names))
         return results
 
+    # Enable or disable automatic switching to the fastest endpoint.
+    #
+    # When enabled, get_url() will prefer the endpoint with the lowest
+    # measured latency. Falls back to mirror/offline logic if no latency
+    # data is available.
+    #
+    # Args:
+    # enabled: True to enable auto-switch based on latency.
+    #
     def enable_auto_switch(self, enabled: bool = True) -> None:
-        """Enable or disable automatic switching to the fastest endpoint.
-
-        When enabled, get_url() will prefer the endpoint with the lowest
-        measured latency. Falls back to mirror/offline logic if no latency
-        data is available.
-
-        Args:
-            enabled: True to enable auto-switch based on latency.
-        """
         self._auto_switch = enabled
         if enabled:
             logger.info("镜像智能路由已启用 — 根据延迟自动选择最优端点")
 
+    # Get the latest latency test results.
+    #
+    # Returns:
+    # Dict mapping db_name to {"primary": float, "mirror": float}.
+    #
     def get_latency_results(self) -> dict[str, dict[str, float]]:
-        """Get the latest latency test results.
-
-        Returns:
-            Dict mapping db_name to {"primary": float, "mirror": float}.
-        """
         return dict(self._latency_cache)
 
+    # Get the best URL considering latency, mirror, and offline settings.
+    #
+    # Priority order when auto_switch is enabled:
+    # 1. Fastest endpoint based on latency data
+    # 2. Mirror URL if mirrors/offline enabled
+    # 3. Primary URL as fallback
+    #
+    # Args:
+    # db_name: Database name.
+    #
+    # Returns:
+    # Best available URL string.
+    #
     def smart_get_url(self, db_name: str) -> str:
-        """Get the best URL considering latency, mirror, and offline settings.
-
-        Priority order when auto_switch is enabled:
-        1. Fastest endpoint based on latency data
-        2. Mirror URL if mirrors/offline enabled
-        3. Primary URL as fallback
-
-        Args:
-            db_name: Database name.
-
-        Returns:
-            Best available URL string.
-        """
         if self._auto_switch and db_name in self._latency_cache:
             latencies = self._latency_cache[db_name]
             endpoint = self.get_endpoint(db_name)

@@ -1,9 +1,8 @@
-"""R language executor — run R code for statistical analysis and bioinformatics.
-
-Provides a bridge to the R runtime via rpy2 for executing R code
-within the fusion-science workflow. Supports base R, Bioconductor,
-and common R packages for bioinformatics.
-"""
+# R language executor — run R code for statistical analysis and bioinformatics.
+#
+# Provides a bridge to the R runtime via rpy2 for executing R code
+# within the fusion-science workflow. Supports base R, Bioconductor,
+# and common R packages for bioinformatics.
 
 from __future__ import annotations
 
@@ -21,10 +20,9 @@ logger = logging.getLogger(__name__)
 _R_PKG_RE = re.compile(r"^[A-Za-z0-9.]+$")
 
 
+# Result of R code execution.
 @dataclass
 class RExecutionResult:
-    """Result of R code execution."""
-
     success: bool
     output: str = ""
     error: str = ""
@@ -33,15 +31,14 @@ class RExecutionResult:
     dataframes: dict[str, int] = field(default_factory=dict)  # name -> rows
 
 
+# Execute R code for statistical analysis and bioinformatics.
+#
+# Requires rpy2 package. Supports:
+# - Base R statistics and plotting
+# - Bioconductor packages (DESeq2, limma, etc.)
+# - Common R data science packages (tidyverse, ggplot2, etc.)
+#
 class RExecutor:
-    """Execute R code for statistical analysis and bioinformatics.
-
-    Requires rpy2 package. Supports:
-    - Base R statistics and plotting
-    - Bioconductor packages (DESeq2, limma, etc.)
-    - Common R data science packages (tidyverse, ggplot2, etc.)
-    """
-
     # P0 (S3): R execution is isolated by default. The in-process rpy2 path
     # (`use_inproc=True`) shares the host process — `system()` / file reads
     # reach host files directly and there is no way to kill a hung rpy2 call
@@ -54,13 +51,13 @@ class RExecutor:
         self._rscript_path = shutil.which("Rscript") or ""
         self._check_r()
 
+    # Check if R is available.
+    #
+    # For the default isolated Rscript path we only need the `Rscript`
+    # binary on PATH. The in-process rpy2 path additionally requires the
+    # rpy2 Python package.
+    #
     def _check_r(self) -> None:
-        """Check if R is available.
-
-        For the default isolated Rscript path we only need the `Rscript`
-        binary on PATH. The in-process rpy2 path additionally requires the
-        rpy2 Python package.
-        """
         if self.use_inproc:
             try:
                 import rpy2.robjects as robjects  # type: ignore[import-untyped]
@@ -77,21 +74,21 @@ class RExecutor:
             if not self._r_available:
                 logger.warning("Rscript binary not found on PATH — R execution disabled")
 
+    # Check if R is available.
     @property
     def available(self) -> bool:
-        """Check if R is available."""
         return self._r_available
 
+    # Execute R code.
+    #
+    # Args:
+    # code: R code to execute.
+    # capture_plots: Whether to capture R plots.
+    #
+    # Returns:
+    # RExecutionResult with output and plots.
+    #
     async def execute(self, code: str, capture_plots: bool = True) -> RExecutionResult:
-        """Execute R code.
-
-        Args:
-            code: R code to execute.
-            capture_plots: Whether to capture R plots.
-
-        Returns:
-            RExecutionResult with output and plots.
-        """
         start = time.time()
 
         if not self._r_available:
@@ -141,8 +138,8 @@ class RExecutor:
                 execution_time=duration,
             )
 
+    # Isolated R execution via Rscript subprocess (P0 S3).
     async def _execute_subprocess(self, code: str, capture_plots: bool) -> tuple[list[str], list[str], list[str]]:
-        """Isolated R execution via Rscript subprocess (P0 S3)."""
         import contextlib
 
         work_dir = tempfile.mkdtemp(prefix="fusion_r_exec_")
@@ -195,8 +192,8 @@ class RExecutor:
             with contextlib.suppress(Exception):
                 shutil.rmtree(work_dir, ignore_errors=True)
 
+    # Blocking R execution — MUST run off the event loop (via to_thread).
     def _execute_sync(self, code: str, capture_plots: bool) -> tuple[list[str], list[str], list[str]]:
-        """Blocking R execution — MUST run off the event loop (via to_thread)."""
         import rpy2.robjects as robjects  # type: ignore[import-untyped]
         from rpy2.robjects import pandas2ri  # type: ignore[import-untyped]
 
@@ -220,26 +217,26 @@ class RExecutor:
             plots = self._collect_plots()
         return output, error, plots
 
+    # Set up R plot capture to temporary files.
+    #
+    # Returns:
+    # List of temporary file paths for plots.
+    #
     def _setup_plot_capture(self) -> list[str]:
-        """Set up R plot capture to temporary files.
-
-        Returns:
-            List of temporary file paths for plots.
-        """
         self._plot_dir = tempfile.mkdtemp(prefix="fusion_r_plots_")
         plot_paths = []
         return plot_paths
 
+    # Wrap R code with plot capture commands.
+    #
+    # Args:
+    # code: Original R code.
+    # plot_paths: Paths to save plots.
+    #
+    # Returns:
+    # Modified R code with plot capture.
+    #
     def _wrap_with_plot_capture(self, code: str, plot_paths: list[str]) -> str:
-        """Wrap R code with plot capture commands.
-
-        Args:
-            code: Original R code.
-            plot_paths: Paths to save plots.
-
-        Returns:
-            Modified R code with plot capture.
-        """
         plot_dir = getattr(self, "_plot_dir", tempfile.gettempdir())
         wrapped = f"""
 # Fusion-Science: plot capture enabled
@@ -249,12 +246,12 @@ options(device = function() png(file.path(.fusion_plot_dir, paste0("plot_", form
 """
         return wrapped
 
+    # Collect captured plot files.
+    #
+    # Returns:
+    # List of plot file paths.
+    #
     def _collect_plots(self) -> list[str]:
-        """Collect captured plot files.
-
-        Returns:
-            List of plot file paths.
-        """
         import glob
 
         plot_dir = getattr(self, "_plot_dir", None)
@@ -271,15 +268,15 @@ options(device = function() png(file.path(.fusion_plot_dir, paste0("plot_", form
                 named_plots.append(plot)
         return named_plots
 
+    # Check if R packages are installed.
+    #
+    # Args:
+    # packages: List of R package names.
+    #
+    # Returns:
+    # Dict mapping package name to availability.
+    #
     async def check_packages(self, packages: list[str]) -> dict[str, bool]:
-        """Check if R packages are installed.
-
-        Args:
-            packages: List of R package names.
-
-        Returns:
-            Dict mapping package name to availability.
-        """
         if not self._r_available:
             return {pkg: False for pkg in packages}
 
@@ -305,13 +302,13 @@ options(device = function() png(file.path(.fusion_plot_dir, paste0("plot_", form
                 result[pkg] = False
         return result
 
+    # Get R code for installing Bioconductor packages.
+    #
+    # Returns:
+    # R code string for Bioconductor installation.
+    #
     @staticmethod
     def get_bioconductor_install_code() -> str:
-        """Get R code for installing Bioconductor packages.
-
-        Returns:
-            R code string for Bioconductor installation.
-        """
         return """
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")

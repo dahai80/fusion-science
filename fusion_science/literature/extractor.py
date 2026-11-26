@@ -1,9 +1,8 @@
-"""Literature extractor — structured extraction from academic papers.
-
-Provides PICO extraction, effect size parsing, study type classification,
-limitation identification, and funding source detection.
-Uses LLMGateway structured_output for reliable JSON extraction.
-"""
+# Literature extractor — structured extraction from academic papers.
+#
+# Provides PICO extraction, effect size parsing, study type classification,
+# limitation identification, and funding source detection.
+# Uses LLMGateway structured_output for reliable JSON extraction.
 
 from __future__ import annotations
 

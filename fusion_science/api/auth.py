@@ -1,26 +1,25 @@
-"""Role-based access control (RBAC) + JWT auth for the fusion-science API.
-
-Three built-in roles with a route-prefix → HTTP-method permission map:
-
-- ``admin``  — full access (all routes, all methods). Backward-compatible
-  default for the legacy single ``FUSION_SCIENCE_API_KEY``.
-- ``science`` — read + research workflows: search, databases, citations,
-  math, compute, chat, analysis, visualize, review, audit, pipelines,
-  sessions, tools. No system/security/model mutation.
-- ``viewer``  — read-only: search, databases, citations, math, visualize,
-  models (list), health, metrics. No compute, no chat, no mutations.
-
-API keys are provisioned via ``FUSION_SCIENCE_API_KEYS`` as
-``role:key`` pairs (comma-separated). The legacy single
-``FUSION_SCIENCE_API_KEY`` is treated as an ``admin`` key for backward
-compatibility. JWT session tokens are issued at ``POST /api/v1/auth/token``
-(HS256, 1h TTL) and carry the role claim; callers send them as
-``Authorization: Bearer <jwt>``.
-
-No external IdP required — local-first by default. Optional external
-OAuth2/OIDC (RS256 via JWKS, claim → role mapping) when the [oidc] extra is
-installed and FUSION_SCIENCE_OIDC_* env vars are set; see issue #22.
-"""
+# Role-based access control (RBAC) + JWT auth for the fusion-science API.
+#
+# Three built-in roles with a route-prefix → HTTP-method permission map:
+#
+# - ``admin``  — full access (all routes, all methods). Backward-compatible
+# default for the legacy single ``FUSION_SCIENCE_API_KEY``.
+# - ``science`` — read + research workflows: search, databases, citations,
+# math, compute, chat, analysis, visualize, review, audit, pipelines,
+# sessions, tools. No system/security/model mutation.
+# - ``viewer``  — read-only: search, databases, citations, math, visualize,
+# models (list), health, metrics. No compute, no chat, no mutations.
+#
+# API keys are provisioned via ``FUSION_SCIENCE_API_KEYS`` as
+# ``role:key`` pairs (comma-separated). The legacy single
+# ``FUSION_SCIENCE_API_KEY`` is treated as an ``admin`` key for backward
+# compatibility. JWT session tokens are issued at ``POST /api/v1/auth/token``
+# (HS256, 1h TTL) and carry the role claim; callers send them as
+# ``Authorization: Bearer <jwt>``.
+#
+# No external IdP required — local-first by default. Optional external
+# OAuth2/OIDC (RS256 via JWKS, claim → role mapping) when the [oidc] extra is
+# installed and FUSION_SCIENCE_OIDC_* env vars are set; see issue #22.
 
 from __future__ import annotations
 
@@ -88,8 +87,8 @@ class AuthPrincipal:
     subject: str  # API-key id or "jwt:<sub>"
 
 
+# Check whether ``role`` may perform ``method`` on ``route_prefix``.
 def role_allows(role: Role, route_prefix: str, method: str) -> bool:
-    """Check whether ``role`` may perform ``method`` on ``route_prefix``."""
     perms = _PERMISSIONS.get(role, {})
     if "*" in perms:
         return True
@@ -101,8 +100,8 @@ def role_allows(role: Role, route_prefix: str, method: str) -> bool:
     return method.upper() in methods
 
 
+# Parse ``role:key`` pairs from comma- OR newline-separated text.
 def _parse_key_pairs(text: str) -> dict[str, Role]:
-    """Parse ``role:key`` pairs from comma- OR newline-separated text."""
     keys: dict[str, Role] = {}
     for raw in text.replace("\n", ",").split(","):
         pair = raw.strip()
@@ -125,19 +124,19 @@ def _parse_key_pairs(text: str) -> dict[str, Role]:
     return keys
 
 
+# Parse provisioned API keys into a {key: role} map.
+#
+# Sources:
+# - ``FUSION_SCIENCE_API_KEY`` → admin (legacy single key, always merged)
+# - ``FUSION_SCIENCE_API_KEYS`` → ``science:abc,viewer:def`` pairs (env)
+# - ``FUSION_SCIENCE_API_KEYS_FILE`` → same format, read from a file each
+# call. When set, the **file is the authoritative multi-key source** and
+# shadows ``FUSION_SCIENCE_API_KEYS`` (env is ignored). This enables
+# runtime key rotation without restart: an operator rewrites the file and
+# the next request picks up the new keys (middleware re-reads per
+# request). The legacy single key still merges in for backward compat.
+#
 def load_api_keys() -> dict[str, Role]:
-    """Parse provisioned API keys into a {key: role} map.
-
-    Sources:
-    - ``FUSION_SCIENCE_API_KEY`` → admin (legacy single key, always merged)
-    - ``FUSION_SCIENCE_API_KEYS`` → ``science:abc,viewer:def`` pairs (env)
-    - ``FUSION_SCIENCE_API_KEYS_FILE`` → same format, read from a file each
-      call. When set, the **file is the authoritative multi-key source** and
-      shadows ``FUSION_SCIENCE_API_KEYS`` (env is ignored). This enables
-      runtime key rotation without restart: an operator rewrites the file and
-      the next request picks up the new keys (middleware re-reads per
-      request). The legacy single key still merges in for backward compat.
-    """
     keys: dict[str, Role] = {}
     legacy = os.getenv("FUSION_SCIENCE_API_KEY", "")
     if legacy:
@@ -156,8 +155,8 @@ def load_api_keys() -> dict[str, Role]:
     return keys
 
 
+# Return a role-counted, key-masked summary for rotation audit logs.
 def describe_api_keys(keys: dict[str, Role]) -> dict[str, object]:
-    """Return a role-counted, key-masked summary for rotation audit logs."""
     counts: dict[str, int] = {r.value: 0 for r in Role}
     masked: list[dict[str, str]] = []
     for key, role in keys.items():
@@ -255,8 +254,8 @@ def _require_jwt_secret() -> str:
     return ""
 
 
+# Issue a short-lived HS256 JWT carrying the role claim.
 def issue_jwt(role: Role, subject: str) -> str:
-    """Issue a short-lived HS256 JWT carrying the role claim."""
     import base64
     import hashlib
     import json
@@ -285,8 +284,8 @@ def issue_jwt(role: Role, subject: str) -> str:
     return f"{signing_input.decode()}.{sig_b64}"
 
 
+# Verify signature + expiry; return the principal or None on failure.
 def decode_jwt(token: str) -> AuthPrincipal | None:
-    """Verify signature + expiry; return the principal or None on failure."""
     import base64
     import hashlib
     import json
@@ -375,11 +374,11 @@ def _fetch_jwks(jwks_url: str) -> dict[str, object]:
     return keys
 
 
+# Validate an external IdP JWT (RS256 via JWKS) and map to a local role.
+#
+# Returns None when OIDC is unconfigured, deps missing, or validation fails.
+#
 def verify_oidc_token(token: str) -> AuthPrincipal | None:
-    """Validate an external IdP JWT (RS256 via JWKS) and map to a local role.
-
-    Returns None when OIDC is unconfigured, deps missing, or validation fails.
-    """
     if not _oidc_enabled():
         return None
     try:
@@ -456,13 +455,13 @@ def verify_oidc_token(token: str) -> AuthPrincipal | None:
     return AuthPrincipal(role=role, subject=f"oidc:{subject}")
 
 
+# Resolve a principal from a Bearer JWT or an X-API-Key header.
+#
+# Order: external OIDC JWT (if configured) → built-in HS256 JWT → API key.
+# Returns None when no credential is present or verification fails — the
+# caller decides whether to reject (non-exempt route) or admit (exempt).
+#
 def authenticate(authorization: str | None, x_api_key: str | None, api_keys: dict[str, Role]) -> AuthPrincipal | None:
-    """Resolve a principal from a Bearer JWT or an X-API-Key header.
-
-    Order: external OIDC JWT (if configured) → built-in HS256 JWT → API key.
-    Returns None when no credential is present or verification fails — the
-    caller decides whether to reject (non-exempt route) or admit (exempt).
-    """
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() == "bearer" and token:

@@ -1,8 +1,7 @@
-"""UniProt connector — retrieve protein sequence, function, and annotation data.
-
-Uses the UniProt REST API (https://rest.uniprot.org/) with support for
-domestic mirror fallback (CNCB/National Genomics Data Center).
-"""
+# UniProt connector — retrieve protein sequence, function, and annotation data.
+#
+# Uses the UniProt REST API (https://rest.uniprot.org/) with support for
+# domestic mirror fallback (CNCB/National Genomics Data Center).
 
 from __future__ import annotations
 
@@ -15,13 +14,12 @@ from .base import BaseConnector, ConnectorConfig, DatabaseResult
 logger = logging.getLogger(__name__)
 
 
+# Connector for UniProt protein database.
+#
+# Uses UniProt REST API (uniprot.org).
+# Domestic mirror: CNCB mirror (for Chinese research environments).
+#
 class UniProtConnector(BaseConnector):
-    """Connector for UniProt protein database.
-
-    Uses UniProt REST API (uniprot.org).
-    Domestic mirror: CNCB mirror (for Chinese research environments).
-    """
-
     BASE_URL = "https://rest.uniprot.org"
     MIRROR_URL = "https://rest.uniprot.org"  # 无官方国内镜像；建议本地缓存参考蛋白质组
 
@@ -45,17 +43,17 @@ class UniProtConnector(BaseConnector):
         )
         super().__init__(config)
 
+    # Search UniProt for proteins matching the query.
+    #
+    # Args:
+    # query: Search query (e.g., "human p53", "BRCA1 AND human").
+    # max_results: Maximum results to return.
+    # **kwargs: Additional search parameters.
+    #
+    # Returns:
+    # DatabaseResult with matched protein entries.
+    #
     async def search(self, query: str, max_results: int = 20, **kwargs) -> DatabaseResult:
-        """Search UniProt for proteins matching the query.
-
-        Args:
-            query: Search query (e.g., "human p53", "BRCA1 AND human").
-            max_results: Maximum results to return.
-            **kwargs: Additional search parameters.
-
-        Returns:
-            DatabaseResult with matched protein entries.
-        """
         cache_key = f"search:{query}:{max_results}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -92,16 +90,16 @@ class UniProtConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch a UniProt entry by accession.
+    #
+    # Args:
+    # identifier: UniProt accession (e.g., "P04637" for human TP53).
+    # **kwargs: Additional parameters.
+    #
+    # Returns:
+    # DatabaseResult with the protein entry.
+    #
     async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch a UniProt entry by accession.
-
-        Args:
-            identifier: UniProt accession (e.g., "P04637" for human TP53).
-            **kwargs: Additional parameters.
-
-        Returns:
-            DatabaseResult with the protein entry.
-        """
         cache_key = f"fetch:{identifier}"
         cached = self._check_cache(cache_key)
         if cached:
@@ -129,15 +127,15 @@ class UniProtConnector(BaseConnector):
                 error=str(e),
             )
 
+    # Fetch the raw protein sequence for a UniProt accession.
+    #
+    # Args:
+    # accession: UniProt accession (e.g., "P04637").
+    #
+    # Returns:
+    # Protein sequence as a string.
+    #
     async def fetch_sequence(self, accession: str) -> str:
-        """Fetch the raw protein sequence for a UniProt accession.
-
-        Args:
-            accession: UniProt accession (e.g., "P04637").
-
-        Returns:
-            Protein sequence as a string.
-        """
         try:
             resp = await self._request_with_retry("GET", f"/uniprotkb/{accession}.fasta")
             lines = resp.text.split("\n")
@@ -148,15 +146,15 @@ class UniProtConnector(BaseConnector):
             logger.error("Failed to fetch sequence for %s: %s", accession, e)
             return ""
 
+    # Parse a UniProt API entry into a structured dict.
+    #
+    # Args:
+    # entry: Raw JSON entry from UniProt API.
+    #
+    # Returns:
+    # Structured dict with key protein information.
+    #
     def _parse_entry(self, entry: dict) -> dict[str, Any]:
-        """Parse a UniProt API entry into a structured dict.
-
-        Args:
-            entry: Raw JSON entry from UniProt API.
-
-        Returns:
-            Structured dict with key protein information.
-        """
         # Primary accession
         accession = entry.get("primaryAccession", "")
         # Secondary accessions
@@ -250,26 +248,26 @@ class UniProtConnector(BaseConnector):
             "source": "UniProt",
         }
 
+    # Search UniProt by gene name.
+    #
+    # Args:
+    # gene_name: Gene symbol (e.g., "TP53", "BRCA1").
+    # organism: Organism name (e.g., "human", "mouse", "E. coli").
+    #
+    # Returns:
+    # DatabaseResult with matched protein entries.
+    #
     async def search_by_gene(self, gene_name: str, organism: str = "human") -> DatabaseResult:
-        """Search UniProt by gene name.
-
-        Args:
-            gene_name: Gene symbol (e.g., "TP53", "BRCA1").
-            organism: Organism name (e.g., "human", "mouse", "E. coli").
-
-        Returns:
-            DatabaseResult with matched protein entries.
-        """
         return await self.search(f"({gene_name}) AND (organism:{organism})", max_results=10)
 
+    # Search UniProt entries by taxonomy ID.
+    #
+    # Args:
+    # taxon_id: NCBI taxonomy ID (e.g., 9606 for human).
+    # max_results: Maximum results.
+    #
+    # Returns:
+    # DatabaseResult with matched protein entries.
+    #
     async def search_by_taxon(self, taxon_id: int, max_results: int = 50) -> DatabaseResult:
-        """Search UniProt entries by taxonomy ID.
-
-        Args:
-            taxon_id: NCBI taxonomy ID (e.g., 9606 for human).
-            max_results: Maximum results.
-
-        Returns:
-            DatabaseResult with matched protein entries.
-        """
         return await self.search(f"taxonomy_id:{taxon_id}", max_results=max_results)

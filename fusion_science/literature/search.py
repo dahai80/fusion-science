@@ -1,9 +1,8 @@
-"""Literature search — search and retrieve academic papers from multiple sources.
-
-Provides unified search across PubMed, arXiv, and other academic databases,
-with result deduplication, relevance scoring, metadata extraction,
-SearchPreset levels (quick/professional/deep), and PRISMA 2020 flow tracking.
-"""
+# Literature search — search and retrieve academic papers from multiple sources.
+#
+# Provides unified search across PubMed, arXiv, and other academic databases,
+# with result deduplication, relevance scoring, metadata extraction,
+# SearchPreset levels (quick/professional/deep), and PRISMA 2020 flow tracking.
 
 from __future__ import annotations
 

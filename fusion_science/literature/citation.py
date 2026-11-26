@@ -1,8 +1,7 @@
-"""Citation manager — citation management with multiple styles.
-
-Provides BibTeX/APA/Vancouver formatting, citation deduplication,
-citation graph construction, and verification.
-"""
+# Citation manager — citation management with multiple styles.
+#
+# Provides BibTeX/APA/Vancouver formatting, citation deduplication,
+# citation graph construction, and verification.
 
 from __future__ import annotations
 

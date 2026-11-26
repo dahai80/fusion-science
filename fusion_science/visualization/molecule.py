@@ -1,9 +1,8 @@
-"""3D molecular structure visualization — render molecules and chemical structures.
-
-Provides tools for generating interactive 3D visualizations of
-molecular structures using py3Dmol and RDKit, supporting SMILES
-parsing, PDB structure rendering, and molecular property display.
-"""
+# 3D molecular structure visualization — render molecules and chemical structures.
+#
+# Provides tools for generating interactive 3D visualizations of
+# molecular structures using py3Dmol and RDKit, supporting SMILES
+# parsing, PDB structure rendering, and molecular property display.
 
 from __future__ import annotations
 
@@ -25,10 +24,9 @@ def _safe_name(name: str) -> str:
     return _SAFE_NAME_RE.sub("_", name) or "molecule"
 
 
+# Result of a molecular visualization generation.
 @dataclass
 class MoleculeVisualization:
-    """Result of a molecular visualization generation."""
-
     success: bool
     html_path: str = ""  # Interactive 3D HTML view
     image_path: str = ""  # Static 2D image
@@ -39,23 +37,22 @@ class MoleculeVisualization:
     molecular_weight: float = 0.0
 
 
+# Generates 3D molecular structure visualizations.
+#
+# Supports:
+# - SMILES string parsing and rendering (via RDKit)
+# - PDB structure rendering (via py3Dmol)
+# - Interactive 3D HTML export
+# - Static 2D image export
+#
 class MoleculeVisualizer:
-    """Generates 3D molecular structure visualizations.
-
-    Supports:
-    - SMILES string parsing and rendering (via RDKit)
-    - PDB structure rendering (via py3Dmol)
-    - Interactive 3D HTML export
-    - Static 2D image export
-    """
-
     def __init__(self):
         self._rdkit_available = False
         self._py3dmol_available = False
         self._check_dependencies()
 
+    # Check for optional visualization dependencies.
     def _check_dependencies(self) -> None:
-        """Check for optional visualization dependencies."""
         try:
             import rdkit  # type: ignore[import-untyped]  # noqa: F401
 
@@ -70,6 +67,17 @@ class MoleculeVisualizer:
         except ImportError:
             self._py3dmol_available = False
 
+    # Generate molecular visualization from a SMILES string.
+    #
+    # Args:
+    # smiles: SMILES notation of the molecule.
+    # name: Name for the molecule (used in output filenames).
+    # show_3d: Generate interactive 3D view.
+    # render_2d: Generate static 2D image.
+    #
+    # Returns:
+    # MoleculeVisualization with generated files.
+    #
     async def from_smiles(
         self,
         smiles: str,
@@ -77,17 +85,6 @@ class MoleculeVisualizer:
         show_3d: bool = True,
         render_2d: bool = True,
     ) -> MoleculeVisualization:
-        """Generate molecular visualization from a SMILES string.
-
-        Args:
-            smiles: SMILES notation of the molecule.
-            name: Name for the molecule (used in output filenames).
-            show_3d: Generate interactive 3D view.
-            render_2d: Generate static 2D image.
-
-        Returns:
-            MoleculeVisualization with generated files.
-        """
         if not self._rdkit_available:
             logger.info("RDKit unavailable, using 2D fallback for SMILES: %s", smiles)
             return await self.from_smiles_2d_fallback(smiles, name)
@@ -324,22 +321,22 @@ class MoleculeVisualizer:
         with open(html_path, "w") as f:
             f.write(html)
 
+    # Generate 3D visualization from a PDB ID or PDB content.
+    #
+    # Args:
+    # pdb_id: PDB ID or filename.
+    # pdb_content: Optional PDB file content (if not fetching from RCSB).
+    # style: Visualization style (cartoon, stick, line, sphere).
+    #
+    # Returns:
+    # MoleculeVisualization with generated HTML.
+    #
     async def from_pdb(
         self,
         pdb_id: str,
         pdb_content: str = "",
         style: str = "cartoon",
     ) -> MoleculeVisualization:
-        """Generate 3D visualization from a PDB ID or PDB content.
-
-        Args:
-            pdb_id: PDB ID or filename.
-            pdb_content: Optional PDB file content (if not fetching from RCSB).
-            style: Visualization style (cartoon, stick, line, sphere).
-
-        Returns:
-            MoleculeVisualization with generated HTML.
-        """
         output_dir = tempfile.gettempdir()
         safe_id = _safe_name(pdb_id)
         html_path = os.path.join(output_dir, f"{safe_id}_3d.html")
@@ -407,6 +404,14 @@ class MoleculeVisualizer:
 
         return out_html, pdb_path
 
+    # Generate an interactive 3D HTML file using py3Dmol.
+    #
+    # Args:
+    # pdb_content: PDB file content.
+    # html_path: Output HTML file path.
+    # title: Title for the viewer.
+    # style: Visualization style.
+    #
     def _generate_3d_html(
         self,
         pdb_content: str,
@@ -414,14 +419,6 @@ class MoleculeVisualizer:
         title: str,
         style: str = "cartoon",
     ) -> None:
-        """Generate an interactive 3D HTML file using py3Dmol.
-
-        Args:
-            pdb_content: PDB file content.
-            html_path: Output HTML file path.
-            title: Title for the viewer.
-            style: Visualization style.
-        """
         import base64
 
         pdb_b64 = base64.b64encode(pdb_content.encode()).decode()
@@ -461,13 +458,13 @@ class MoleculeVisualizer:
         with open(html_path, "w") as f:
             f.write(html)
 
+    # Get a list of known drugs with their SMILES for quick testing.
+    #
+    # Returns:
+    # List of dicts with name, smiles, and description.
+    #
     @staticmethod
     def known_drugs() -> list[dict[str, str]]:
-        """Get a list of known drugs with their SMILES for quick testing.
-
-        Returns:
-            List of dicts with name, smiles, and description.
-        """
         return [
             {"name": "Aspirin", "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O", "description": "NSAID"},
             {"name": "Ibuprofen", "smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "description": "NSAID"},

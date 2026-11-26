@@ -1,9 +1,8 @@
-"""Literature reader — LLM-driven deep reading of academic papers.
-
-Provides section-by-section summarization, key finding extraction,
-TLDR one-liner generation, and methodological assessment.
-All reading uses LLMGateway for inference.
-"""
+# Literature reader — LLM-driven deep reading of academic papers.
+#
+# Provides section-by-section summarization, key finding extraction,
+# TLDR one-liner generation, and methodological assessment.
+# All reading uses LLMGateway for inference.
 
 from __future__ import annotations
 

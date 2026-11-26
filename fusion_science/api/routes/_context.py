@@ -46,17 +46,17 @@ def _summarize_artifacts(artifacts: list, exclude_types: tuple[str, ...] = ()) -
     return "\n".join(snippets)
 
 
+# Build an enriched task prompt that injects prior session context.
+#
+# Args:
+# session: current ResearchSession (must already exist).
+# step: orchestration step name ("analyze" or "review").
+# user_query: the user's raw query for this step.
+#
+# Returns:
+# Enriched task string to pass to agent.run().
+#
 def build_context_prompt(session: ResearchSession, step: str, user_query: str) -> str:
-    """Build an enriched task prompt that injects prior session context.
-
-    Args:
-        session: current ResearchSession (must already exist).
-        step: orchestration step name ("analyze" or "review").
-        user_query: the user's raw query for this step.
-
-    Returns:
-        Enriched task string to pass to agent.run().
-    """
     sections: list[str] = []
 
     papers = getattr(session.context, "papers", []) or []

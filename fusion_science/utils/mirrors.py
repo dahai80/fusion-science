@@ -1,8 +1,7 @@
-"""Domestic mirror configuration and utility functions.
-
-Provides helper functions for configuring domestic database mirrors,
-offline cache, and other China-specific research environment utilities.
-"""
+# Domestic mirror configuration and utility functions.
+#
+# Provides helper functions for configuring domestic database mirrors,
+# offline cache, and other China-specific research environment utilities.
 
 from __future__ import annotations
 
@@ -41,12 +40,12 @@ def validate_fetch_url(url: str, default: str) -> str:
     return default
 
 
+# Get the mirror configuration for the domestic research environment.
+#
+# Returns:
+# Dict with mirror configuration, reading from environment variables.
+#
 def get_mirror_config() -> dict[str, Any]:
-    """Get the mirror configuration for the domestic research environment.
-
-    Returns:
-        Dict with mirror configuration, reading from environment variables.
-    """
     return {
         "enabled": os.environ.get("FUSION_SCIENCE_USE_MIRRORS", "false").lower() == "true",
         "offline_mode": os.environ.get("FUSION_OFFLINE_MODE", "false").lower() in ("true", "1", "yes"),
@@ -91,12 +90,12 @@ def get_mirror_config() -> dict[str, Any]:
     }
 
 
+# Get recommendations for offline operation in the domestic environment.
+#
+# Returns:
+# Markdown-formatted recommendation text.
+#
 def get_offline_recommendation() -> str:
-    """Get recommendations for offline operation in the domestic environment.
-
-    Returns:
-        Markdown-formatted recommendation text.
-    """
     return """## Offline Operation Recommendations
 
 ### Database Access
@@ -124,12 +123,12 @@ Or use the institution's VPN/SSH tunnel for international database access.
 """
 
 
+# List all available scientific databases with their status.
+#
+# Returns:
+# List of database info dicts.
+#
 def get_available_databases() -> list[dict[str, str]]:
-    """List all available scientific databases with their status.
-
-    Returns:
-        List of database info dicts.
-    """
     return [
         {"name": "PubMed", "type": "literature", "connector": "PubMedConnector", "offline": False},
         {"name": "UniProt", "type": "protein", "connector": "UniProtConnector", "offline": False},
@@ -154,26 +153,26 @@ def get_available_databases() -> list[dict[str, str]]:
     ]
 
 
+# Get cache statistics for the offline cache.
+#
+# Returns:
+# Cache statistics dict.
+#
 def get_cache_stats() -> dict[str, Any]:
-    """Get cache statistics for the offline cache.
-
-    Returns:
-        Cache statistics dict.
-    """
     from fusion_science.database.mirror import get_shared_cache
 
     return get_shared_cache().stats()
 
 
+# Clear the offline cache.
+#
+# Args:
+# source: Optional source to clear (e.g., "pubmed"). If None, clears all.
+#
+# Returns:
+# Number of entries cleared.
+#
 def clear_cache(source: str | None = None) -> int:
-    """Clear the offline cache.
-
-    Args:
-        source: Optional source to clear (e.g., "pubmed"). If None, clears all.
-
-    Returns:
-        Number of entries cleared.
-    """
     from fusion_science.database.mirror import get_shared_cache
 
     cache = get_shared_cache()

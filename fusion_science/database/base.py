@@ -1,12 +1,11 @@
-"""Base class for scientific database connectors.
-
-All database connectors follow a common interface with:
-- Async search/lookup methods
-- Response normalization into a unified schema
-- Domestic mirror fallback support
-- Request retry & rate limiting
-- Offline mode support (skip network when FUSION_OFFLINE_MODE=true)
-"""
+# Base class for scientific database connectors.
+#
+# All database connectors follow a common interface with:
+# - Async search/lookup methods
+# - Response normalization into a unified schema
+# - Domestic mirror fallback support
+# - Request retry & rate limiting
+# - Offline mode support (skip network when FUSION_OFFLINE_MODE=true)
 
 from __future__ import annotations
 
@@ -33,10 +32,9 @@ _MAX_CACHE_BYTES = 64 * 1024 * 1024
 _MAX_REDIRECTS = 3
 
 
+# Normalized result from any scientific database query.
 @dataclass
 class DatabaseResult:
-    """Normalized result from any scientific database query."""
-
     source: str  # e.g., "pubmed", "uniprot", "pdb"
     query: str
     items: list[dict] = field(default_factory=list)
@@ -44,10 +42,9 @@ class DatabaseResult:
     error: str = ""
 
 
+# Configuration for a database connector.
 @dataclass
 class ConnectorConfig:
-    """Configuration for a database connector."""
-
     base_url: str = ""
     mirror_url: str = ""  # Domestic mirror URL for China
     use_mirror: bool = False
@@ -59,9 +56,8 @@ class ConnectorConfig:
     cache_ttl: int = 3600  # Cache TTL in seconds
 
 
+# Abstract base class for all scientific database connectors.
 class BaseConnector(ABC):
-    """Abstract base class for all scientific database connectors."""
-
     def __init__(self, config: ConnectorConfig | None = None):
         self.config = config or ConnectorConfig()
         self._client: httpx.AsyncClient | None = None
@@ -77,12 +73,12 @@ class BaseConnector(ABC):
         self._cache_bytes: int = 0
         self._cache_lock = threading.Lock()
 
+    # Get or create the HTTP client.
+    #
+    # Raises RuntimeError if offline_mode is enabled.
+    #
     @property
     def client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client.
-
-        Raises RuntimeError if offline_mode is enabled.
-        """
         if self.config.offline_mode:
             raise RuntimeError(
                 f"离线模式已启用: {self.__class__.__name__} 无法发起网络请求。"
@@ -98,30 +94,28 @@ class BaseConnector(ABC):
             )
         return self._client
 
+    # Close the HTTP client and release resources.
     async def close(self) -> None:
-        """Close the HTTP client and release resources."""
         if self._client:
             await self._client.aclose()
             self._client = None
         self.clear_cache()
 
+    # Search the database with a query string.
     @abstractmethod
-    async def search(self, query: str, **kwargs) -> DatabaseResult:
-        """Search the database with a query string."""
-        ...
+    async def search(self, query: str, **kwargs) -> DatabaseResult: ...
 
+    # Fetch a record by its identifier (accession, PMID, PDB ID, etc.).
     @abstractmethod
-    async def fetch(self, identifier: str, **kwargs) -> DatabaseResult:
-        """Fetch a record by its identifier (accession, PMID, PDB ID, etc.)."""
-        ...
+    async def fetch(self, identifier: str, **kwargs) -> DatabaseResult: ...
 
+    # Apply rate limiting between requests.
+    #
+    # The wait happens OUTSIDE the lock: holding the lock across sleep would
+    # serialize every request behind the slowest wait, turning a per-request
+    # spacing into a global queue. We only guard the timestamp read/advance.
+    #
     async def _rate_limit(self) -> None:
-        """Apply rate limiting between requests.
-
-        The wait happens OUTSIDE the lock: holding the lock across sleep would
-        serialize every request behind the slowest wait, turning a per-request
-        spacing into a global queue. We only guard the timestamp read/advance.
-        """
         async with self._rate_lock:
             now = time.time()
             elapsed = now - self._last_request_time
@@ -130,6 +124,24 @@ class BaseConnector(ABC):
         if wait > 0:
             await asyncio.sleep(wait)
 
+    # Make an HTTP request with retry logic.
+    #
+    # Args:
+    # method: HTTP method (GET, POST, etc.).
+    # url: Request URL (relative to base_url).
+    # client_override: Use a specific client instead of self.client. Needed
+    # when a connector hits a second base URL (e.g. PDB's search API
+    # at search.rcsb.org vs data.rcsb.org). Offline-mode guard still
+    # applies — passing a client does NOT bypass it.
+    # **kwargs: Additional request parameters.
+    #
+    # Returns:
+    # httpx.Response on success.
+    #
+    # Raises:
+    # RuntimeError: If offline_mode is enabled.
+    # httpx.HTTPError: After all retries are exhausted.
+    #
     async def _request_with_retry(
         self,
         method: str,
@@ -138,24 +150,6 @@ class BaseConnector(ABC):
         client_override: httpx.AsyncClient | None = None,
         **kwargs,
     ) -> httpx.Response:
-        """Make an HTTP request with retry logic.
-
-        Args:
-            method: HTTP method (GET, POST, etc.).
-            url: Request URL (relative to base_url).
-            client_override: Use a specific client instead of self.client. Needed
-                when a connector hits a second base URL (e.g. PDB's search API
-                at search.rcsb.org vs data.rcsb.org). Offline-mode guard still
-                applies — passing a client does NOT bypass it.
-            **kwargs: Additional request parameters.
-
-        Returns:
-            httpx.Response on success.
-
-        Raises:
-            RuntimeError: If offline_mode is enabled.
-            httpx.HTTPError: After all retries are exhausted.
-        """
         # Fail fast in offline mode — applies even with client_override so a
         # connector cannot bypass the offline guard by using its own client.
         if self.config.offline_mode:
@@ -199,9 +193,9 @@ class BaseConnector(ABC):
 
         raise last_error or httpx.HTTPError("Request failed after retries")
 
+    # Hash long cache keys to bound memory (collisions acceptable for a cache).
     @staticmethod
     def _cache_key(key: str) -> str:
-        """Hash long cache keys to bound memory (collisions acceptable for a cache)."""
         if len(key) <= 64:
             return key
         return hashlib.sha1(key.encode("utf-8")).hexdigest()
@@ -218,8 +212,8 @@ class BaseConnector(ABC):
         except (TypeError, ValueError):
             return 0
 
+    # Check if a cached result exists and is still valid (LRU-aware).
     def _check_cache(self, key: str) -> Any | None:
-        """Check if a cached result exists and is still valid (LRU-aware)."""
         if not self.config.cache_enabled:
             return None
         ckey = self._cache_key(key)
@@ -238,8 +232,8 @@ class BaseConnector(ABC):
                 del self._cache[ckey]
             return None
 
+    # Cache a result with LRU eviction (entry + byte budget).
     def _set_cache(self, key: str, data: Any) -> None:
-        """Cache a result with LRU eviction (entry + byte budget)."""
         if not self.config.cache_enabled:
             return
         ckey = self._cache_key(key)
@@ -272,15 +266,15 @@ class BaseConnector(ABC):
             self._cache_bytes += size
             self._cache.move_to_end(ckey)  # Mark as most recently used
 
+    # Clear all cached results.
     def clear_cache(self) -> None:
-        """Clear all cached results."""
         with self._cache_lock:
             self._cache.clear()
             self._cache_bytes = 0
 
+    # Safely convert a value to text, handling None.
     @staticmethod
     def safe_text(value: Any) -> str:
-        """Safely convert a value to text, handling None."""
         if value is None:
             return ""
         return str(value).strip()
