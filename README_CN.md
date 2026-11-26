@@ -223,6 +223,7 @@ fusion-science/
 | v1.0.18 | 文档系统对账：将 fusion docs-system v1.1 接入（原 PR #42，曾被直接推到游离的 `main` 分支后关闭）经 PR #43 折入 `master`——Tier 0 文档（`docs/product-page.md`、`docs/get-started.md`）、Tier 1 文档（`docs/api-reference.md`、`docs/config-reference.md`、`docs/architecture.md`、`docs/troubleshooting.md`）、根 `CHANGELOG.md`（Keep-a-Changelog 格式）、范围内 markdown 的 12 键 frontmatter、加固的 `ci/validate_docs.py` + `.github/workflows/docs.yml` 校验门禁；删除游离 `main` 分支——恢复单一主干。 |
 | v1.0.19 | 发布后跟进：docs frontmatter `owner` 值加引号以兼容严格 YAML 解析器（PR #45）；按 fusion#2 CI 检查单加固 docs 工作流——并发取消、pip 缓存、docs-only 路径过滤使纯 markdown 变更跳过重测试任务（PR #47）。 |
 | v1.0.20 | 无 docstring 规范落地（issues #49/#50）：基于 AST 的批量转换，`fusion_science/`、`tests/`、`scripts/`、`ci/` 共 316 处 docstring 改为 `#` 注释；通过 click `help=` 保留全部 12 个命令的 CLI `--help` 文本；AST 校验残留为 0。 |
+| v1.0.21 | 无 docstring 规范的 CI 门禁（PR #52）：`ci/check_docstrings.py` 用 AST 扫描所有 tracked `.py` 文件，发现 docstring 即在 lint 任务中以 file:line 报错退出。 |
 
 ## 企业安全 (v1.0.8)
 
